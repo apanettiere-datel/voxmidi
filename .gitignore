@@ -1,0 +1,19 @@
+node_modules/
+dist/
+.venv/
+__pycache__/
+*.pyc
+.env
+*.egg-info/
+/tmp/voxmidi/
+*.mid
+*.wav
+*.mp3
+
+# Catalyst is licensed - don't commit to public repos
+# frontend/src/components/catalyst/
+
+# Model weights
+*.pt
+*.bin
+*.safetensors

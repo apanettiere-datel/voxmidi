@@ -1,0 +1,29 @@
+version: "3.9"
+
+services:
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/nginx.prod.conf:/etc/nginx/nginx.conf:ro
+      - ./frontend/dist:/usr/share/nginx/html:ro
+    depends_on:
+      - backend
+    restart: always
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.prod
+    volumes:
+      - ./backend/data:/app/data
+      - ./backend/.env:/app/.env:ro
+      - upload_tmp:/tmp/voxmidi
+    environment:
+      - DEV_MODE=false
+      - PYTHONUNBUFFERED=1
+    restart: always
+
+volumes:
+  upload_tmp:

@@ -1,0 +1,29 @@
+# Local dev deps — no GPU required (no torch, demucs, yt-dlp)
+fastapi==0.115.0
+uvicorn[standard]==0.30.0
+python-multipart==0.0.9
+
+# Audio loading (handles webm/ogg/mp3 via system ffmpeg or macOS CoreAudio)
+librosa>=0.10.0
+soundfile>=0.12.1
+
+# Transcription — basic-pitch 0.4.0 supports ONNX Runtime as a TF-free backend.
+# Install basic-pitch WITHOUT deps (avoids tensorflow-macos pull), then add its
+# actual runtime needs manually below.
+# pip install basic-pitch==0.4.0 --no-deps   ← handled separately in setup script
+onnxruntime>=1.16.0
+mir-eval>=0.6
+resampy>=0.2.2
+
+# MIDI parsing & analysis
+pretty_midi>=0.2.10
+mido>=1.3.2
+
+# HTTP client (for vLLM calls — import only, not used locally)
+httpx>=0.27.0
+
+# Validation
+pydantic>=2.8.0
+
+# Environment variable loading
+python-dotenv>=1.0.0

@@ -1,0 +1,33 @@
+# Web framework
+fastapi==0.115.0
+uvicorn[standard]==0.30.0
+gunicorn==22.0.0
+python-multipart==0.0.9
+
+# Audio
+librosa>=0.10.0
+soundfile>=0.12.1
+
+# Transcription — ONNX Runtime (no TensorFlow needed)
+# Install basic-pitch WITHOUT deps: pip install basic-pitch==0.4.0 --no-deps
+onnxruntime>=1.16.0
+mir-eval>=0.6
+resampy>=0.4.3
+
+# MIDI
+pretty_midi>=0.2.10
+mido>=1.3.2
+
+# HTTP / Replicate / yt-dlp
+httpx>=0.27.0
+replicate>=0.34.0
+yt-dlp>=2024.1.0
+
+# Auth + DB
+pyjwt[crypto]>=2.8.0
+cryptography>=42.0.0
+sqlalchemy>=2.0.0
+
+# Utilities
+pydantic>=2.8.0
+python-dotenv>=1.0.0

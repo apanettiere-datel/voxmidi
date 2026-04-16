@@ -1,0 +1,59 @@
+import os
+from pathlib import Path
+from dotenv import load_dotenv
+load_dotenv(Path(__file__).parent.parent / '.env')
+
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
+from database import init_db
+from routers import transcribe, generate, source, transform, preview
+from routers import user as user_router
+
+UPLOAD_DIR = Path("/tmp/voxmidi")
+UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+
+app = FastAPI(
+    title="VoxMIDI API",
+    description="Voice & Audio Source → Editable MIDI",
+    version="0.2.0",
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+@app.on_event("startup")
+async def startup():
+    init_db()
+
+app.include_router(transcribe.router, prefix="/api")
+app.include_router(generate.router, prefix="/api")
+app.include_router(source.router, prefix="/api")
+app.include_router(transform.router, prefix="/api")
+app.include_router(preview.router, prefix="/api")
+app.include_router(user_router.router, prefix="/api")
+
+
+@app.get("/api/health")
+async def health():
+    return {"status": "ok", "version": "0.2.0", "dev_mode": os.environ.get("DEV_MODE", "false")}
+
+
+@app.get("/api/presets")
+async def presets():
+    return [
+        {"genre": "edm",           "tempo": 128, "key": "Am", "tracks": ["melody", "bass", "chords", "drums"]},
+        {"genre": "lo-fi-hip-hop", "tempo": 85,  "key": "Cm", "tracks": ["melody", "bass", "chords", "drums"]},
+        {"genre": "trap",          "tempo": 140, "key": "Fm", "tracks": ["melody", "bass", "drums"]},
+        {"genre": "house",         "tempo": 124, "key": "Gm", "tracks": ["melody", "bass", "chords", "drums"]},
+        {"genre": "drum-and-bass", "tempo": 174, "key": "Am", "tracks": ["melody", "bass", "drums"]},
+        {"genre": "synthwave",     "tempo": 108, "key": "Em", "tracks": ["melody", "bass", "chords", "drums"]},
+        {"genre": "pop",           "tempo": 120, "key": "C",  "tracks": ["melody", "bass", "chords", "drums"]},
+        {"genre": "jazz",          "tempo": 110, "key": "Dm", "tracks": ["melody", "bass", "chords", "drums"]},
+        {"genre": "ambient",       "tempo": 70,  "key": "D",  "tracks": ["melody", "chords"]},
+    ]
