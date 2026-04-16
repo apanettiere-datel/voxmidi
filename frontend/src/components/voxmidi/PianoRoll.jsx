@@ -31,6 +31,7 @@ export default function PianoRoll({
   width = 800,
   height = 400,
   mutedTracks = new Set(),
+  playheadSecs = 0,
 }) {
   const canvasRef = useRef(null)
   const containerRef = useRef(null)
@@ -166,6 +167,27 @@ export default function PianoRoll({
       })
     })
 
+    // Playhead
+    if (playheadSecs > 0) {
+      const px = keyWidth + playheadSecs * pixelsPerSecond - scrollX
+      if (px >= keyWidth && px <= canvasWidth) {
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.85)'
+        ctx.lineWidth = 1.5
+        ctx.beginPath()
+        ctx.moveTo(px, 0)
+        ctx.lineTo(px, height)
+        ctx.stroke()
+        // Small triangle at top
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.85)'
+        ctx.beginPath()
+        ctx.moveTo(px - 5, 0)
+        ctx.lineTo(px + 5, 0)
+        ctx.lineTo(px, 7)
+        ctx.closePath()
+        ctx.fill()
+      }
+    }
+
     // Key column background
     ctx.fillStyle = '#09090b'
     ctx.fillRect(0, 0, keyWidth, height)
@@ -207,7 +229,21 @@ export default function PianoRoll({
       ctx.textBaseline = 'middle'
       ctx.fillText(tooltipText, hoveredNote._x, hoveredNote._y - 13)
     }
-  }, [tracks, mutedTracks, scrollX, scrollY, canvasWidth, height, tempo, duration, hoveredNote, minPitch, maxPitch, pitchRange, noteHeight])
+  }, [tracks, mutedTracks, scrollX, scrollY, canvasWidth, height, tempo, duration, hoveredNote, minPitch, maxPitch, pitchRange, noteHeight, playheadSecs])
+
+  // Auto-scroll to keep playhead visible
+  useEffect(() => {
+    if (playheadSecs <= 0) return
+    const px = playheadSecs * pixelsPerSecond
+    const viewStart = scrollX
+    const viewEnd = scrollX + canvasWidth - keyWidth
+    const margin = 80
+    if (px > viewEnd - margin) {
+      setScrollX(px - (canvasWidth - keyWidth) / 2)
+    } else if (px < viewStart + margin && scrollX > 0) {
+      setScrollX(Math.max(0, px - margin))
+    }
+  }, [playheadSecs])
 
   // Mouse hover for note tooltips
   const handleMouseMove = useCallback((e) => {
