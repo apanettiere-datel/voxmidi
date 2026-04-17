@@ -3,8 +3,9 @@ import { MusicalNoteIcon, MicrophoneIcon, FolderIcon, LinkIcon, Cog6ToothIcon } 
 import { SidebarLayout } from '@/components/catalyst/sidebar-layout'
 import { Sidebar, SidebarBody, SidebarFooter, SidebarHeader, SidebarItem, SidebarLabel, SidebarSection } from '@/components/catalyst/sidebar'
 import { Navbar, NavbarSpacer } from '@/components/catalyst/navbar'
-import { SignedIn, SignedOut, RedirectToSignIn, UserButton, useUser } from '@clerk/clerk-react'
-import { useState, useEffect } from 'react'
+import { SignedIn, SignedOut, RedirectToSignIn, UserButton, useUser, useClerk } from '@clerk/clerk-react'
+import { useState, useEffect, useCallback } from 'react'
+import { useNavigate } from 'react-router-dom'
 
 import CreatePage from '@/pages/CreatePage'
 import LibraryPage from '@/pages/LibraryPage'
@@ -43,20 +44,37 @@ function UsageBadge() {
   )
 }
 
-// Only safe to call useUser() when ClerkProvider is in tree
+// Only safe to call useUser()/useClerk() when ClerkProvider is in tree
 function ClerkSidebarFooter() {
   const { user } = useUser()
+  const { signOut } = useClerk()
+  const navigate = useNavigate()
+
+  const handleSignOut = useCallback(async () => {
+    await signOut()
+    navigate('/sign-in')
+  }, [signOut, navigate])
+
   if (!user) return null
+
+  const displayName = user.firstName || user.emailAddresses?.[0]?.emailAddress || 'Account'
+
   return (
     <SidebarFooter>
       <SidebarSection>
-        <div className="flex items-center gap-3 px-2 py-2">
+        <div className="flex items-center gap-2 px-2 py-2">
           <UserButton afterSignOutUrl="/sign-in" />
-          <span className="text-sm text-zinc-700 dark:text-zinc-300 truncate flex-1">
-            {user.firstName || user.emailAddresses?.[0]?.emailAddress || 'Account'}
+          <span className="text-sm text-zinc-700 dark:text-zinc-300 truncate flex-1 min-w-0">
+            {displayName}
           </span>
           <UsageBadge />
         </div>
+        <button
+          onClick={handleSignOut}
+          className="w-full mt-1 rounded-lg px-3 py-1.5 text-xs font-medium text-zinc-500 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 hover:text-red-600 dark:hover:text-red-400 transition text-left"
+        >
+          Sign out
+        </button>
       </SidebarSection>
     </SidebarFooter>
   )

@@ -23,6 +23,7 @@ MIDI_STORE = Path("/app/data/midi")
 @router.post("/generate")
 async def generate(
     audio: Optional[UploadFile] = File(None),
+    piano_melody: Optional[UploadFile] = File(None),
     source_url: Optional[str] = Form(None),
     prompt: str = Form(""),
     genre: str = Form("pop"),
@@ -30,6 +31,7 @@ async def generate(
     key: str = Form("Am"),
     mode: str = Form("text"),
     lyrics: str = Form(""),
+    chord_progression: str = Form(""),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -49,13 +51,17 @@ async def generate(
         audio_content = await audio.read()
         audio_suffix = Path(audio.filename or "input.webm").suffix or ".webm"
 
+    piano_melody_content: Optional[bytes] = None
+    if piano_melody:
+        piano_melody_content = await piano_melody.read()
+
     # Increment usage eagerly so concurrent requests don't exceed limits
     current_user.usage_count += 1
     db.commit()
 
     set_job(job_id, {"status": "processing", "progress": 0})
 
-    args = (job_id, audio_content, audio_suffix, source_url, prompt, genre, tempo, key, mode, lyrics, current_user.id)
+    args = (job_id, audio_content, audio_suffix, piano_melody_content, source_url, prompt, genre, tempo, key, mode, lyrics, chord_progression, current_user.id)
     started = try_start(job_id, _run_generate, args)
 
     if not started:
@@ -74,6 +80,7 @@ def _run_generate(
     job_id: str,
     audio_content: Optional[bytes],
     audio_suffix: str,
+    piano_melody_content: Optional[bytes],
     source_url: Optional[str],
     prompt: str,
     genre: str,
@@ -81,6 +88,7 @@ def _run_generate(
     key: str,
     mode: str,
     lyrics: str,
+    chord_progression: str,
     user_id: str,
 ) -> None:
     db = SessionLocal()
@@ -95,6 +103,20 @@ def _run_generate(
             saved = job_dir / f"input{audio_suffix}"
             saved.write_bytes(audio_content)
             raw_audio_path = str(saved)
+
+        piano_melody_path: Optional[str] = None
+        if piano_melody_content:
+            piano_saved = job_dir / "piano_melody.wav"
+            piano_saved.write_bytes(piano_melody_content)
+            piano_melody_path = str(piano_saved)
+
+        import json as _json
+        chord_list: list = []
+        if chord_progression.strip():
+            try:
+                chord_list = _json.loads(chord_progression)
+            except Exception:
+                pass
 
         full_prompt = _build_prompt(genre, tempo, key, prompt)
 
@@ -124,6 +146,8 @@ def _run_generate(
                 key=key,
                 lyrics=lyrics,
                 audio_path=raw_audio_path,
+                chord_progression=chord_list if chord_list else None,
+                piano_melody_path=piano_melody_path,
             )
         except Exception as e:
             err_str = str(e).lower()

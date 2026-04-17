@@ -4,6 +4,7 @@ import { startGenerateMidi, startExtractSource, getJobStatus, saveToLibrary } fr
 import { useAuthFetch } from '@/lib/authFetch'
 import AudioRecorder from '@/components/voxmidi/AudioRecorder'
 import ResultPanel from '@/components/voxmidi/ResultPanel'
+import PianoPanel from '@/components/voxmidi/PianoPanel'
 
 const HISTORY_KEY = 'voxmidi_prompt_history'
 function getPromptHistory() {
@@ -191,7 +192,12 @@ export default function CreatePage() {
   const [showRecorder, setShowRecorder] = useState(false)
   const [showSource, setShowSource] = useState(false)
   const [showLyrics, setShowLyrics] = useState(false)
+  const [showPiano, setShowPiano] = useState(false)
   const [showAdvanced, setShowAdvanced] = useState(false)
+
+  // Piano / chord state
+  const [chordProgression, setChordProgression] = useState([])
+  const [melodyBlob, setMelodyBlob] = useState(null)
 
   // Advanced settings (auto-filled from prompt, user-editable)
   const [genre, setGenre] = useState('pop')
@@ -341,6 +347,12 @@ export default function CreatePage() {
         if (showLyrics && lyrics.trim()) {
           formData.append('lyrics', lyrics)
         }
+        if (chordProgression.length > 0) {
+          formData.append('chord_progression', JSON.stringify(chordProgression))
+        }
+        if (melodyBlob) {
+          formData.append('piano_melody', melodyBlob, 'piano_melody.wav')
+        }
         jobData = await startGenerateMidi(formData, authFetch)
       }
 
@@ -422,6 +434,12 @@ export default function CreatePage() {
           onClick={() => setShowLyrics((v) => !v)}
           icon="✍️"
           label={lyrics ? 'Lyrics added ✓' : 'Add Lyrics'}
+        />
+        <ActionButton
+          active={showPiano}
+          onClick={() => setShowPiano((v) => !v)}
+          icon="🎹"
+          label={chordProgression.length > 0 ? `Chords: ${chordProgression.join(' → ')}` : melodyBlob ? 'Melody recorded ✓' : 'Piano / Chords'}
         />
       </div>
 
@@ -527,6 +545,14 @@ export default function CreatePage() {
             className="w-full rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-3 py-2 text-sm font-mono text-zinc-900 dark:text-white placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none"
           />
         </div>
+      )}
+
+      {/* Piano / chords panel */}
+      {showPiano && (
+        <PianoPanel
+          onChordProgressionChange={setChordProgression}
+          onMelodyBlobChange={setMelodyBlob}
+        />
       )}
 
       {/* Advanced settings */}

@@ -281,6 +281,8 @@ def generate_from_prompt(
     key: str = 'Am',
     lyrics: str = '',
     audio_path: Optional[str] = None,
+    chord_progression: Optional[list] = None,
+    piano_melody_path: Optional[str] = None,
     **kwargs,
 ) -> Tuple[str, Optional[str], Dict[str, str]]:
     """Generate MIDI + stems from prompt/audio/lyrics.
@@ -294,8 +296,11 @@ def generate_from_prompt(
 
     use_api = provider == 'api' or (provider == 'auto' and (has_replicate or has_minimax))
 
+    # Use piano melody as audio input if no other audio provided
+    effective_audio_path = audio_path or piano_melody_path
+
     if not use_api or provider == 'mock':
-        pm = mock_generate(genre=genre, tempo=tempo, key=key)
+        pm = mock_generate(genre=genre, tempo=tempo, key=key, chord_progression=chord_progression)
         Path(output_path).parent.mkdir(parents=True, exist_ok=True)
         pm.write(output_path)
         return output_path, None, {}
@@ -308,19 +313,53 @@ def generate_from_prompt(
     else:
         print("[midi_generator] Routing to MusicGen")
         return _generate_via_musicgen(
-            prompt, output_path, genre=genre, tempo=tempo, key=key, audio_path=audio_path
+            prompt, output_path, genre=genre, tempo=tempo, key=key,
+            audio_path=effective_audio_path,
         )
 
 
 # ─── Mock generator (genre-aware, clean MIDI) ────────────────────────────────
 
-def mock_generate(genre: str, tempo: int, key: str, num_bars: int = 32) -> pretty_midi.PrettyMIDI:
+CHORD_NAME_TO_SEMITONES = {
+    'C': 0, 'C#': 1, 'Db': 1, 'D': 2, 'D#': 3, 'Eb': 3,
+    'E': 4, 'F': 5, 'F#': 6, 'Gb': 6, 'G': 7, 'G#': 8,
+    'Ab': 8, 'A': 9, 'A#': 10, 'Bb': 10, 'B': 11,
+}
+
+
+def _parse_chord_name(name: str) -> int:
+    """Convert chord name like 'Am', 'C#m', 'Gmaj7' → MIDI root pitch (48-71)."""
+    import re
+    m = re.match(r'^([A-G][b#]?)(m|maj|min|dim|aug|sus|add|\d)*', name)
+    if not m:
+        return 60
+    root_str = m.group(1)
+    semis = CHORD_NAME_TO_SEMITONES.get(root_str, 0)
+    return 48 + semis  # C3 = 48
+
+
+def mock_generate(
+    genre: str,
+    tempo: int,
+    key: str,
+    num_bars: int = 32,
+    chord_progression: Optional[list] = None,
+) -> pretty_midi.PrettyMIDI:
     g = genre.lower().replace(' ', '-').replace('_', '-')
     minor = _is_minor(key)
     root = KEY_ROOTS.get(key, 69)
     beat = 60.0 / tempo
     bar = beat * 4
-    progression = _chord_roots(root, minor)
+
+    if chord_progression and len(chord_progression) > 0:
+        raw_roots = [_parse_chord_name(c) for c in chord_progression]
+        # Tile to fill num_bars
+        progression = [raw_roots[i % len(raw_roots)] for i in range(num_bars)]
+        # Detect minor from chord names (if any end with 'm')
+        minor = any(c.endswith('m') and not c.endswith('maj') for c in chord_progression) or minor
+    else:
+        base_prog = _chord_roots(root, minor)
+        progression = [base_prog[i % 4] for i in range(num_bars)]
     pent = _pentatonic(root, minor)
     pm = pretty_midi.PrettyMIDI(initial_tempo=tempo, resolution=480)
 
@@ -389,7 +428,7 @@ def _edm_drums(pm, tempo, bar, beat, num_bars):
 def _edm_bass(pm, bar, beat, num_bars, progression, minor):
     inst = pretty_midi.Instrument(program=38, name='Bass')
     for b in range(8, num_bars):
-        chord_root = progression[b % 4] - 24
+        chord_root = progression[b % len(progression)] - 24
         while chord_root < 28: chord_root += 12
         t = b * bar
         for beat_i in range(4):
@@ -402,7 +441,7 @@ def _edm_bass(pm, bar, beat, num_bars, progression, minor):
 def _edm_chords(pm, bar, beat, num_bars, progression, minor):
     inst = pretty_midi.Instrument(program=89, name='Chords')
     for b in range(12, num_bars):
-        cr = progression[b % 4]
+        cr = progression[b % len(progression)]
         notes = [(n % 12) + 60 for n in _chord_notes(cr, minor)]
         t = b * bar
         arp = notes * 2
@@ -459,13 +498,13 @@ def _trap_drums(pm, tempo, bar, beat, num_bars):
 def _trap_bass(pm, bar, beat, num_bars, progression):
     inst = pretty_midi.Instrument(program=38, name='Bass')
     for b in range(num_bars):
-        root = progression[b % 4] - 24
+        root = progression[b % len(progression)] - 24
         while root < 24: root += 12
         t = b * bar
         inst.notes.append(pretty_midi.Note(95, root, t, t + bar * 0.9))
         if np.random.random() < 0.4:
             slide_t = t + bar * 0.5
-            root2 = progression[(b + 1) % 4] - 24
+            root2 = progression[(b + 1) % len(progression)] - 24
             while root2 < 24: root2 += 12
             inst.notes.append(pretty_midi.Note(85, root2, slide_t, t + bar * 0.95))
     pm.instruments.append(inst)
@@ -474,7 +513,7 @@ def _trap_bass(pm, bar, beat, num_bars, progression):
 def _trap_chords(pm, bar, beat, num_bars, progression, minor):
     inst = pretty_midi.Instrument(program=89, name='Chords')
     for b in range(num_bars):
-        cr = progression[b % 4]
+        cr = progression[b % len(progression)]
         notes = [(n % 12) + 60 for n in _chord_notes(cr, minor)]
         t = b * bar
         for p in notes:
@@ -522,7 +561,7 @@ def _lofi_drums(pm, tempo, bar, beat, num_bars):
 def _lofi_bass(pm, bar, beat, num_bars, progression):
     inst = pretty_midi.Instrument(program=33, name='Bass')
     for b in range(num_bars):
-        root = progression[b % 4] - 12
+        root = progression[b % len(progression)] - 12
         while root < 36: root += 12
         t = b * bar
         for beat_i in range(4):
@@ -535,7 +574,7 @@ def _lofi_bass(pm, bar, beat, num_bars, progression):
 def _lofi_chords(pm, bar, beat, num_bars, progression, minor):
     inst = pretty_midi.Instrument(program=4, name='Chords')
     for b in range(num_bars):
-        cr = progression[b % 4]
+        cr = progression[b % len(progression)]
         chord = [cr, cr+3, cr+7, cr+10] if minor else [cr, cr+4, cr+7, cr+11]
         chord = [(p % 12) + 60 for p in chord]
         t = b * bar
@@ -580,7 +619,7 @@ def _synthwave_drums(pm, tempo, bar, beat, num_bars):
 def _synthwave_bass(pm, bar, beat, num_bars, progression):
     inst = pretty_midi.Instrument(program=38, name='Bass')
     for b in range(num_bars):
-        root = progression[b % 4] - 12
+        root = progression[b % len(progression)] - 12
         while root < 36: root += 12
         t = b * bar
         for beat_i in range(4):
@@ -593,7 +632,7 @@ def _synthwave_chords(pm, bar, beat, num_bars, progression, minor):
     inst = pretty_midi.Instrument(program=89, name='Chords')
     for b in range(num_bars):
         if b % 2 == 0:
-            cr = progression[b % 4]
+            cr = progression[b % len(progression)]
             for p in [(n % 12) + 60 for n in _chord_notes(cr, minor)]:
                 inst.notes.append(pretty_midi.Note(65, p, b * bar, b * bar + bar * 2 - 0.05))
     pm.instruments.append(inst)
@@ -635,7 +674,7 @@ def _jazz_drums(pm, tempo, bar, beat, num_bars):
 def _jazz_bass(pm, bar, beat, num_bars, progression):
     inst = pretty_midi.Instrument(program=33, name='Bass')
     for b in range(num_bars):
-        root = progression[b % 4] - 12
+        root = progression[b % len(progression)] - 12
         while root < 36: root += 12
         t = b * bar
         for beat_i, pitch in enumerate([root, root+2, root+4, root+7]):
@@ -647,7 +686,7 @@ def _jazz_bass(pm, bar, beat, num_bars, progression):
 def _jazz_chords(pm, bar, beat, num_bars, progression, minor):
     inst = pretty_midi.Instrument(program=4, name='Chords')
     for b in range(num_bars):
-        cr = progression[b % 4]
+        cr = progression[b % len(progression)]
         chord = [cr, cr+3, cr+7, cr+10, cr+14] if minor else [cr, cr+4, cr+7, cr+11, cr+14]
         chord = [(p % 12) + 60 for p in chord][:4]
         t = b * bar
@@ -679,7 +718,7 @@ def _jazz_melody(pm, bar, beat, num_bars, root, minor):
 def _ambient_pads(pm, bar, beat, num_bars, progression, minor):
     inst = pretty_midi.Instrument(program=89, name='Chords')
     for b in range(0, num_bars, 4):
-        cr = progression[(b // 4) % 4]
+        cr = progression[b % len(progression)]
         chord = [cr-12, cr, cr+7, cr+12, cr+19] if minor else [cr-12, cr, cr+7, cr+11, cr+19]
         chord = [(p % 12) + 48 for p in chord]
         t = b * bar
@@ -721,7 +760,7 @@ def _generic_drums(pm, tempo, bar, beat, num_bars):
 def _generic_bass(pm, bar, beat, num_bars, progression):
     inst = pretty_midi.Instrument(program=33, name='Bass')
     for b in range(num_bars):
-        root = progression[b % 4] - 12
+        root = progression[b % len(progression)] - 12
         while root < 36: root += 12
         t = b * bar
         for beat_i in range(4):
@@ -734,7 +773,7 @@ def _generic_chords(pm, bar, beat, num_bars, progression, minor):
     inst = pretty_midi.Instrument(program=0, name='Chords')
     for b in range(num_bars):
         if b % 2 == 0:
-            cr = progression[b % 4]
+            cr = progression[b % len(progression)]
             notes = [(n % 12) + 60 for n in _chord_notes(cr, minor)]
             t = b * bar
             for p in notes:
