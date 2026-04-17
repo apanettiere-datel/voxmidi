@@ -15,7 +15,6 @@ export default function SharePage() {
         return r.json()
       })
       .then((data) => {
-        // Normalise into the shape ResultPanel expects
         setResult({
           job_id: data.id,
           midi_url: data.midi_url,
@@ -27,9 +26,10 @@ export default function SharePage() {
           key: data.key,
           genre: data.genre,
           prompt: data.prompt,
-          provider: data.mode === 'mock' ? 'mock' : undefined,
+          provider: data.provider,
           duration: data.duration,
           time_signature: data.time_signature,
+          replicate_cost: data.replicate_cost,
         })
       })
       .catch((e) => setError(e.message))
@@ -77,7 +77,8 @@ export default function SharePage() {
             <div>
               <h1 className="text-xl font-bold text-zinc-900 dark:text-white">Shared Generation</h1>
               <p className="text-sm text-zinc-500 dark:text-zinc-400 mt-1">
-                Created with VoxMIDI · {result.genre} · {result.tempo} BPM · {result.key}
+                {result.genre} · {result.tempo} BPM · {result.key}
+                {result.prompt && <span className="ml-1 italic">· "{result.prompt}"</span>}
               </p>
             </div>
             <ResultPanel result={result} />

@@ -1,4 +1,5 @@
 import { useState, useRef } from 'react'
+import { useNavigate } from 'react-router-dom'
 import PianoRoll from './PianoRoll'
 import MidiPlayer from './MidiPlayer'
 import TrackMixer from './TrackMixer'
@@ -17,7 +18,6 @@ const COLOR_CLASSES = {
   green:  'bg-emerald-50 dark:bg-emerald-950/20 border-emerald-200 dark:border-emerald-800',
 }
 
-// Simple audio player with play/pause, scrubber, volume, time
 function AudioPlayer({ src, label, compact = false }) {
   const audioRef = useRef(null)
   const [playing, setPlaying] = useState(false)
@@ -31,7 +31,7 @@ function AudioPlayer({ src, label, compact = false }) {
     const el = audioRef.current
     if (!el) return
     if (playing) { el.pause(); setPlaying(false) }
-    else { el.play(); setPlaying(true) }
+    else { el.play().catch(() => {}); setPlaying(true) }
   }
 
   function fmt(s) {
@@ -56,11 +56,7 @@ function AudioPlayer({ src, label, compact = false }) {
           {playing ? '⏸' : '▶'}
         </button>
         <input
-          type="range"
-          min={0}
-          max={duration || 1}
-          step={0.1}
-          value={progress}
+          type="range" min={0} max={duration || 1} step={0.1} value={progress}
           onChange={(e) => {
             const t = Number(e.target.value)
             if (audioRef.current) audioRef.current.currentTime = t
@@ -94,11 +90,7 @@ function AudioPlayer({ src, label, compact = false }) {
         </button>
         <div className="flex-1 space-y-1">
           <input
-            type="range"
-            min={0}
-            max={duration || 1}
-            step={0.1}
-            value={progress}
+            type="range" min={0} max={duration || 1} step={0.1} value={progress}
             onChange={(e) => {
               const t = Number(e.target.value)
               if (audioRef.current) audioRef.current.currentTime = t
@@ -112,11 +104,7 @@ function AudioPlayer({ src, label, compact = false }) {
           </div>
         </div>
         <input
-          type="range"
-          min={0}
-          max={1}
-          step={0.05}
-          value={volume}
+          type="range" min={0} max={1} step={0.05} value={volume}
           onChange={(e) => {
             const v = Number(e.target.value)
             setVolume(v)
@@ -131,6 +119,7 @@ function AudioPlayer({ src, label, compact = false }) {
 }
 
 export default function ResultPanel({ result, onShare }) {
+  const navigate = useNavigate()
   const [mutedTracks, setMutedTracks] = useState(new Set())
   const [soloTrack, setSoloTrack] = useState(null)
   const [playheadSecs, setPlayheadSecs] = useState(0)
@@ -149,10 +138,11 @@ export default function ResultPanel({ result, onShare }) {
     return Math.max(max, trackMax)
   }, 10)
 
-  const isDemoMode = result.provider === 'mock' || (!result.provider && !result.audio_url)
+  // Only show "Demo Mode" when the backend explicitly used the mock provider
+  const isDemoMode = result.provider === 'mock'
 
   const stems = result.stems || {}
-  const hasAudioStems = Object.values(stems).some((url) => url?.endsWith('.mp3'))
+  const hasAudioStems = Object.values(stems).some((url) => typeof url === 'string' && url.endsWith('.mp3'))
 
   function handleClientDownload() {
     import('@/lib/api').then(({ downloadMidiClientSide }) => {
@@ -171,6 +161,18 @@ export default function ResultPanel({ result, onShare }) {
     }
   }
 
+  function handleRemix() {
+    sessionStorage.setItem('voxmidi_remix', JSON.stringify({
+      prompt: result.prompt || '',
+      genre: result.genre || 'pop',
+      tempo: result.tempo || 120,
+      key: result.key || 'Am',
+    }))
+    navigate('/')
+  }
+
+  const costTotal = result.replicate_cost || 0
+
   return (
     <div className="space-y-5">
       {/* Header */}
@@ -178,10 +180,10 @@ export default function ResultPanel({ result, onShare }) {
         <div>
           <div className="flex items-center gap-2 flex-wrap">
             <h2 className="text-lg font-semibold text-zinc-900 dark:text-white">Your Result</h2>
-            {!isDemoMode && result.provider === 'musicgen' && (
+            {result.provider === 'musicgen' && (
               <span className="inline-flex items-center rounded-full bg-indigo-100 dark:bg-indigo-900/30 px-2 py-0.5 text-xs font-medium text-indigo-700 dark:text-indigo-400">MusicGen</span>
             )}
-            {!isDemoMode && result.provider === 'minimax' && (
+            {result.provider === 'minimax' && (
               <span className="inline-flex items-center rounded-full bg-purple-100 dark:bg-purple-900/30 px-2 py-0.5 text-xs font-medium text-purple-700 dark:text-purple-400">MiniMax · Vocals</span>
             )}
             {isDemoMode && (
@@ -192,8 +194,19 @@ export default function ResultPanel({ result, onShare }) {
             {result.tracks?.length || 0} tracks · {result.tempo} BPM · {result.key || '?'} · {result.genre || ''}
             {result.prompt && <span className="ml-1 italic">· "{result.prompt}"</span>}
           </p>
+          {costTotal > 0 && (
+            <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-0.5">
+              Cost: ${costTotal.toFixed(3)}
+            </p>
+          )}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          <button
+            onClick={handleRemix}
+            className="flex items-center gap-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 px-3 py-1.5 text-sm text-zinc-600 dark:text-zinc-400 hover:border-indigo-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition"
+          >
+            🔀 Remix
+          </button>
           <button
             onClick={handleShare}
             className="flex items-center gap-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 px-3 py-1.5 text-sm text-zinc-600 dark:text-zinc-400 hover:border-indigo-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition"
@@ -206,7 +219,7 @@ export default function ResultPanel({ result, onShare }) {
         </div>
       </div>
 
-      {/* Demo mode notice */}
+      {/* Demo mode notice — only shown for actual mock generations */}
       {isDemoMode && (
         <div className="rounded-lg bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 px-4 py-3">
           <p className="text-xs text-amber-700 dark:text-amber-400">
@@ -218,21 +231,21 @@ export default function ResultPanel({ result, onShare }) {
         </div>
       )}
 
-      {/* 1. Full mix audio player */}
+      {/* Full mix audio player */}
       {result.audio_url ? (
-        <AudioPlayer src={result.audio_url} label="🎵 Full Mix — AI Generated Audio" />
-      ) : (
-        <div className="rounded-xl border border-dashed border-zinc-200 dark:border-zinc-700 p-4 text-center text-sm text-zinc-400 dark:text-zinc-500">
+        <AudioPlayer src={result.audio_url} label="🎵 Full Mix" />
+      ) : isDemoMode ? (
+        <div className="rounded-xl border border-dashed border-zinc-200 dark:border-zinc-700 p-4 text-center text-sm text-zinc-400">
           Audio preview not available in demo mode
         </div>
-      )}
+      ) : null}
 
-      {/* Vocals player (MiniMax) */}
+      {/* Vocal track (MiniMax) */}
       {result.vocal_audio_url && (
         <AudioPlayer src={result.vocal_audio_url} label="🎤 Vocal Track" />
       )}
 
-      {/* 2. Stems section */}
+      {/* Stems section */}
       {hasAudioStems && (
         <div className="space-y-3">
           <div className="flex items-center justify-between">
@@ -242,12 +255,12 @@ export default function ResultPanel({ result, onShare }) {
               download
               className="flex items-center gap-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-white px-3 py-1.5 text-xs font-medium transition"
             >
-              📦 Download All Stems (.zip)
+              📦 Download All (.zip)
             </a>
           </div>
           <div className="space-y-2">
             {Object.entries(stems).map(([stem, url]) => {
-              if (!url) return null
+              if (!url || typeof url !== 'string') return null
               const meta = STEM_META[stem] || { icon: '🎵', label: stem, color: 'green' }
               return (
                 <div
@@ -263,6 +276,7 @@ export default function ResultPanel({ result, onShare }) {
                     href={url}
                     download={`${stem}.mp3`}
                     className="flex-shrink-0 text-xs text-zinc-500 dark:text-zinc-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition"
+                    title={`Download ${meta.label}`}
                   >
                     ↓
                   </a>
@@ -273,25 +287,23 @@ export default function ResultPanel({ result, onShare }) {
         </div>
       )}
 
-      {/* 3. Download buttons */}
+      {/* Download buttons */}
       <div className="flex flex-wrap gap-3">
         {result.midi_url ? (
           <a
             href={result.midi_url}
             download="voxmidi-output.mid"
-            className="flex items-center gap-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2.5 text-sm font-semibold transition-colors shadow-sm"
+            className="flex items-center gap-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2.5 text-sm font-semibold transition shadow-sm"
           >
-            <span>🎹</span>
-            <span>Download MIDI</span>
+            🎹 <span>Download MIDI</span>
             <span className="text-indigo-200 text-xs font-normal">.mid</span>
           </a>
         ) : (
           <button
             onClick={handleClientDownload}
-            className="flex items-center gap-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2.5 text-sm font-semibold transition-colors shadow-sm"
+            className="flex items-center gap-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2.5 text-sm font-semibold transition shadow-sm"
           >
-            <span>🎹</span>
-            <span>Download MIDI</span>
+            🎹 <span>Download MIDI</span>
             <span className="text-indigo-200 text-xs font-normal">.mid</span>
           </button>
         )}
@@ -300,11 +312,21 @@ export default function ResultPanel({ result, onShare }) {
           <a
             href={result.audio_url}
             download="voxmidi-output.mp3"
-            className="flex items-center gap-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 text-sm font-semibold transition-colors shadow-sm"
+            className="flex items-center gap-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 text-sm font-semibold transition shadow-sm"
           >
-            <span>🎵</span>
-            <span>Download Audio</span>
+            🎵 <span>Download Audio</span>
             <span className="text-emerald-200 text-xs font-normal">.mp3</span>
+          </a>
+        )}
+
+        {hasAudioStems && (
+          <a
+            href={`/api/download/${result.job_id}/stems.zip`}
+            download
+            className="flex items-center gap-2 rounded-xl bg-zinc-700 hover:bg-zinc-600 text-white px-4 py-2.5 text-sm font-semibold transition shadow-sm"
+          >
+            📦 <span>All Stems</span>
+            <span className="text-zinc-300 text-xs font-normal">.zip</span>
           </a>
         )}
 
@@ -312,10 +334,9 @@ export default function ResultPanel({ result, onShare }) {
           <a
             href={result.vocal_audio_url}
             download="voxmidi-vocals.mp3"
-            className="flex items-center gap-2 rounded-xl bg-purple-600 hover:bg-purple-700 text-white px-4 py-2.5 text-sm font-semibold transition-colors shadow-sm"
+            className="flex items-center gap-2 rounded-xl bg-purple-600 hover:bg-purple-700 text-white px-4 py-2.5 text-sm font-semibold transition shadow-sm"
           >
-            <span>🎤</span>
-            <span>Download Vocals</span>
+            🎤 <span>Vocals</span>
             <span className="text-purple-200 text-xs font-normal">.mp3</span>
           </a>
         )}
@@ -323,17 +344,17 @@ export default function ResultPanel({ result, onShare }) {
 
       {result.midi_url && (
         <p className="text-xs text-zinc-400 dark:text-zinc-500 pl-1">
-          🎹 Edit in GarageBand, Ableton, FL Studio, Logic · 🎵 Listen or share · 🎤 Layer in DAW
+          🎹 Edit in GarageBand, Ableton, FL Studio, Logic · 🎵 Listen or share
         </p>
       )}
 
-      {/* 4. MIDI section (secondary) */}
+      {/* MIDI section */}
       <div className="border-t border-zinc-100 dark:border-zinc-800 pt-5 space-y-4">
         <div className="flex items-center justify-between">
           <div>
             <h3 className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">🎹 Editable MIDI</h3>
             <p className="text-xs text-zinc-400 dark:text-zinc-500">
-              Clean arrangement in {result.key} at {result.tempo} BPM — edit in any DAW
+              {result.key} · {result.tempo} BPM · edit in any DAW
             </p>
           </div>
           <button

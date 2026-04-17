@@ -1,19 +1,49 @@
 import { useState, useEffect } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { useAuthFetch } from '@/lib/authFetch'
 import { Heading } from '@/components/catalyst/heading'
 import { Text } from '@/components/catalyst/text'
 
-const MODES = { text: 'Text', voice: 'Voice', source: 'Source', transform: 'Transform', transcribe: 'Transcribe' }
+const MODE_LABELS = {
+  text: 'Text prompt',
+  voice: 'Voice recording',
+  source: 'Audio source',
+  transform: 'Transform',
+  transcribe: 'Transcribe',
+  piano: 'Piano input',
+}
+
+function modeLabel(entry) {
+  if (entry.mode === 'source') {
+    if (!entry.prompt || entry.prompt === 'file_upload') return 'Uploaded audio'
+    if (entry.prompt.startsWith('http')) return 'YouTube / URL'
+    return entry.prompt
+  }
+  return MODE_LABELS[entry.mode] || entry.mode
+}
+
+function AudioMiniPlayer({ src }) {
+  if (!src) return null
+  return (
+    <audio
+      controls
+      src={src}
+      className="w-full h-9 rounded-lg mt-2"
+      style={{ minWidth: 0 }}
+    />
+  )
+}
 
 export default function LibraryPage() {
   const authFetch = useAuthFetch()
+  const navigate = useNavigate()
   const [entries, setEntries] = useState([])
   const [expanded, setExpanded] = useState(null)
   const [deleting, setDeleting] = useState(null)
   const [confirmDelete, setConfirmDelete] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  const [filter, setFilter] = useState('all') // 'all' | 'favorites'
 
   useEffect(() => {
     setLoading(true)
@@ -31,12 +61,20 @@ export default function LibraryPage() {
         setEntries((prev) => prev.filter((e) => e.id !== id))
         if (expanded === id) setExpanded(null)
       }
-    } catch {
-      /* ignore */
-    } finally {
-      setDeleting(null)
-      setConfirmDelete(null)
-    }
+    } catch { /* ignore */ }
+    finally { setDeleting(null); setConfirmDelete(null) }
+  }
+
+  async function handleToggleFavorite(id) {
+    try {
+      const res = await authFetch(`/api/library/${id}/favorite`, { method: 'POST' })
+      if (res.ok) {
+        const data = await res.json()
+        setEntries((prev) =>
+          prev.map((e) => e.id === id ? { ...e, is_favorite: data.is_favorite } : e)
+        )
+      }
+    } catch { /* ignore */ }
   }
 
   async function handleShare(id) {
@@ -48,6 +86,25 @@ export default function LibraryPage() {
       prompt('Copy this share link:', url)
     }
   }
+
+  function handleRemix(entry) {
+    sessionStorage.setItem('voxmidi_remix', JSON.stringify({
+      prompt: entry.prompt || '',
+      genre: entry.genre || 'pop',
+      tempo: entry.tempo || 120,
+      key: entry.key || 'Am',
+    }))
+    navigate('/')
+  }
+
+  const displayed = filter === 'favorites'
+    ? entries.filter((e) => e.is_favorite)
+    : entries
+
+  // Sort favorites to top within "all" view
+  const sorted = filter === 'all'
+    ? [...displayed].sort((a, b) => (b.is_favorite ? 1 : 0) - (a.is_favorite ? 1 : 0))
+    : displayed
 
   if (loading) {
     return (
@@ -71,16 +128,44 @@ export default function LibraryPage() {
         </div>
       )}
 
-      {entries.length === 0 && !error ? (
+      {/* Filter tabs */}
+      {entries.length > 0 && (
+        <div className="flex gap-2">
+          <button
+            onClick={() => setFilter('all')}
+            className={`rounded-full px-3 py-1 text-sm font-medium transition ${
+              filter === 'all'
+                ? 'bg-indigo-600 text-white'
+                : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-700'
+            }`}
+          >
+            All ({entries.length})
+          </button>
+          <button
+            onClick={() => setFilter('favorites')}
+            className={`rounded-full px-3 py-1 text-sm font-medium transition ${
+              filter === 'favorites'
+                ? 'bg-amber-500 text-white'
+                : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-700'
+            }`}
+          >
+            ⭐ Favorites ({entries.filter((e) => e.is_favorite).length})
+          </button>
+        </div>
+      )}
+
+      {sorted.length === 0 && !error ? (
         <div className="rounded-xl border-2 border-dashed border-zinc-200 dark:border-zinc-800 p-16 text-center">
-          <p className="text-zinc-500 dark:text-zinc-400 text-sm">No generations yet.</p>
+          <p className="text-zinc-500 dark:text-zinc-400 text-sm">
+            {filter === 'favorites' ? 'No favorites yet. Star a generation to save it here.' : 'No generations yet.'}
+          </p>
           <Link to="/" className="mt-4 inline-block text-sm text-indigo-600 dark:text-indigo-400 hover:underline">
             Go to Create →
           </Link>
         </div>
       ) : (
         <div className="space-y-3">
-          {entries.map((entry) => (
+          {sorted.map((entry) => (
             <div
               key={entry.id}
               className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 overflow-hidden"
@@ -98,11 +183,11 @@ export default function LibraryPage() {
                     {entry.genre?.replace(/-/g, ' ') || '—'} · {entry.tempo} BPM · {entry.key}
                   </p>
                   <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
-                    {MODES[entry.mode] || entry.mode} · {entry.tracks_count} tracks ·{' '}
+                    {modeLabel(entry)} · {entry.tracks_count} tracks ·{' '}
                     {Math.round(entry.duration || 0)}s · {new Date(entry.date).toLocaleDateString()}
                     {entry.replicate_cost > 0 && ` · $${entry.replicate_cost.toFixed(3)}`}
                   </p>
-                  {entry.prompt && (
+                  {entry.prompt && entry.mode !== 'source' && (
                     <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-0.5 truncate max-w-sm italic">
                       "{entry.prompt}"
                     </p>
@@ -110,18 +195,41 @@ export default function LibraryPage() {
                 </div>
 
                 <div className="flex items-center gap-1.5 shrink-0 flex-wrap justify-end">
+                  {/* Favorite */}
+                  <button
+                    onClick={() => handleToggleFavorite(entry.id)}
+                    title={entry.is_favorite ? 'Remove from favorites' : 'Add to favorites'}
+                    className="rounded-lg px-2.5 py-1.5 text-sm transition hover:scale-110"
+                  >
+                    {entry.is_favorite ? '⭐' : '☆'}
+                  </button>
+
+                  {/* Expand */}
                   <button
                     onClick={() => setExpanded(expanded === entry.id ? null : entry.id)}
                     className="rounded-lg px-2.5 py-1.5 text-xs font-medium text-zinc-600 dark:text-zinc-400 border border-zinc-200 dark:border-zinc-700 hover:border-indigo-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition"
                   >
                     {expanded === entry.id ? 'Close' : 'View'}
                   </button>
+
+                  {/* Remix */}
+                  <button
+                    onClick={() => handleRemix(entry)}
+                    title="Remix — re-open with same settings"
+                    className="rounded-lg px-2.5 py-1.5 text-xs font-medium text-zinc-600 dark:text-zinc-400 border border-zinc-200 dark:border-zinc-700 hover:border-indigo-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition"
+                  >
+                    🔀
+                  </button>
+
+                  {/* Share */}
                   <button
                     onClick={() => handleShare(entry.id)}
                     className="rounded-lg px-2.5 py-1.5 text-xs font-medium text-zinc-600 dark:text-zinc-400 border border-zinc-200 dark:border-zinc-700 hover:border-indigo-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition"
                   >
                     🔗
                   </button>
+
+                  {/* MIDI download */}
                   {entry.midi_url && (
                     <a
                       href={entry.midi_url}
@@ -131,6 +239,8 @@ export default function LibraryPage() {
                       🎹 MIDI
                     </a>
                   )}
+
+                  {/* Audio download */}
                   {entry.audio_url && (
                     <a
                       href={entry.audio_url}
@@ -140,6 +250,8 @@ export default function LibraryPage() {
                       🎵 MP3
                     </a>
                   )}
+
+                  {/* Delete */}
                   {confirmDelete === entry.id ? (
                     <div className="flex items-center gap-1">
                       <span className="text-xs text-red-600 dark:text-red-400">Delete?</span>
@@ -168,9 +280,10 @@ export default function LibraryPage() {
                 </div>
               </div>
 
-              {/* Expanded view */}
+              {/* Expanded detail view */}
               {expanded === entry.id && (
-                <div className="border-t border-zinc-100 dark:border-zinc-800 p-4 bg-zinc-50 dark:bg-zinc-900/50 space-y-3">
+                <div className="border-t border-zinc-100 dark:border-zinc-800 p-4 bg-zinc-50 dark:bg-zinc-900/50 space-y-4">
+                  {/* Stats grid */}
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
                     <div><span className="text-zinc-400">Genre</span><br /><span className="font-medium text-zinc-700 dark:text-zinc-300 capitalize">{entry.genre?.replace(/-/g, ' ')}</span></div>
                     <div><span className="text-zinc-400">Tempo</span><br /><span className="font-medium text-zinc-700 dark:text-zinc-300">{entry.tempo} BPM</span></div>
@@ -178,41 +291,51 @@ export default function LibraryPage() {
                     <div><span className="text-zinc-400">Duration</span><br /><span className="font-medium text-zinc-700 dark:text-zinc-300">{Math.round(entry.duration || 0)}s</span></div>
                   </div>
 
-                  {/* Audio preview */}
+                  {/* Full mix player */}
                   {entry.audio_url && (
-                    <audio controls src={entry.audio_url} className="w-full h-10 rounded-lg" />
-                  )}
-
-                  {/* Stem links */}
-                  {entry.stems && Object.keys(entry.stems).length > 0 && (
-                    <div className="flex flex-wrap gap-2">
-                      {Object.entries(entry.stems).map(([stem, url]) => (
-                        <a
-                          key={stem}
-                          href={url}
-                          download={`${stem}.mp3`}
-                          className="rounded px-2 py-1 text-xs border border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:border-indigo-300 transition capitalize"
-                        >
-                          ↓ {stem}
-                        </a>
-                      ))}
-                      <a
-                        href={`/api/download/${entry.id}/stems.zip`}
-                        download
-                        className="rounded px-2 py-1 text-xs border border-zinc-800 dark:border-zinc-600 bg-zinc-800 dark:bg-zinc-700 text-white hover:bg-zinc-700 dark:hover:bg-zinc-600 transition"
-                      >
-                        📦 All stems .zip
-                      </a>
+                    <div>
+                      <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400 mb-1">🎵 Full Mix</p>
+                      <AudioMiniPlayer src={entry.audio_url} />
                     </div>
                   )}
 
-                  <div className="flex gap-3 text-sm">
-                    <Link
-                      to="/"
+                  {/* Stem players */}
+                  {entry.stems && Object.keys(entry.stems).length > 0 && (
+                    <div className="space-y-2">
+                      <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Stems</p>
+                      {Object.entries(entry.stems).map(([stem, url]) => (
+                        <div key={stem} className="flex items-center gap-2">
+                          <span className="text-xs text-zinc-500 w-14 capitalize">{stem}</span>
+                          <AudioMiniPlayer src={url} />
+                          <a
+                            href={url}
+                            download={`${stem}.mp3`}
+                            className="text-xs text-zinc-400 hover:text-indigo-500 transition"
+                          >↓</a>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Stems zip */}
+                  {entry.stems && Object.keys(entry.stems).length > 0 && (
+                    <a
+                      href={`/api/download/${entry.id}/stems.zip`}
+                      download
+                      className="inline-flex items-center gap-1.5 rounded px-3 py-1.5 text-xs border border-zinc-800 dark:border-zinc-600 bg-zinc-800 dark:bg-zinc-700 text-white hover:bg-zinc-700 dark:hover:bg-zinc-600 transition"
+                    >
+                      📦 All stems + README .zip
+                    </a>
+                  )}
+
+                  {/* Actions */}
+                  <div className="flex gap-3 text-sm flex-wrap">
+                    <button
+                      onClick={() => handleRemix(entry)}
                       className="text-indigo-600 dark:text-indigo-400 hover:underline text-xs"
                     >
-                      Re-generate similar →
-                    </Link>
+                      🔀 Remix →
+                    </button>
                     <a
                       href={`/share/${entry.id}`}
                       target="_blank"

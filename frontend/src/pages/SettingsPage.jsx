@@ -68,6 +68,12 @@ function UsageSection({ authFetch }) {
             <dt className="w-28 text-zinc-500 dark:text-zinc-400 shrink-0">Resets</dt>
             <dd className="text-zinc-900 dark:text-white">{usage.reset_date}</dd>
           </div>
+          {usage.total_spend > 0 && (
+            <div className="flex gap-4">
+              <dt className="w-28 text-zinc-500 dark:text-zinc-400 shrink-0">Total spent</dt>
+              <dd className="text-zinc-900 dark:text-white font-mono">${usage.total_spend.toFixed(4)}</dd>
+            </div>
+          )}
           <div className="mt-2">
             <div className="w-full bg-zinc-100 dark:bg-zinc-800 rounded-full h-2">
               <div

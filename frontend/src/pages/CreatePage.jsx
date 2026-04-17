@@ -176,6 +176,55 @@ function ProgressArea({ status, error }) {
   )
 }
 
+function ShortcutModal({ onClose }) {
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm px-4"
+      onClick={onClose}
+    >
+      <div
+        className="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-700 p-6 max-w-md w-full shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-base font-semibold text-zinc-900 dark:text-white">⌨️ Piano Keyboard Shortcuts</h3>
+          <button onClick={onClose} className="text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 text-xl leading-none">×</button>
+        </div>
+        <div className="space-y-4 text-sm text-zinc-700 dark:text-zinc-300">
+          <div>
+            <p className="font-medium text-zinc-500 dark:text-zinc-400 text-xs uppercase tracking-wide mb-1">White Keys (bottom row)</p>
+            <div className="font-mono text-xs bg-zinc-50 dark:bg-zinc-800 rounded-lg p-3 grid grid-cols-2 gap-1">
+              <span>A → C3</span><span>S → D3</span>
+              <span>D → E3</span><span>F → F3</span>
+              <span>G → G3</span><span>H → A3</span>
+              <span>J → B3</span><span>K → C4</span>
+              <span>L → D4</span><span>; → E4</span>
+            </div>
+          </div>
+          <div>
+            <p className="font-medium text-zinc-500 dark:text-zinc-400 text-xs uppercase tracking-wide mb-1">Black Keys (top row)</p>
+            <div className="font-mono text-xs bg-zinc-50 dark:bg-zinc-800 rounded-lg p-3 grid grid-cols-2 gap-1">
+              <span>W → C#3</span><span>E → D#3</span>
+              <span>T → F#3</span><span>Y → G#3</span>
+              <span>U → A#3</span><span>O → C#4</span>
+              <span>P → D#4</span>
+            </div>
+          </div>
+          <div>
+            <p className="font-medium text-zinc-500 dark:text-zinc-400 text-xs uppercase tracking-wide mb-1">Controls</p>
+            <div className="font-mono text-xs bg-zinc-50 dark:bg-zinc-800 rounded-lg p-3 space-y-1">
+              <div><span className="inline-block bg-zinc-200 dark:bg-zinc-700 rounded px-1">Space</span> → Play / Stop recording</div>
+              <div><span className="inline-block bg-zinc-200 dark:bg-zinc-700 rounded px-1">Backspace</span> → Delete last note</div>
+              <div><span className="inline-block bg-zinc-200 dark:bg-zinc-700 rounded px-1">Esc</span> → Re-focus piano</div>
+            </div>
+          </div>
+          <p className="text-xs text-zinc-400">Shortcuts only work when the piano panel is open and no text field is focused.</p>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export default function CreatePage() {
@@ -215,11 +264,14 @@ export default function CreatePage() {
   const [generatingLyrics, setGeneratingLyrics] = useState(false)
   const [promptHistory, setPromptHistory] = useState([])
   const [showHistory, setShowHistory] = useState(false)
+  const [tapPulse, setTapPulse] = useState(false)
+  const [showShortcuts, setShowShortcuts] = useState(false)
   const fileInputRef = useRef(null)
   const tapTimesRef = useRef([])
+  const tapResetRef = useRef(null)
   const pollRef = useRef(null)
 
-  // Load URL from Sources page
+  // Load URL from Sources page or remix data
   useEffect(() => {
     const url = sessionStorage.getItem('voxmidi_load_source')
     if (url) {
@@ -227,6 +279,20 @@ export default function CreatePage() {
       setShowSource(true)
       sessionStorage.removeItem('voxmidi_load_source')
     }
+
+    const remixRaw = sessionStorage.getItem('voxmidi_remix')
+    if (remixRaw) {
+      try {
+        const remix = JSON.parse(remixRaw)
+        if (remix.prompt) setPrompt(remix.prompt)
+        if (remix.genre) setGenre(remix.genre)
+        if (remix.tempo) setTempo(remix.tempo)
+        if (remix.key) setMusicalKey(remix.key)
+        setShowAdvanced(true)
+      } catch {}
+      sessionStorage.removeItem('voxmidi_remix')
+    }
+
     setPromptHistory(getPromptHistory())
   }, [])
 
@@ -299,6 +365,15 @@ export default function CreatePage() {
   function handleTapTempo() {
     const now = Date.now()
     tapTimesRef.current = [...tapTimesRef.current.filter((t) => now - t < 3000), now]
+
+    // Visual pulse
+    setTapPulse(true)
+    setTimeout(() => setTapPulse(false), 120)
+
+    // Auto-reset after 3s of no tapping
+    clearTimeout(tapResetRef.current)
+    tapResetRef.current = setTimeout(() => { tapTimesRef.current = [] }, 3000)
+
     if (tapTimesRef.current.length >= 2) {
       const intervals = tapTimesRef.current.slice(1).map((t, i) => t - tapTimesRef.current[i])
       const avg = intervals.reduce((a, b) => a + b, 0) / intervals.length
@@ -604,8 +679,15 @@ export default function CreatePage() {
                     <button
                       type="button"
                       onClick={handleTapTempo}
-                      className="text-xs px-2 py-1 rounded bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition"
-                    >TAP</button>
+                      onKeyDown={(e) => { if (e.code === 'Space') { e.preventDefault(); handleTapTempo() } }}
+                      className={`text-xs px-2 py-1 rounded transition font-medium select-none ${
+                        tapPulse
+                          ? 'bg-indigo-600 text-white scale-95'
+                          : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-700'
+                      }`}
+                    >
+                      {tapTimesRef.current.length >= 2 ? `${tempo}` : 'TAP'}
+                    </button>
                   </div>
                 </div>
                 <input
@@ -670,6 +752,19 @@ export default function CreatePage() {
           onSaveToLibrary={() => saveToLibrary(result, { genre, tempo: result.tempo || tempo, key: result.key || musicalKey })}
         />
       )}
+
+      {/* Keyboard shortcuts help button (fixed bottom-right, only when piano panel open) */}
+      {showPiano && (
+        <button
+          onClick={() => setShowShortcuts(true)}
+          title="Keyboard shortcuts"
+          className="fixed bottom-6 right-6 z-40 w-10 h-10 rounded-full bg-zinc-800 dark:bg-zinc-700 text-white shadow-lg hover:bg-zinc-700 dark:hover:bg-zinc-600 flex items-center justify-center text-lg transition"
+        >
+          ⌨️
+        </button>
+      )}
+
+      {showShortcuts && <ShortcutModal onClose={() => setShowShortcuts(false)} />}
     </div>
   )
 }

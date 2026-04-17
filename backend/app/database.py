@@ -53,6 +53,7 @@ class Generation(Base):
     replicate_cost = Column(Float, default=0.0)
     duration = Column(Float, default=0.0)
     time_signature = Column(String, default="4/4")
+    is_favorite = Column(Boolean, default=False)
 
     user = relationship("User", back_populates="generations")
 
