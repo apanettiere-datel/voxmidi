@@ -1,0 +1,76 @@
+name: Deploy VoxMIDI
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      no_cache:
+        description: 'Force full rebuild (--no-cache). Use when requirements.txt or Dockerfile changed.'
+        required: false
+        default: true
+        type: boolean
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Build frontend
+        run: |
+          cd frontend
+          npm ci
+          npm run build
+        env:
+          VITE_CLERK_PUBLISHABLE_KEY: ${{ secrets.VITE_CLERK_PUBLISHABLE_KEY }}
+
+      - name: Deploy to server
+        uses: appleboy/ssh-action@v1
+        with:
+          host: 23.22.184.123
+          username: ubuntu
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            set -e
+            cd /home/ubuntu/voxmidi
+            git checkout -- .
+            git pull
+            if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.no_cache }}" = "true" ]; then
+              echo "Full rebuild (--no-cache)..."
+              docker compose -f docker-compose.prod.yml down
+              docker compose -f docker-compose.prod.yml build --no-cache
+              docker compose -f docker-compose.prod.yml up -d
+            else
+              echo "Cached rebuild (--build)..."
+              docker compose -f docker-compose.prod.yml down
+              docker compose -f docker-compose.prod.yml up -d --build
+            fi
+
+      - name: Copy frontend build
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: 23.22.184.123
+          username: ubuntu
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          source: frontend/dist/
+          target: /home/ubuntu/voxmidi/frontend/
+          strip_components: 0
+
+      - name: Restart nginx
+        uses: appleboy/ssh-action@v1
+        with:
+          host: 23.22.184.123
+          username: ubuntu
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            cd /home/ubuntu/voxmidi
+            docker compose -f docker-compose.prod.yml restart nginx
