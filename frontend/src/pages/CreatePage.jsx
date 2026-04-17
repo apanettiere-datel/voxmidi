@@ -262,18 +262,13 @@ export default function CreatePage() {
   const [showPiano, setShowPiano] = useState(false)
   const [showAdvanced, setShowAdvanced] = useState(false)
 
-  // Song length
-  const [songDuration, setSongDuration] = useState(0) // 0 = default
-
   // Presets
   const [presets, setPresets] = useState([])
   const [detectedInfo, setDetectedInfo] = useState(null)
 
   // Vocal mode — driven by active VoicePanel tab (not derived from blob callbacks)
-  const [activeVoiceTab, setActiveVoiceTab] = useState('hum') // 'hum' | 'sing' | 'upload'
-  const vocalMode = activeVoiceTab === 'sing' ? 'sing' : activeVoiceTab === 'upload' ? 'upload' : 'hum'
-  const [autotune, setAutotune] = useState(0)
-  const [reverb, setReverb] = useState(0)
+  const [activeVoiceTab, setActiveVoiceTab] = useState('hum') // 'hum' | 'upload'
+  const vocalMode = activeVoiceTab === 'upload' ? 'upload' : 'hum'
 
   // Piano / chord state
   const [chordProgression, setChordProgression] = useState([])
@@ -462,9 +457,6 @@ export default function CreatePage() {
       formData.append('key', musicalKey)
       formData.append('advanced_dirty', advancedDirty ? 'true' : 'false')
       formData.append('vocal_mode', vocalMode)
-      formData.append('autotune', String(autotune))
-      formData.append('reverb', String(reverb))
-      formData.append('duration', String(songDuration))
       if (showLyrics && lyrics.trim()) formData.append('lyrics', lyrics)
       if (chordProgression.length > 0) formData.append('chord_progression', JSON.stringify(chordProgression))
       if (melodyBlob) formData.append('piano_melody', melodyBlob, 'piano_melody.wav')
@@ -492,7 +484,6 @@ export default function CreatePage() {
 
   const generateLabel = () => {
     if (isGenerating) return 'Generating...'
-    if (vocalMode === 'sing' && audioBlob) return '🎤 Generate with My Vocals'
     if (showLyrics && lyrics.trim()) return '🎤 Generate Song with Vocals'
     if (isReferenceMode) return '🎵 Generate from Melody Reference'
     if (isExtractMode) return '🔪 Extract & Separate Stems'
@@ -570,8 +561,7 @@ export default function CreatePage() {
           onClick={() => setShowVoice((v) => !v)}
           icon="🎤"
           label={
-            vocalMode === 'sing' && audioBlob ? '🎙️ Vocals recorded ✓'
-            : vocalMode === 'hum' && audioBlob ? 'Melody recorded ✓'
+            audioBlob ? 'Melody recorded ✓'
             : sourceFile ? '📁 Audio uploaded ✓'
             : 'Voice / Audio'
           }
@@ -593,12 +583,8 @@ export default function CreatePage() {
       {/* Voice / audio panel */}
       {showVoice && (
         <VoicePanel
-          lyrics={lyrics}
           onTabChange={setActiveVoiceTab}
           onHumBlob={(blob) => {
-            if (blob) { setAudioBlob(blob); setSourceFile(null); analyzeAudio(blob) }
-          }}
-          onSingBlob={(blob) => {
             if (blob) { setAudioBlob(blob); setSourceFile(null); analyzeAudio(blob) }
           }}
           onUploadFile={(file, mode) => {
@@ -608,8 +594,6 @@ export default function CreatePage() {
             setAudioBlob(null)
             analyzeAudio(file)
           }}
-          onAutotuneChange={setAutotune}
-          onReverbChange={setReverb}
         />
       )}
 
@@ -639,11 +623,6 @@ export default function CreatePage() {
             </div>
             <p className="text-xs text-zinc-400 dark:text-zinc-500">Leave blank to auto-generate based on genre</p>
           </div>
-          {songDuration > 0 && lyrics.trim() && (
-            <p className="text-xs text-amber-600 dark:text-amber-400">
-              ⚠️ Lyrics may be trimmed to fit the selected {songDuration >= 60 ? `${songDuration / 60} min` : `${songDuration}s`} duration.
-            </p>
-          )}
           <textarea value={lyrics} onChange={(e) => setLyrics(e.target.value)} rows={8}
             placeholder={`[Verse]\nYour verse here...\n\n[Chorus]\nYour chorus here...`}
             className="w-full rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-3 py-2 text-sm font-mono text-zinc-900 dark:text-white placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none"
@@ -720,34 +699,6 @@ export default function CreatePage() {
               </div>
             </div>
           </div>
-        )}
-      </div>
-
-      {/* Song duration pills */}
-      <div className="flex flex-wrap gap-2 items-center">
-        <span className="text-xs text-zinc-500 dark:text-zinc-400">Length:</span>
-        {[
-          { label: '15s', value: 15 },
-          { label: '30s', value: 30 },
-          { label: '1 min', value: 60 },
-          { label: '2 min', value: 120 },
-          { label: '4 min', value: 240 },
-        ].map(({ label, value }) => (
-          <button key={value} type="button"
-            onClick={() => setSongDuration(songDuration === value ? 0 : value)}
-            className={`rounded-full px-3 py-1 text-xs font-medium transition ${
-              songDuration === value
-                ? 'bg-indigo-600 text-white'
-                : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-700'
-            }`}>
-            {label}
-          </button>
-        ))}
-        {songDuration > 0 && (
-          <button type="button" onClick={() => setSongDuration(0)}
-            className="text-xs text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 transition">
-            Clear
-          </button>
         )}
       </div>
 

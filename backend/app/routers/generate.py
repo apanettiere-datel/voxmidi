@@ -35,9 +35,6 @@ async def generate(
     chord_progression: str = Form(""),
     advanced_dirty: str = Form("false"),
     vocal_mode: str = Form("hum"),
-    autotune: int = Form(0),
-    reverb: int = Form(0),
-    duration: int = Form(0),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -70,7 +67,7 @@ async def generate(
         job_id, audio_content, audio_suffix, piano_melody_content,
         source_url, prompt, genre, tempo, key, mode, lyrics,
         chord_progression, current_user.id, is_advanced_dirty,
-        vocal_mode, autotune, reverb, duration,
+        vocal_mode,
     )
     started = try_start(job_id, _run_generate, args)
 
@@ -116,9 +113,6 @@ def _run_generate(
     user_id: str,
     advanced_dirty: bool = False,
     vocal_mode: str = "hum",
-    autotune: int = 0,
-    reverb: int = 0,
-    duration: int = 0,
 ) -> None:
     db = SessionLocal()
     store_dir = MIDI_STORE / job_id
@@ -153,32 +147,10 @@ def _run_generate(
         else:
             minimax_prompt = prompt
 
-        # Add autotune/reverb descriptions for singing mode
-        if vocal_mode == "sing":
-            vocal_fx = []
-            if autotune >= 75:
-                vocal_fx.append("with extreme T-Pain style autotune on vocals")
-            elif autotune >= 50:
-                vocal_fx.append("with heavy autotune effect on vocals")
-            elif autotune >= 25:
-                vocal_fx.append("with moderate autotune on vocals")
-            elif autotune > 0:
-                vocal_fx.append("with subtle pitch correction on vocals")
-            if reverb >= 75:
-                vocal_fx.append("with massive cathedral reverb on vocals")
-            elif reverb >= 50:
-                vocal_fx.append("with large hall reverb on vocals")
-            elif reverb >= 25:
-                vocal_fx.append("with moderate room reverb on vocals")
-            elif reverb > 0:
-                vocal_fx.append("with light vocal reverb")
-            if vocal_fx:
-                minimax_prompt = minimax_prompt.rstrip(". ") + ", " + ", ".join(vocal_fx)
-
         has_minimax = bool(os.environ.get("MINIMAX_API_KEY"))
         provider_used = "minimax" if has_minimax else "mock"
 
-        print(f"[generate] job={job_id} provider={provider_used} genre={genre} tempo={tempo} key={key} mode={mode} vocal_mode={vocal_mode} autotune={autotune} reverb={reverb} advanced_dirty={advanced_dirty}")
+        print(f"[generate] job={job_id} provider={provider_used} genre={genre} tempo={tempo} key={key} mode={mode} vocal_mode={vocal_mode} advanced_dirty={advanced_dirty}")
 
         output_midi_path = str(job_dir / "output.mid")
 
@@ -194,8 +166,6 @@ def _run_generate(
                 chord_progression=chord_list if chord_list else None,
                 piano_melody_path=piano_melody_path,
                 mode=mode,
-                vocal_mode=vocal_mode,
-                duration=duration,
             )
             output_midi_path = midi_path
         except Exception as e:
