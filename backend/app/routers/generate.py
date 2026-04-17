@@ -138,7 +138,7 @@ def _run_generate(
         stems_dict: dict = {}
 
         try:
-            output_midi_path, vocal_audio_path, stems_dict = generate_from_prompt(
+            output_midi_path, vocal_audio_path, stems_dict, versions_list = generate_from_prompt(
                 prompt=full_prompt,
                 output_path=output_midi_path,
                 genre=genre,
@@ -235,6 +235,28 @@ def _run_generate(
         if generated_audio_path and Path(generated_audio_path).exists():
             audio_url = f"/api/download/{job_id}/{Path(generated_audio_path).name}"
 
+        # Convert versions list local paths → download URLs
+        versions_out: list = []
+        for v in (versions_list or []):
+            v_audio = v.get("audio_path")
+            v_vocal = v.get("vocal_path")
+            v_stems_raw = v.get("stems") or {}
+            v_audio_url = f"/api/download/{job_id}/{Path(v_audio).name}" if v_audio and Path(v_audio).exists() else None
+            v_vocal_url = f"/api/download/{job_id}/{Path(v_vocal).name}" if v_vocal and Path(v_vocal).exists() else None
+            v_stem_urls = {
+                sn: f"/api/download/{job_id}/{Path(sp).name}"
+                for sn, sp in v_stems_raw.items()
+                if sp and Path(sp).exists() and str(sp).endswith(".mp3")
+            }
+            versions_out.append({
+                "id": v.get("id"),
+                "label": v.get("label"),
+                "provider": v.get("provider"),
+                "audio_url": v_audio_url,
+                "vocal_audio_url": v_vocal_url,
+                "stems": v_stem_urls,
+            })
+
         result = {
             "job_id": job_id,
             "midi_url": f"/api/download/{job_id}/{output_filename}",
@@ -250,6 +272,7 @@ def _run_generate(
             "time_signature": analysis.get("time_signature", "4/4"),
             "tracks": analysis.get("tracks", []),
             "prompt": prompt,
+            "versions": versions_out,
         }
 
         update_job(job_id, {"status": "complete", "progress": 100, "result": result})

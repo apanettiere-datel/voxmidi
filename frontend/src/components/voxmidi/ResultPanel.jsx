@@ -125,8 +125,16 @@ export default function ResultPanel({ result, onShare }) {
   const [playheadSecs, setPlayheadSecs] = useState(0)
   const [showMidiPlayer, setShowMidiPlayer] = useState(false)
   const [shareMsg, setShareMsg] = useState('')
+  const [activeVersion, setActiveVersion] = useState(0)
 
   if (!result) return null
+
+  // When multiple versions exist, the active tab drives audio/stems display
+  const versions = result.versions && result.versions.length > 1 ? result.versions : null
+  const activeV = versions ? versions[activeVersion] : null
+  const displayAudioUrl = activeV ? activeV.audio_url : result.audio_url
+  const displayVocalUrl = activeV ? activeV.vocal_audio_url : result.vocal_audio_url
+  const displayStems = activeV ? activeV.stems : (result.stems || {})
 
   const effectiveMuted =
     soloTrack !== null
@@ -141,7 +149,7 @@ export default function ResultPanel({ result, onShare }) {
   // Only show "Demo Mode" when the backend explicitly used the mock provider
   const isDemoMode = result.provider === 'mock'
 
-  const stems = result.stems || {}
+  const stems = displayStems
   const hasAudioStems = Object.values(stems).some((url) => typeof url === 'string' && url.endsWith('.mp3'))
 
   function handleClientDownload() {
@@ -231,9 +239,28 @@ export default function ResultPanel({ result, onShare }) {
         </div>
       )}
 
+      {/* Version tabs — shown when multiple versions were generated */}
+      {versions && (
+        <div className="flex gap-2 flex-wrap">
+          {versions.map((v, i) => (
+            <button
+              key={v.id}
+              onClick={() => setActiveVersion(i)}
+              className={`rounded-full px-4 py-1.5 text-sm font-medium transition border ${
+                activeVersion === i
+                  ? 'bg-indigo-600 text-white border-indigo-600'
+                  : 'bg-white dark:bg-zinc-900 text-zinc-600 dark:text-zinc-400 border-zinc-200 dark:border-zinc-700 hover:border-indigo-400 hover:text-indigo-600 dark:hover:text-indigo-400'
+              }`}
+            >
+              {v.label}
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* Full mix audio player */}
-      {result.audio_url ? (
-        <AudioPlayer src={result.audio_url} label="🎵 Full Mix" />
+      {displayAudioUrl ? (
+        <AudioPlayer src={displayAudioUrl} label="🎵 Full Mix" />
       ) : isDemoMode ? (
         <div className="rounded-xl border border-dashed border-zinc-200 dark:border-zinc-700 p-4 text-center text-sm text-zinc-400">
           Audio preview not available in demo mode
@@ -241,8 +268,8 @@ export default function ResultPanel({ result, onShare }) {
       ) : null}
 
       {/* Vocal track (MiniMax) */}
-      {result.vocal_audio_url && (
-        <AudioPlayer src={result.vocal_audio_url} label="🎤 Vocal Track" />
+      {displayVocalUrl && (
+        <AudioPlayer src={displayVocalUrl} label="🎤 Vocal Track" />
       )}
 
       {/* Stems section */}
@@ -308,9 +335,9 @@ export default function ResultPanel({ result, onShare }) {
           </button>
         )}
 
-        {result.audio_url && (
+        {displayAudioUrl && (
           <a
-            href={result.audio_url}
+            href={displayAudioUrl}
             download="voxmidi-output.mp3"
             className="flex items-center gap-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 text-sm font-semibold transition shadow-sm"
           >
@@ -330,9 +357,9 @@ export default function ResultPanel({ result, onShare }) {
           </a>
         )}
 
-        {result.vocal_audio_url && (
+        {displayVocalUrl && (
           <a
-            href={result.vocal_audio_url}
+            href={displayVocalUrl}
             download="voxmidi-vocals.mp3"
             className="flex items-center gap-2 rounded-xl bg-purple-600 hover:bg-purple-700 text-white px-4 py-2.5 text-sm font-semibold transition shadow-sm"
           >

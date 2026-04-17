@@ -235,6 +235,7 @@ export default function CreatePage() {
   const [audioBlob, setAudioBlob] = useState(null)
   const [sourceUrl, setSourceUrl] = useState('')
   const [sourceFile, setSourceFile] = useState(null)
+  const [sourceMode, setSourceMode] = useState('extract') // 'extract' | 'reference'
   const [lyrics, setLyrics] = useState('')
 
   // Panel open/close
@@ -393,7 +394,8 @@ export default function CreatePage() {
     }
 
     try {
-      const isSourceMode = sourceFile || (sourceUrl && !sourceUrl.startsWith('file://'))
+      const isReferenceMode = sourceFile && sourceMode === 'reference'
+      const isSourceMode = !isReferenceMode && (sourceFile || (sourceUrl && !sourceUrl.startsWith('file://')))
       let jobData
 
       if (isSourceMode) {
@@ -409,7 +411,10 @@ export default function CreatePage() {
         jobData = await startExtractSource(formData, authFetch)
       } else {
         const formData = new FormData()
-        if (audioBlob) {
+        if (isReferenceMode) {
+          formData.append('audio', sourceFile, sourceFile.name)
+          formData.append('mode', 'source')
+        } else if (audioBlob) {
           formData.append('audio', audioBlob, 'recording.webm')
           formData.append('mode', 'voice')
         } else {
@@ -440,12 +445,14 @@ export default function CreatePage() {
   }
 
   const hasPrompt = prompt.trim().length > 0
+  const isReferenceMode = sourceFile && sourceMode === 'reference'
   const hasSource = !!(sourceFile || (sourceUrl && !sourceUrl.startsWith('file://')))
   const canGenerate = !isGenerating && (hasPrompt || !!audioBlob || hasSource || (showLyrics && lyrics.trim()))
 
   const generateLabel = () => {
     if (isGenerating) return 'Generating...'
     if (showLyrics && lyrics.trim()) return 'Generate Song with Vocals'
+    if (isReferenceMode) return 'Generate MIDI from Reference'
     if (hasSource) return 'Extract & Convert to MIDI'
     if (audioBlob) return 'Generate MIDI from Recording'
     return 'Generate MIDI'
@@ -577,6 +584,39 @@ export default function CreatePage() {
                 if (f) { setSourceFile(f); setSourceUrl('') }
               }}
             />
+
+            {/* Mode toggle — only when a file is selected */}
+            {sourceFile && (
+              <div className="mt-3 flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setSourceMode('extract')}
+                  className={`flex-1 rounded-lg px-3 py-2 text-xs font-medium border transition ${
+                    sourceMode === 'extract'
+                      ? 'bg-indigo-600 text-white border-indigo-600'
+                      : 'bg-white dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 border-zinc-200 dark:border-zinc-700 hover:border-indigo-400'
+                  }`}
+                >
+                  🎼 Extract Stems → MIDI
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSourceMode('reference')}
+                  className={`flex-1 rounded-lg px-3 py-2 text-xs font-medium border transition ${
+                    sourceMode === 'reference'
+                      ? 'bg-indigo-600 text-white border-indigo-600'
+                      : 'bg-white dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 border-zinc-200 dark:border-zinc-700 hover:border-indigo-400'
+                  }`}
+                >
+                  🎵 Use as Melody Reference
+                </button>
+              </div>
+            )}
+            {sourceFile && sourceMode === 'reference' && (
+              <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-1.5">
+                MusicGen will condition on your audio's melody and generate a new track.
+              </p>
+            )}
           </div>
 
           {/* URL input */}
