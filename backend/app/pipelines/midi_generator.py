@@ -86,7 +86,10 @@ def _minimax_cover_api_call(
     if lyrics and lyrics.strip():
         payload["lyrics"] = lyrics.strip()
 
-    print(f"[midi_generator] MiniMax cover: sending vocal reference ({len(audio_b64)} b64 chars)...")
+    print(f"[midi_generator] MiniMax music-2-cover: sending vocal reference ({len(audio_b64)} b64 chars)")
+    import json as _json
+    log_payload = {k: (f"<b64 {len(v)} chars>" if k == 'audio_base64' else v) for k, v in payload.items()}
+    print(f"[midi_generator] MiniMax cover request: {_json.dumps(log_payload)}")
 
     resp = httpx.post(
         "https://api.minimax.io/v1/music_generation",
@@ -106,6 +109,19 @@ def _minimax_cover_api_call(
     return str(audio_file)
 
 
+def _trim_lyrics_for_duration(lyrics: str, duration: int) -> tuple:
+    """Trim lyrics to approximately fit a target duration. Returns (trimmed_lyrics, was_trimmed)."""
+    if not duration or not lyrics or not lyrics.strip():
+        return lyrics, False
+    # ~4 lines per 15 seconds
+    max_lines = max(4, round(duration / 15) * 4)
+    lines = [l for l in lyrics.split('\n') if l.strip() or l == '']
+    if len(lines) <= max_lines:
+        return lyrics, False
+    trimmed = '\n'.join(lines[:max_lines]).rstrip()
+    return trimmed, True
+
+
 def _minimax_api_call(
     style_desc: str,
     lyrics: str,
@@ -115,6 +131,7 @@ def _minimax_api_call(
     """Call MiniMax music API, save to out_filename, return path. Retries once on failure."""
     import httpx
     import binascii
+    import json as _json
 
     api_key = os.environ.get('MINIMAX_API_KEY', '')
     if not api_key:
@@ -135,7 +152,9 @@ def _minimax_api_call(
         payload["is_instrumental"] = True
 
     mode_label = 'vocal' if lyrics and lyrics.strip() else 'instrumental'
-    print(f"[midi_generator] MiniMax: generating {mode_label}...")
+    print(f"[midi_generator] MiniMax music-2.6: generating {mode_label}...")
+    log_payload = {k: (v[:80] + '...' if isinstance(v, str) and len(v) > 80 else v) for k, v in payload.items()}
+    print(f"[midi_generator] MiniMax request: {_json.dumps(log_payload)}")
 
     def _attempt() -> str:
         resp = httpx.post(
@@ -375,23 +394,30 @@ def generate_from_prompt(
 
     style_desc = ". ".join(desc_parts) if desc_parts else "An instrumental composition"
 
-    # Append duration hint if specified
+    # Duration hint — added to prompt since MiniMax has no explicit duration param
+    effective_lyrics = lyrics if has_lyrics else ""
     if duration and duration > 0:
-        style_desc = style_desc.rstrip(".") + f". Duration: approximately {duration} seconds."
+        dur_label = {15: "15 second", 30: "30 second", 60: "1 minute", 120: "2 minute", 240: "4 minute"}.get(duration, f"{duration} second")
+        style_desc = style_desc.rstrip(".") + f". Generate a {dur_label} track."
+        # Trim lyrics to fit duration
+        effective_lyrics, was_trimmed = _trim_lyrics_for_duration(effective_lyrics, duration)
+        if was_trimmed:
+            print(f"[midi_generator] Lyrics trimmed to fit {duration}s target")
 
     # ── Step 5: Call MiniMax ─────────────────────────────────────────────────
     try:
         if has_sing:
-            # Use music-cover model with the vocal recording as reference
-            print("[midi_generator] Using music-cover model for vocal reference")
+            print(f"[midi_generator] Route: Sing mode - using music-2-cover with vocal reference (audio={audio_path})")
             audio_out = _minimax_cover_api_call(
                 audio_path=audio_path,
                 style_desc=style_desc,
-                lyrics=lyrics if has_lyrics else "",
+                lyrics=effective_lyrics,
                 job_dir=job_dir,
             )
         else:
-            audio_out = _minimax_api_call(style_desc, lyrics=lyrics if has_lyrics else "", job_dir=job_dir)
+            route = "vocal" if has_lyrics else ("voice+instrumental" if has_voice else "text-only")
+            print(f"[midi_generator] Route: {route} - using music-2.6")
+            audio_out = _minimax_api_call(style_desc, lyrics=effective_lyrics, job_dir=job_dir)
     except Exception as e:
         print(f"[midi_generator] MiniMax failed: {e}")
         raise

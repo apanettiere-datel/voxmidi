@@ -154,13 +154,19 @@ export default function ResultPanel({ result, onShare }) {
   const [activeVersion, setActiveVersion] = useState(0)
   const [stemsSepState, setStemsSepState] = useState('idle') // 'idle'|'loading'|'done'|'error'
   const [stemsOverride, setStemsOverride] = useState(null)
-  const [extendState, setExtendState] = useState('idle') // 'idle'|'loading'|'done'|'error'
-  const [extResult, setExtResult] = useState(null)
+  const [extensions, setExtensions] = useState([]) // [{job_id, audio_url, duration, loading, error}]
+  const [concatUrl, setConcatUrl] = useState(null)
+  const [concatLoading, setConcatLoading] = useState(false)
+  const [playAllActive, setPlayAllActive] = useState(false)
   const [savePresetMsg, setSavePresetMsg] = useState('')
   const pollRef = useRef(null)
-  const extPollRef = useRef(null)
+  const extPollRefs = useRef({})
+  const playAllRefs = useRef([]) // array of audio element refs for sequential play
 
-  useEffect(() => () => { clearInterval(pollRef.current); clearInterval(extPollRef.current) }, [])
+  useEffect(() => () => {
+    clearInterval(pollRef.current)
+    Object.values(extPollRefs.current).forEach(clearInterval)
+  }, [])
 
   if (!result) return null
 
@@ -244,33 +250,70 @@ export default function ResultPanel({ result, onShare }) {
     navigate('/')
   }
 
-  async function handleExtend() {
-    if (!result?.job_id) return
-    setExtendState('loading')
+  async function handleExtend(sourceJobId) {
+    const jobIdToExtend = sourceJobId || result?.job_id
+    if (!jobIdToExtend) return
+    const slotId = `ext_${Date.now()}`
+    setExtensions((prev) => [...prev, { slotId, loading: true, error: false }])
     try {
-      const res = await authFetch(`/api/extend/${result.job_id}`, { method: 'POST' })
+      const res = await authFetch(`/api/extend/${jobIdToExtend}`, { method: 'POST' })
       if (!res.ok) throw new Error('Extend failed')
       const data = await res.json()
       const extJobId = data.ext_job_id
-      clearInterval(extPollRef.current)
-      extPollRef.current = setInterval(async () => {
+      clearInterval(extPollRefs.current[slotId])
+      extPollRefs.current[slotId] = setInterval(async () => {
         try {
           const { getJobStatus } = await import('@/lib/api')
           const status = await getJobStatus(extJobId, authFetch)
           if (!status) return
           if (status.status === 'complete') {
-            clearInterval(extPollRef.current)
-            setExtResult(status.result)
-            setExtendState('done')
+            clearInterval(extPollRefs.current[slotId])
+            setExtensions((prev) => prev.map((e) =>
+              e.slotId === slotId
+                ? { slotId, job_id: extJobId, audio_url: status.result?.audio_url, midi_url: status.result?.midi_url, loading: false, error: false }
+                : e
+            ))
           } else if (status.status === 'error') {
-            clearInterval(extPollRef.current)
-            setExtendState('error')
+            clearInterval(extPollRefs.current[slotId])
+            setExtensions((prev) => prev.map((e) => e.slotId === slotId ? { ...e, loading: false, error: true } : e))
           }
         } catch { /* poll silently */ }
       }, 3000)
     } catch {
-      setExtendState('error')
+      setExtensions((prev) => prev.map((e) => e.slotId === slotId ? { ...e, loading: false, error: true } : e))
     }
+  }
+
+  async function handleDownloadFull() {
+    if (!result?.job_id) return
+    const doneExts = extensions.filter((e) => !e.loading && !e.error && e.job_id)
+    if (!doneExts.length) return
+    setConcatLoading(true)
+    try {
+      const fd = new FormData()
+      fd.append('ext_job_id', doneExts[doneExts.length - 1].job_id)
+      const res = await authFetch(`/api/concat/${result.job_id}`, { method: 'POST', body: fd })
+      if (!res.ok) throw new Error('Concat failed')
+      const d = await res.json()
+      setConcatUrl(d.audio_url)
+    } catch { /* ignore */ }
+    finally { setConcatLoading(false) }
+  }
+
+  function handlePlayAll() {
+    // Sequential playback: original audio + all done extensions
+    const urls = [result.audio_url, ...extensions.filter((e) => e.audio_url).map((e) => e.audio_url)].filter(Boolean)
+    if (!urls.length) return
+    let idx = 0
+    setPlayAllActive(true)
+    function playNext() {
+      if (idx >= urls.length) { setPlayAllActive(false); return }
+      const audio = new Audio(urls[idx++])
+      audio.onended = playNext
+      audio.onerror = playNext
+      audio.play().catch(playNext)
+    }
+    playNext()
   }
 
   async function handleSavePreset() {
@@ -324,11 +367,11 @@ export default function ResultPanel({ result, onShare }) {
           </button>
           {result?.audio_url && (
             <button
-              onClick={handleExtend}
-              disabled={extendState === 'loading'}
+              onClick={() => handleExtend(null)}
+              disabled={extensions.some((e) => e.loading)}
               className="flex items-center gap-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 px-3 py-1.5 text-sm text-zinc-600 dark:text-zinc-400 hover:border-indigo-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition disabled:opacity-50"
             >
-              {extendState === 'loading' ? '⏳ Extending...' : '🔄 Extend'}
+              {extensions.some((e) => e.loading) ? '⏳ Extending...' : '🔄 Extend'}
             </button>
           )}
           <button
@@ -345,7 +388,7 @@ export default function ResultPanel({ result, onShare }) {
           </button>
           {shareMsg && <span className="text-xs text-indigo-600 dark:text-indigo-400">{shareMsg}</span>}
           {savePresetMsg && <span className="text-xs text-emerald-600 dark:text-emerald-400">{savePresetMsg}</span>}
-          {extendState === 'error' && <span className="text-xs text-red-500">Extend failed</span>}
+          {extensions.some((e) => e.error) && <span className="text-xs text-red-500">Extend failed</span>}
         </div>
       </div>
 
@@ -586,36 +629,96 @@ export default function ResultPanel({ result, onShare }) {
         </p>
       </div>
 
-      {/* Extended section */}
-      {extResult && (
-        <div className="border-t border-zinc-100 dark:border-zinc-800 pt-5 space-y-3">
-          <div className="flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">🔄 Extended</h3>
-            {extResult.audio_url && result.audio_url && (
-              <button
-                onClick={async () => {
-                  const fd = new FormData()
-                  fd.append('ext_job_id', extResult.job_id)
-                  try {
-                    const res = await authFetch(`/api/concat/${result.job_id}`, { method: 'POST', body: fd })
-                    if (res.ok) {
-                      const d = await res.json()
-                      alert(`Concat ready: ${d.audio_url}`)
-                    }
-                  } catch { /* ignore */ }
-                }}
-                className="text-xs text-indigo-500 hover:text-indigo-600 underline"
-              >
-                Merge both
-              </button>
-            )}
+      {/* Extensions timeline */}
+      {extensions.length > 0 && (
+        <div className="border-t border-zinc-100 dark:border-zinc-800 pt-5 space-y-4">
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <h3 className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">🔄 Extensions</h3>
+            <div className="flex items-center gap-2 flex-wrap">
+              {extensions.some((e) => !e.loading && !e.error && e.audio_url) && result.audio_url && (
+                <>
+                  <button
+                    onClick={handlePlayAll}
+                    disabled={playAllActive}
+                    className="rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1 text-xs font-semibold transition disabled:opacity-60"
+                  >
+                    {playAllActive ? '▶ Playing...' : '▶ Play All'}
+                  </button>
+                  <button
+                    onClick={handleDownloadFull}
+                    disabled={concatLoading}
+                    className="rounded-lg border border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-400 px-3 py-1 text-xs font-medium hover:border-indigo-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition disabled:opacity-50"
+                  >
+                    {concatLoading ? '⏳ Merging...' : '📦 Download Full Song'}
+                  </button>
+                </>
+              )}
+            </div>
           </div>
-          {extResult.audio_url && <AudioPlayer src={extResult.audio_url} label="Extended audio" />}
-          {extResult.midi_url && (
-            <a href={extResult.midi_url} download="extended.mid"
-              className="inline-flex items-center gap-1.5 rounded-lg bg-zinc-100 dark:bg-zinc-800 px-3 py-1.5 text-xs font-medium text-zinc-700 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition">
-              🎹 Download Extended MIDI
-            </a>
+
+          {/* Timeline */}
+          <div className="flex items-center gap-2 overflow-x-auto pb-1">
+            <div className="flex-shrink-0 rounded-lg bg-indigo-100 dark:bg-indigo-900/30 border border-indigo-200 dark:border-indigo-800 px-3 py-1 text-xs font-medium text-indigo-700 dark:text-indigo-300">
+              Original{result.duration ? ` ${Math.round(result.duration)}s` : ''}
+            </div>
+            {extensions.map((ext, i) => (
+              <div key={ext.slotId} className="flex items-center gap-2 flex-shrink-0">
+                <span className="text-zinc-400 dark:text-zinc-600 text-sm">→</span>
+                <div className={`rounded-lg border px-3 py-1 text-xs font-medium ${
+                  ext.loading ? 'bg-zinc-100 dark:bg-zinc-800 border-zinc-200 dark:border-zinc-700 text-zinc-400 animate-pulse'
+                  : ext.error ? 'bg-red-50 dark:bg-red-950/20 border-red-200 dark:border-red-800 text-red-600 dark:text-red-400'
+                  : 'bg-emerald-100 dark:bg-emerald-900/30 border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300'
+                }`}>
+                  {ext.loading ? `Ext ${i + 1} ⏳` : ext.error ? `Ext ${i + 1} ✗` : `Ext ${i + 1}`}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Extension players */}
+          {extensions.map((ext, i) => (
+            <div key={ext.slotId} className="rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800/50 p-3 space-y-2">
+              <div className="flex items-center justify-between">
+                <p className="text-xs font-medium text-zinc-600 dark:text-zinc-400">Extension {i + 1}</p>
+                <div className="flex items-center gap-2">
+                  {!ext.loading && !ext.error && ext.audio_url && (
+                    <button
+                      onClick={() => handleExtend(ext.job_id)}
+                      disabled={extensions.some((e) => e.loading)}
+                      className="text-xs text-indigo-500 hover:text-indigo-600 dark:hover:text-indigo-400 transition disabled:opacity-50"
+                    >
+                      🔄 Extend Again
+                    </button>
+                  )}
+                  {!ext.loading && !ext.error && ext.midi_url && (
+                    <a href={ext.midi_url} download={`extension-${i + 1}.mid`}
+                      className="text-xs text-zinc-500 hover:text-indigo-500 transition">
+                      🎹 MIDI
+                    </a>
+                  )}
+                </div>
+              </div>
+              {ext.loading && (
+                <p className="text-xs text-zinc-400 animate-pulse">Generating extension...</p>
+              )}
+              {ext.error && (
+                <p className="text-xs text-red-500">Extension failed. Try again.</p>
+              )}
+              {!ext.loading && !ext.error && ext.audio_url && (
+                <AudioPlayer src={ext.audio_url} compact />
+              )}
+            </div>
+          ))}
+
+          {concatUrl && (
+            <div className="rounded-xl border border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/20 p-3 space-y-2">
+              <p className="text-xs font-medium text-emerald-700 dark:text-emerald-300">Full Song (original + extensions merged)</p>
+              <AudioPlayer src={concatUrl} />
+              <a href={concatUrl} download="full-song.mp3"
+                className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 text-xs font-semibold transition">
+                ↓ Download Full Song
+              </a>
+            </div>
           )}
         </div>
       )}

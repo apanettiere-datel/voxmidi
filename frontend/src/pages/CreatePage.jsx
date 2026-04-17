@@ -269,8 +269,9 @@ export default function CreatePage() {
   const [presets, setPresets] = useState([])
   const [detectedInfo, setDetectedInfo] = useState(null)
 
-  // Vocal mode state
-  const [vocalMode, setVocalMode] = useState('hum') // 'hum' | 'sing'
+  // Vocal mode — driven by active VoicePanel tab (not derived from blob callbacks)
+  const [activeVoiceTab, setActiveVoiceTab] = useState('hum') // 'hum' | 'sing' | 'upload'
+  const vocalMode = activeVoiceTab === 'sing' ? 'sing' : activeVoiceTab === 'upload' ? 'upload' : 'hum'
   const [autotune, setAutotune] = useState(0)
   const [reverb, setReverb] = useState(0)
 
@@ -593,13 +594,12 @@ export default function CreatePage() {
       {showVoice && (
         <VoicePanel
           lyrics={lyrics}
+          onTabChange={setActiveVoiceTab}
           onHumBlob={(blob) => {
-            setAudioBlob(blob); setVocalMode('hum')
-            if (blob) { setSourceFile(null); analyzeAudio(blob) }
+            if (blob) { setAudioBlob(blob); setSourceFile(null); analyzeAudio(blob) }
           }}
           onSingBlob={(blob) => {
-            setAudioBlob(blob); setVocalMode('sing')
-            if (blob) { setSourceFile(null); analyzeAudio(blob) }
+            if (blob) { setAudioBlob(blob); setSourceFile(null); analyzeAudio(blob) }
           }}
           onUploadFile={(file, mode) => {
             if (!file) { setSourceFile(null); return }
@@ -639,6 +639,11 @@ export default function CreatePage() {
             </div>
             <p className="text-xs text-zinc-400 dark:text-zinc-500">Leave blank to auto-generate based on genre</p>
           </div>
+          {songDuration > 0 && lyrics.trim() && (
+            <p className="text-xs text-amber-600 dark:text-amber-400">
+              ⚠️ Lyrics may be trimmed to fit the selected {songDuration >= 60 ? `${songDuration / 60} min` : `${songDuration}s`} duration.
+            </p>
+          )}
           <textarea value={lyrics} onChange={(e) => setLyrics(e.target.value)} rows={8}
             placeholder={`[Verse]\nYour verse here...\n\n[Chorus]\nYour chorus here...`}
             className="w-full rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-3 py-2 text-sm font-mono text-zinc-900 dark:text-white placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none"

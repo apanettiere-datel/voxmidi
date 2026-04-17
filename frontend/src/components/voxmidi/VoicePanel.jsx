@@ -13,6 +13,7 @@ export default function VoicePanel({
   onUploadFile,    // (file|null, mode: 'reference'|'extract') => void
   onAutotuneChange,
   onReverbChange,
+  onTabChange,     // (tab: 'hum'|'sing'|'upload') => void
   lyrics,
 }) {
   const [tab, setTab] = useState('hum')
@@ -52,7 +53,7 @@ export default function VoicePanel({
           <button
             key={t.id}
             type="button"
-            onClick={() => setTab(t.id)}
+            onClick={() => { setTab(t.id); onTabChange?.(t.id) }}
             className={`flex-1 py-2.5 text-xs font-medium transition border-b-2 -mb-px ${
               tab === t.id
                 ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400'
