@@ -1,6 +1,6 @@
 // Auth-aware fetch — context-based to keep hooks rules clean.
 
-import { createContext, useContext, useCallback } from 'react'
+import { createContext, useContext, useCallback, useRef, useEffect } from 'react'
 import { useAuth } from '@clerk/clerk-react'
 import { useNavigate } from 'react-router-dom'
 
@@ -17,31 +17,34 @@ function ClerkFetchProvider({ children }) {
   const { getToken, isSignedIn, isLoaded } = useAuth()
   const navigate = useNavigate()
 
+  // Keep a ref to the latest auth state so the authFetch function itself never
+  // changes identity. Stable identity prevents cascading useEffect re-fires in
+  // UsageBadge, JobsContext polling, etc.
+  const stateRef = useRef({ getToken, isSignedIn, isLoaded, navigate })
+  useEffect(() => {
+    stateRef.current = { getToken, isSignedIn, isLoaded, navigate }
+  })
+
   const authFetch = useCallback(
     async (url, options = {}) => {
-      // Don't act until Clerk has finished loading
-      if (!isLoaded) {
-        throw new Error('Auth loading — please wait')
-      }
+      const { getToken: gt, isSignedIn: si, isLoaded: il, navigate: nav } = stateRef.current
 
-      // Clerk says user is not signed in → redirect once
-      if (!isSignedIn) {
+      if (!il) throw new Error('Auth loading — please wait')
+
+      if (!si) {
         console.warn('[authFetch] Not signed in — redirecting to /sign-in')
-        navigate('/sign-in')
+        nav('/sign-in')
         throw new Error('Not signed in')
       }
 
       let token = null
       try {
-        token = await getToken()
-        console.log(`[authFetch] Token obtained (${url}): ${token ? token.slice(0, 40) + '...' : 'NULL'}`)
+        token = await gt()
       } catch (e) {
         console.error('[authFetch] getToken() threw:', e)
       }
 
       if (!token) {
-        // Clerk says isSignedIn=true but no token — usually a brief timing issue during session init.
-        // Do NOT redirect (would cause infinite loop). Throw so caller can retry.
         console.error('[authFetch] isSignedIn=true but getToken() returned null — session loading?')
         throw new Error('Auth token unavailable — please try again')
       }
@@ -55,14 +58,12 @@ function ClerkFetchProvider({ children }) {
       })
 
       if (response.status === 401) {
-        // Log the 401 but do NOT auto-redirect — that causes infinite loops when JWT
-        // verification fails on the backend. Let the calling code handle the error.
-        console.error(`[authFetch] 401 from ${url} — token may be rejected by backend. Check CLERK_SECRET_KEY / JWKS config.`)
+        console.error(`[authFetch] 401 from ${url} — token may be rejected by backend.`)
       }
 
       return response
     },
-    [getToken, isSignedIn, isLoaded, navigate]
+    [] // stable identity — never changes, always reads latest state via ref
   )
 
   return <AuthFetchContext.Provider value={authFetch}>{children}</AuthFetchContext.Provider>
