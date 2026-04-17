@@ -57,6 +57,55 @@ def _chord_notes(chord_root: int, minor: bool) -> list:
 
 # ─── MiniMax API ─────────────────────────────────────────────────────────────
 
+def _minimax_cover_api_call(
+    audio_path: str,
+    style_desc: str,
+    lyrics: str,
+    job_dir: Path,
+    out_filename: str = "minimax_audio.mp3",
+) -> str:
+    """Call MiniMax music-2-cover API with a reference vocal/audio recording."""
+    import httpx, base64, binascii
+
+    api_key = os.environ.get('MINIMAX_API_KEY', '')
+    if not api_key:
+        raise RuntimeError("MINIMAX_API_KEY not set")
+
+    audio_b64 = base64.b64encode(Path(audio_path).read_bytes()).decode()
+
+    payload: dict = {
+        "model": "music-2-cover",
+        "prompt": style_desc,
+        "audio_base64": audio_b64,
+        "audio_setting": {
+            "sample_rate": 44100,
+            "bitrate": 256000,
+            "format": "mp3",
+        },
+    }
+    if lyrics and lyrics.strip():
+        payload["lyrics"] = lyrics.strip()
+
+    print(f"[midi_generator] MiniMax cover: sending vocal reference ({len(audio_b64)} b64 chars)...")
+
+    resp = httpx.post(
+        "https://api.minimax.io/v1/music_generation",
+        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+        json=payload,
+        timeout=180.0,
+    )
+    resp.raise_for_status()
+    resp_json = resp.json()
+    audio_hex = resp_json.get("data", {}).get("audio", "") if resp_json else ""
+    if not audio_hex:
+        raise RuntimeError(f"MiniMax cover returned no audio: {resp_json}")
+    audio_bytes = binascii.unhexlify(audio_hex)
+    audio_file = job_dir / out_filename
+    audio_file.write_bytes(audio_bytes)
+    print(f"[midi_generator] MiniMax cover: saved {len(audio_bytes)} bytes -> {out_filename}")
+    return str(audio_file)
+
+
 def _minimax_api_call(
     style_desc: str,
     lyrics: str,
@@ -219,6 +268,8 @@ def generate_from_prompt(
     chord_progression: Optional[list] = None,
     piano_melody_path: Optional[str] = None,
     mode: str = 'text',
+    vocal_mode: str = 'hum',
+    duration: int = 0,
     **kwargs,
 ) -> Tuple[str, Optional[str], Optional[str]]:
     """
@@ -242,16 +293,19 @@ def generate_from_prompt(
 
     has_lyrics = bool(lyrics and lyrics.strip())
     has_voice = bool(audio_path and Path(audio_path).exists() and mode in ('voice', 'hum', 'recording'))
+    has_sing = has_voice and vocal_mode == 'sing'
     has_reference = bool(audio_path and Path(audio_path).exists() and mode == 'source')
     has_piano = bool(piano_melody_path and Path(piano_melody_path).exists())
     has_chords = bool(chord_progression and len(chord_progression) > 0)
 
     log_parts = []
-    if has_voice: log_parts.append('voice')
+    if has_sing: log_parts.append('sing(cover)')
+    elif has_voice: log_parts.append('voice')
     if has_piano: log_parts.append('piano')
     if has_chords: log_parts.append(f'chords={len(chord_progression)}')
     if has_reference: log_parts.append('reference')
     if has_lyrics: log_parts.append('lyrics')
+    if duration: log_parts.append(f'duration={duration}s')
     print(f"[midi_generator] inputs: {', '.join(log_parts) or 'text-only'} lyrics={'yes' if has_lyrics else 'no'}")
 
     # ── MOCK MODE ────────────────────────────────────────────────────────────
@@ -321,9 +375,23 @@ def generate_from_prompt(
 
     style_desc = ". ".join(desc_parts) if desc_parts else "An instrumental composition"
 
+    # Append duration hint if specified
+    if duration and duration > 0:
+        style_desc = style_desc.rstrip(".") + f". Duration: approximately {duration} seconds."
+
     # ── Step 5: Call MiniMax ─────────────────────────────────────────────────
     try:
-        audio_out = _minimax_api_call(style_desc, lyrics=lyrics if has_lyrics else "", job_dir=job_dir)
+        if has_sing:
+            # Use music-cover model with the vocal recording as reference
+            print("[midi_generator] Using music-cover model for vocal reference")
+            audio_out = _minimax_cover_api_call(
+                audio_path=audio_path,
+                style_desc=style_desc,
+                lyrics=lyrics if has_lyrics else "",
+                job_dir=job_dir,
+            )
+        else:
+            audio_out = _minimax_api_call(style_desc, lyrics=lyrics if has_lyrics else "", job_dir=job_dir)
     except Exception as e:
         print(f"[midi_generator] MiniMax failed: {e}")
         raise

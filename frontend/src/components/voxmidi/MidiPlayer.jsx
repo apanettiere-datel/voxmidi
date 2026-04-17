@@ -369,11 +369,11 @@ export default function MidiPlayer({ tracks = [], tempo = 120, effectiveMuted = 
       {/* Status */}
       {state === 'playing' && (
         <p className="text-xs text-indigo-500 dark:text-indigo-400 animate-pulse">
-          ♪ Playing — mute/solo tracks in the mixer
+          ♪ Playing - mute/solo tracks in the mixer
         </p>
       )}
       {state === 'paused' && (
-        <p className="text-xs text-zinc-400 dark:text-zinc-500">Paused — click play to resume</p>
+        <p className="text-xs text-zinc-400 dark:text-zinc-500">Paused - click play to resume</p>
       )}
     </div>
   )

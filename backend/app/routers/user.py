@@ -105,6 +105,8 @@ def _generation_to_dict(g: Generation, include_tracks: bool = False) -> dict:
         "is_shared": getattr(g, "is_shared", False) or False,
         "tracks": tracks,
         "provider": "minimax" if audio_url else "mock",
+        "parent_job_id": getattr(g, "parent_job_id", None),
+        "remix_count": getattr(g, "remix_count", 0) or 0,
     }
 
 

@@ -543,7 +543,7 @@ export default function PianoPanel({ onChordProgressionChange, onMelodyBlobChang
         </div>
 
         <p className="text-xs text-zinc-400 dark:text-zinc-500 text-center">
-          ⌨️ A S D F G H J K — white keys · W E T Y U — black keys · Space=play · Backspace=delete
+          ⌨️ A S D F G H J K - white keys · W E T Y U - black keys · Space=play · Backspace=delete
         </p>
 
         {/* Recorded notes timeline */}
@@ -551,7 +551,7 @@ export default function PianoPanel({ onChordProgressionChange, onMelodyBlobChang
           <div className="rounded-lg bg-zinc-50 dark:bg-zinc-800/50 border border-zinc-200 dark:border-zinc-700 p-3">
             <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400 mb-2">
               Recorded {recordedNotes.length} note{recordedNotes.length !== 1 ? 's' : ''}
-              {melodyBlob ? ' · ✓ Audio rendered — will send as melody' : ''}
+              {melodyBlob ? ' · ✓ Audio rendered - will send as melody' : ''}
             </p>
             <div className="flex flex-wrap gap-1">
               {recordedNotes.map((n, i) => (

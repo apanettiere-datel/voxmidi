@@ -26,6 +26,7 @@ function AudioPlayer({ src, label, compact = false }) {
   const [progress, setProgress] = useState(0)
   const [duration, setDuration] = useState(0)
   const [volume, setVolume] = useState(1)
+  const [loop, setLoop] = useState(false)
 
   if (!src) return null
 
@@ -34,6 +35,12 @@ function AudioPlayer({ src, label, compact = false }) {
     if (!el) return
     if (playing) { el.pause(); setPlaying(false) }
     else { el.play().catch(() => {}); setPlaying(true) }
+  }
+
+  function toggleLoop() {
+    const next = !loop
+    setLoop(next)
+    if (audioRef.current) audioRef.current.loop = next
   }
 
   function fmt(s) {
@@ -47,9 +54,10 @@ function AudioPlayer({ src, label, compact = false }) {
         <audio
           ref={audioRef}
           src={src}
+          loop={loop}
           onTimeUpdate={(e) => setProgress(e.target.currentTime)}
           onDurationChange={(e) => setDuration(e.target.duration)}
-          onEnded={() => setPlaying(false)}
+          onEnded={() => { if (!loop) setPlaying(false) }}
         />
         <button
           onClick={toggle}
@@ -69,6 +77,13 @@ function AudioPlayer({ src, label, compact = false }) {
         <span className="text-xs text-zinc-400 flex-shrink-0 tabular-nums w-10 text-right">
           {fmt(progress)}
         </span>
+        <button
+          onClick={toggleLoop}
+          title="Loop"
+          className={`flex-shrink-0 text-sm transition ${loop ? 'text-indigo-500' : 'text-zinc-300 dark:text-zinc-600 hover:text-zinc-500'}`}
+        >
+          🔁
+        </button>
       </div>
     )
   }
@@ -79,9 +94,10 @@ function AudioPlayer({ src, label, compact = false }) {
       <audio
         ref={audioRef}
         src={src}
+        loop={loop}
         onTimeUpdate={(e) => setProgress(e.target.currentTime)}
         onDurationChange={(e) => setDuration(e.target.duration)}
-        onEnded={() => setPlaying(false)}
+        onEnded={() => { if (!loop) setPlaying(false) }}
       />
       <div className="flex items-center gap-3">
         <button
@@ -105,6 +121,13 @@ function AudioPlayer({ src, label, compact = false }) {
             <span>{fmt(duration)}</span>
           </div>
         </div>
+        <button
+          onClick={toggleLoop}
+          title="Loop"
+          className={`text-lg transition flex-shrink-0 ${loop ? 'text-indigo-500' : 'text-zinc-300 dark:text-zinc-600 hover:text-zinc-500'}`}
+        >
+          🔁
+        </button>
         <input
           type="range" min={0} max={1} step={0.05} value={volume}
           onChange={(e) => {
@@ -131,9 +154,13 @@ export default function ResultPanel({ result, onShare }) {
   const [activeVersion, setActiveVersion] = useState(0)
   const [stemsSepState, setStemsSepState] = useState('idle') // 'idle'|'loading'|'done'|'error'
   const [stemsOverride, setStemsOverride] = useState(null)
+  const [extendState, setExtendState] = useState('idle') // 'idle'|'loading'|'done'|'error'
+  const [extResult, setExtResult] = useState(null)
+  const [savePresetMsg, setSavePresetMsg] = useState('')
   const pollRef = useRef(null)
+  const extPollRef = useRef(null)
 
-  useEffect(() => () => clearInterval(pollRef.current), [])
+  useEffect(() => () => { clearInterval(pollRef.current); clearInterval(extPollRef.current) }, [])
 
   if (!result) return null
 
@@ -217,7 +244,54 @@ export default function ResultPanel({ result, onShare }) {
     navigate('/')
   }
 
-  const costTotal = result.replicate_cost || 0
+  async function handleExtend() {
+    if (!result?.job_id) return
+    setExtendState('loading')
+    try {
+      const res = await authFetch(`/api/extend/${result.job_id}`, { method: 'POST' })
+      if (!res.ok) throw new Error('Extend failed')
+      const data = await res.json()
+      const extJobId = data.ext_job_id
+      clearInterval(extPollRef.current)
+      extPollRef.current = setInterval(async () => {
+        try {
+          const { getJobStatus } = await import('@/lib/api')
+          const status = await getJobStatus(extJobId, authFetch)
+          if (!status) return
+          if (status.status === 'complete') {
+            clearInterval(extPollRef.current)
+            setExtResult(status.result)
+            setExtendState('done')
+          } else if (status.status === 'error') {
+            clearInterval(extPollRef.current)
+            setExtendState('error')
+          }
+        } catch { /* poll silently */ }
+      }, 3000)
+    } catch {
+      setExtendState('error')
+    }
+  }
+
+  async function handleSavePreset() {
+    const name = window.prompt('Preset name:', result.genre || 'My Preset')
+    if (!name) return
+    try {
+      const fd = new FormData()
+      fd.append('name', name)
+      fd.append('genre', result.genre || 'pop')
+      fd.append('tempo', String(result.tempo || 120))
+      fd.append('key', result.key || 'Am')
+      fd.append('prompt_prefix', result.prompt || '')
+      const res = await authFetch('/api/presets', { method: 'POST', body: fd })
+      if (!res.ok) throw new Error('Failed')
+      setSavePresetMsg('Preset saved!')
+      setTimeout(() => setSavePresetMsg(''), 3000)
+    } catch {
+      setSavePresetMsg('Failed to save preset')
+      setTimeout(() => setSavePresetMsg(''), 3000)
+    }
+  }
 
   return (
     <div className="space-y-5">
@@ -238,13 +312,8 @@ export default function ResultPanel({ result, onShare }) {
           </div>
           <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
             {result.tracks?.length || 0} tracks · {result.tempo} BPM · {result.key || '?'} · {result.genre || ''}
-            {result.prompt && <span className="ml-1 italic">· "{result.prompt}"</span>}
+            {result.prompt && <span className="ml-1 italic">- "{result.prompt}"</span>}
           </p>
-          {costTotal > 0 && (
-            <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-0.5">
-              Cost: ${costTotal.toFixed(3)}
-            </p>
-          )}
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <button
@@ -253,15 +322,30 @@ export default function ResultPanel({ result, onShare }) {
           >
             🔀 Remix
           </button>
+          {result?.audio_url && (
+            <button
+              onClick={handleExtend}
+              disabled={extendState === 'loading'}
+              className="flex items-center gap-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 px-3 py-1.5 text-sm text-zinc-600 dark:text-zinc-400 hover:border-indigo-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition disabled:opacity-50"
+            >
+              {extendState === 'loading' ? '⏳ Extending...' : '🔄 Extend'}
+            </button>
+          )}
+          <button
+            onClick={handleSavePreset}
+            className="flex items-center gap-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 px-3 py-1.5 text-sm text-zinc-600 dark:text-zinc-400 hover:border-indigo-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition"
+          >
+            💾 Preset
+          </button>
           <button
             onClick={handleShare}
             className="flex items-center gap-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 px-3 py-1.5 text-sm text-zinc-600 dark:text-zinc-400 hover:border-indigo-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition"
           >
             🔗 Share
           </button>
-          {shareMsg && (
-            <span className="text-xs text-indigo-600 dark:text-indigo-400">{shareMsg}</span>
-          )}
+          {shareMsg && <span className="text-xs text-indigo-600 dark:text-indigo-400">{shareMsg}</span>}
+          {savePresetMsg && <span className="text-xs text-emerald-600 dark:text-emerald-400">{savePresetMsg}</span>}
+          {extendState === 'error' && <span className="text-xs text-red-500">Extend failed</span>}
         </div>
       </div>
 
@@ -269,7 +353,7 @@ export default function ResultPanel({ result, onShare }) {
       {isDemoMode && (
         <div className="rounded-lg bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 px-4 py-3">
           <p className="text-xs text-amber-700 dark:text-amber-400">
-            <span className="font-medium">Demo Mode</span> — using the mock MIDI generator. Configure{' '}
+            <span className="font-medium">Demo Mode</span> - using the mock MIDI generator. Configure{' '}
             <code className="font-mono bg-amber-100 dark:bg-amber-900/40 px-1 rounded">REPLICATE_API_TOKEN</code> or{' '}
             <code className="font-mono bg-amber-100 dark:bg-amber-900/40 px-1 rounded">MINIMAX_API_KEY</code>{' '}
             to enable real AI generation.
@@ -324,7 +408,6 @@ export default function ResultPanel({ result, onShare }) {
             <div>
               <p className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
                 Separate into stems
-                <span className="ml-1.5 font-normal text-zinc-400 text-xs">(+$0.02, ~60 seconds)</span>
               </p>
               <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-0.5">Split audio into vocals, bass, drums &amp; other for individual editing</p>
             </div>
@@ -498,10 +581,44 @@ export default function ResultPanel({ result, onShare }) {
       <div className="rounded-lg bg-zinc-50 dark:bg-zinc-800/50 px-4 py-3">
         <p className="text-xs text-zinc-600 dark:text-zinc-400">
           <span className="font-medium">Import MIDI:</span>{' '}
-          GarageBand → File → Import · Ableton → drag to Arrangement ·
-          FL Studio → File → Import · Logic → File → Import
+          GarageBand - File - Import · Ableton - drag to Arrangement ·
+          FL Studio - File - Import · Logic - File - Import
         </p>
       </div>
+
+      {/* Extended section */}
+      {extResult && (
+        <div className="border-t border-zinc-100 dark:border-zinc-800 pt-5 space-y-3">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">🔄 Extended</h3>
+            {extResult.audio_url && result.audio_url && (
+              <button
+                onClick={async () => {
+                  const fd = new FormData()
+                  fd.append('ext_job_id', extResult.job_id)
+                  try {
+                    const res = await authFetch(`/api/concat/${result.job_id}`, { method: 'POST', body: fd })
+                    if (res.ok) {
+                      const d = await res.json()
+                      alert(`Concat ready: ${d.audio_url}`)
+                    }
+                  } catch { /* ignore */ }
+                }}
+                className="text-xs text-indigo-500 hover:text-indigo-600 underline"
+              >
+                Merge both
+              </button>
+            )}
+          </div>
+          {extResult.audio_url && <AudioPlayer src={extResult.audio_url} label="Extended audio" />}
+          {extResult.midi_url && (
+            <a href={extResult.midi_url} download="extended.mid"
+              className="inline-flex items-center gap-1.5 rounded-lg bg-zinc-100 dark:bg-zinc-800 px-3 py-1.5 text-xs font-medium text-zinc-700 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition">
+              🎹 Download Extended MIDI
+            </a>
+          )}
+        </div>
+      )}
     </div>
   )
 }

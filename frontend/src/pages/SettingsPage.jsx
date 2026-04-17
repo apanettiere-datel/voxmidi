@@ -16,8 +16,8 @@ const CLERK_KEY = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY
 function AccountSection() {
   const { user } = useUser()
   if (!user) return null
-  const email = user.emailAddresses?.[0]?.emailAddress || '—'
-  const since = user.createdAt ? new Date(user.createdAt).toLocaleDateString() : '—'
+  const email = user.emailAddresses?.[0]?.emailAddress || '-'
+  const since = user.createdAt ? new Date(user.createdAt).toLocaleDateString() : '-'
   return (
     <div>
       <h2 className="text-base font-semibold text-zinc-900 dark:text-white">Account</h2>
@@ -25,7 +25,7 @@ function AccountSection() {
       <dl className="space-y-3 text-sm">
         <div className="flex gap-4">
           <dt className="w-28 text-zinc-500 dark:text-zinc-400 shrink-0">Name</dt>
-          <dd className="text-zinc-900 dark:text-white">{user.fullName || user.firstName || '—'}</dd>
+          <dd className="text-zinc-900 dark:text-white">{user.fullName || user.firstName || '-'}</dd>
         </div>
         <div className="flex gap-4">
           <dt className="w-28 text-zinc-500 dark:text-zinc-400 shrink-0">Email</dt>
@@ -68,12 +68,6 @@ function UsageSection({ authFetch }) {
             <dt className="w-28 text-zinc-500 dark:text-zinc-400 shrink-0">Resets</dt>
             <dd className="text-zinc-900 dark:text-white">{usage.reset_date}</dd>
           </div>
-          {usage.total_spend > 0 && (
-            <div className="flex gap-4">
-              <dt className="w-28 text-zinc-500 dark:text-zinc-400 shrink-0">Total spent</dt>
-              <dd className="text-zinc-900 dark:text-white font-mono">${usage.total_spend.toFixed(4)}</dd>
-            </div>
-          )}
           <div className="mt-2">
             <div className="w-full bg-zinc-100 dark:bg-zinc-800 rounded-full h-2">
               <div

@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from sqlalchemy import (
-    create_engine, Column, String, Integer, Float, Text, DateTime, ForeignKey, Boolean
+    create_engine, Column, String, Integer, Float, Text, DateTime, ForeignKey, Boolean, event
 )
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship
 
@@ -55,8 +55,23 @@ class Generation(Base):
     time_signature = Column(String, default="4/4")
     is_favorite = Column(Boolean, default=False)
     is_shared = Column(Boolean, default=False)
+    parent_job_id = Column(String, nullable=True)
+    remix_count = Column(Integer, default=0)
 
     user = relationship("User", back_populates="generations")
+
+
+class Preset(Base):
+    __tablename__ = "presets"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4())[:8])
+    user_id = Column(String, ForeignKey("users.id"), nullable=False)
+    name = Column(String, default="")
+    genre = Column(String, default="pop")
+    tempo = Column(Integer, default=120)
+    key = Column(String, default="Am")
+    prompt_prefix = Column(Text, default="")
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 
 def get_db():

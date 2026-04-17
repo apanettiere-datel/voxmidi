@@ -38,6 +38,9 @@ export default function LibraryPage() {
   const [filter, setFilter] = useState('all')
   const [toasts, setToasts] = useState([])
   const [newBadges, setNewBadges] = useState(new Set())
+  const [compareIds, setCompareIds] = useState(new Set())
+  const [compareResults, setCompareResults] = useState([])
+  const [compareLoading, setCompareLoading] = useState(false)
   const seenJobsRef = useRef(new Set())
 
   useEffect(() => {
@@ -114,6 +117,31 @@ export default function LibraryPage() {
     }
   }
 
+  function toggleCompare(id) {
+    setCompareIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else if (next.size < 2) next.add(id)
+      return next
+    })
+  }
+
+  async function handleCompare() {
+    if (compareIds.size < 2) return
+    setCompareLoading(true)
+    const ids = [...compareIds]
+    try {
+      const results = await Promise.all(ids.map(async (id) => {
+        const res = await authFetch(`/api/library/${id}`)
+        if (!res.ok) throw new Error('Failed')
+        const data = await res.json()
+        return { ...data, job_id: data.id }
+      }))
+      setCompareResults(results)
+    } catch { /* ignore */ }
+    finally { setCompareLoading(false) }
+  }
+
   function handleRemix(entry) {
     sessionStorage.setItem('voxmidi_remix', JSON.stringify({
       prompt: entry.prompt || '',
@@ -142,7 +170,7 @@ export default function LibraryPage() {
     <div className="space-y-6">
       <div>
         <Heading>Library</Heading>
-        <Text>Your past generations — audio, stems, and MIDI.</Text>
+        <Text>Your past generations - audio, stems, and MIDI.</Text>
       </div>
 
       {/* Full result modal */}
@@ -226,6 +254,50 @@ export default function LibraryPage() {
         </div>
       )}
 
+      {/* Compare bar */}
+      {compareIds.size > 0 && (
+        <div className="rounded-xl border border-indigo-200 dark:border-indigo-800 bg-indigo-50 dark:bg-indigo-950/20 px-4 py-3 flex items-center justify-between gap-3">
+          <p className="text-sm text-indigo-700 dark:text-indigo-300 font-medium">
+            {compareIds.size === 2 ? '2 tracks selected for compare' : `${compareIds.size} of 2 selected`}
+          </p>
+          <div className="flex gap-2">
+            <button onClick={() => setCompareIds(new Set())}
+              className="text-xs text-indigo-500 hover:text-indigo-700 dark:hover:text-indigo-300 underline">
+              Clear
+            </button>
+            {compareIds.size === 2 && (
+              <button onClick={handleCompare} disabled={compareLoading}
+                className="rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1 text-xs font-semibold transition disabled:opacity-50">
+                {compareLoading ? 'Loading...' : 'Compare side-by-side'}
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Side-by-side compare view */}
+      {compareResults.length === 2 && (
+        <div className="fixed inset-0 z-50 bg-white dark:bg-zinc-950 overflow-y-auto">
+          <div className="sticky top-0 z-10 bg-white dark:bg-zinc-950 border-b border-zinc-200 dark:border-zinc-800 px-4 py-3 flex items-center gap-3">
+            <button onClick={() => setCompareResults([])}
+              className="text-sm text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white transition">
+              - Back to Library
+            </button>
+            <span className="text-sm text-zinc-400">Side-by-side compare</span>
+          </div>
+          <div className="grid grid-cols-1 lg:grid-cols-2 divide-y lg:divide-y-0 lg:divide-x divide-zinc-200 dark:divide-zinc-800">
+            {compareResults.map((r) => (
+              <div key={r.job_id} className="p-4">
+                <p className="text-xs text-zinc-400 mb-3">
+                  {r.genre?.replace(/-/g, ' ')} · {r.tempo} BPM · {r.key}
+                </p>
+                <ResultPanel result={r} />
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {sorted.length === 0 && !error ? (
         <div className="rounded-xl border-2 border-dashed border-zinc-200 dark:border-zinc-800 p-16 text-center">
           <p className="text-zinc-500 dark:text-zinc-400 text-sm">
@@ -245,7 +317,7 @@ export default function LibraryPage() {
                 {/* Top: genre badge + tempo + key */}
                 <div className="flex items-center gap-2 mb-1.5 flex-wrap">
                   <span className="rounded-full bg-indigo-100 dark:bg-indigo-900/40 px-2 py-0.5 text-xs font-medium text-indigo-700 dark:text-indigo-300 capitalize">
-                    {entry.genre?.replace(/-/g, ' ') || '—'}
+                    {entry.genre?.replace(/-/g, ' ') || '-'}
                   </span>
                   <span className="text-xs text-zinc-500 dark:text-zinc-400">{entry.tempo} BPM</span>
                   <span className="text-xs text-zinc-500 dark:text-zinc-400">{entry.key}</span>
@@ -261,14 +333,25 @@ export default function LibraryPage() {
                   </p>
                 )}
 
-                {/* Meta: date · duration · cost */}
+                {/* Meta: date · duration */}
                 <p className="text-xs text-zinc-400 dark:text-zinc-500 mb-3">
                   {new Date(entry.date).toLocaleDateString()} · {Math.round(entry.duration || 0)}s
-                  {entry.replicate_cost > 0 && ` · $${entry.replicate_cost.toFixed(3)}`}
                 </p>
 
                 {/* Action buttons */}
                 <div className="flex items-center gap-1 sm:gap-1.5">
+                  {/* Compare checkbox */}
+                  <button
+                    onClick={() => toggleCompare(entry.id)}
+                    title="Compare"
+                    className={`rounded-lg px-2 py-1.5 text-xs font-medium border transition ${
+                      compareIds.has(entry.id)
+                        ? 'bg-indigo-600 text-white border-indigo-600'
+                        : 'text-zinc-500 border-zinc-200 dark:border-zinc-700 hover:border-indigo-400 hover:text-indigo-600 dark:hover:text-indigo-400'
+                    }`}
+                  >
+                    ⚖
+                  </button>
                   {/* Favorite */}
                   <button
                     onClick={() => handleToggleFavorite(entry.id)}

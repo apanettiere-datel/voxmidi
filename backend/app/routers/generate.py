@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 from pipelines.midi_generator import generate_from_prompt
 from pipelines.post_processor import post_process_midi
 from pipelines.midi_analyzer import analyze_midi
-from database import get_db, SessionLocal, User, Generation
+from database import get_db, SessionLocal, User, Generation, Preset
 from middleware.auth import get_current_user
 from .jobs import set_job, update_job, try_start, queue_position, cancel_job, get_job
 
@@ -37,6 +37,7 @@ async def generate(
     vocal_mode: str = Form("hum"),
     autotune: int = Form(0),
     reverb: int = Form(0),
+    duration: int = Form(0),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -69,7 +70,7 @@ async def generate(
         job_id, audio_content, audio_suffix, piano_melody_content,
         source_url, prompt, genre, tempo, key, mode, lyrics,
         chord_progression, current_user.id, is_advanced_dirty,
-        vocal_mode, autotune, reverb,
+        vocal_mode, autotune, reverb, duration,
     )
     started = try_start(job_id, _run_generate, args)
 
@@ -117,6 +118,7 @@ def _run_generate(
     vocal_mode: str = "hum",
     autotune: int = 0,
     reverb: int = 0,
+    duration: int = 0,
 ) -> None:
     db = SessionLocal()
     store_dir = MIDI_STORE / job_id
@@ -192,6 +194,8 @@ def _run_generate(
                 chord_progression=chord_list if chord_list else None,
                 piano_melody_path=piano_melody_path,
                 mode=mode,
+                vocal_mode=vocal_mode,
+                duration=duration,
             )
             output_midi_path = midi_path
         except Exception as e:
@@ -387,6 +391,223 @@ async def cancel_generation(
         raise HTTPException(status_code=404, detail="Job not found")
     cancelled = cancel_job(job_id)
     return {"cancelled": cancelled, "job_id": job_id}
+
+
+@router.post("/analyze-audio")
+async def analyze_audio_endpoint(
+    audio: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+):
+    """Detect BPM and key from uploaded audio using librosa."""
+    import tempfile, os as _os
+    content = await audio.read()
+    suffix = Path(audio.filename or "audio.webm").suffix or ".webm"
+    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as f:
+        f.write(content)
+        tmp_path = f.name
+    try:
+        from pipelines.midi_generator import _analyze_reference_audio
+        tempo_f, key_str, _ = _analyze_reference_audio(tmp_path)
+        return {"tempo": round(tempo_f), "key": key_str}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        try:
+            _os.unlink(tmp_path)
+        except Exception:
+            pass
+
+
+@router.get("/presets")
+async def get_presets(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    presets = db.query(Preset).filter(Preset.user_id == current_user.id).order_by(Preset.created_at.desc()).all()
+    return [{"id": p.id, "name": p.name, "genre": p.genre, "tempo": p.tempo, "key": p.key, "prompt_prefix": p.prompt_prefix} for p in presets]
+
+
+@router.post("/presets")
+async def create_preset(
+    name: str = Form(...),
+    genre: str = Form("pop"),
+    tempo: int = Form(120),
+    key: str = Form("Am"),
+    prompt_prefix: str = Form(""),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    preset = Preset(user_id=current_user.id, name=name, genre=genre, tempo=tempo, key=key, prompt_prefix=prompt_prefix)
+    db.add(preset)
+    db.commit()
+    return {"id": preset.id, "name": preset.name, "genre": preset.genre, "tempo": preset.tempo, "key": preset.key, "prompt_prefix": preset.prompt_prefix}
+
+
+@router.delete("/presets/{preset_id}")
+async def delete_preset(
+    preset_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    preset = db.query(Preset).filter(Preset.id == preset_id, Preset.user_id == current_user.id).first()
+    if not preset:
+        raise HTTPException(status_code=404, detail="Preset not found")
+    db.delete(preset)
+    db.commit()
+    return {"deleted": True}
+
+
+@router.post("/extend/{job_id}")
+async def extend_generation(
+    job_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Extend a completed generation by continuing from the last 10 seconds."""
+    if current_user.usage_count >= current_user.usage_limit:
+        raise HTTPException(status_code=429, detail=f"Monthly limit of {current_user.usage_limit} reached")
+
+    audio_path: Optional[Path] = None
+    for base in (MIDI_STORE, UPLOAD_DIR):
+        store_dir = base / job_id
+        if not store_dir.exists():
+            continue
+        for name in _AUDIO_NAMES:
+            p = store_dir / name
+            if p.exists():
+                audio_path = p
+                break
+        if audio_path:
+            break
+
+    if not audio_path:
+        raise HTTPException(status_code=404, detail="Audio not found for this job")
+
+    gen = db.query(Generation).filter(Generation.id == job_id).first()
+
+    ext_job_id = f"ext_{job_id}"
+    current_user.usage_count += 1
+    db.commit()
+
+    ext_args = (ext_job_id, str(audio_path), gen.prompt if gen else "", gen.genre if gen else "pop",
+                gen.tempo if gen else 120, gen.key if gen else "Am", current_user.id, job_id)
+    set_job(ext_job_id, {"status": "processing", "progress": 0})
+    t = threading.Thread(target=_run_extend, args=ext_args, daemon=True)
+    t.start()
+    return {"ext_job_id": ext_job_id, "status": "processing"}
+
+
+def _run_extend(ext_job_id: str, audio_path: str, prompt: str, genre: str, tempo: int, key: str, user_id: str, parent_job_id: str) -> None:
+    import subprocess
+    db = SessionLocal()
+    try:
+        update_job(ext_job_id, {"status": "generating_audio", "progress": 20})
+        ap = Path(audio_path)
+        ext_dir = UPLOAD_DIR / ext_job_id
+        ext_dir.mkdir(parents=True, exist_ok=True)
+
+        # Extract last 10s as reference
+        tail_path = str(ext_dir / "tail.mp3")
+        try:
+            subprocess.run(
+                ["ffmpeg", "-y", "-sseof", "-10", "-i", str(ap), "-c:a", "libmp3lame", tail_path],
+                check=True, capture_output=True
+            )
+        except Exception as e:
+            print(f"[extend] ffmpeg tail failed: {e}")
+            tail_path = str(ap)
+
+        output_midi_path = str(ext_dir / "output.mid")
+        from pipelines.midi_generator import generate_from_prompt
+        midi_path, _, out_audio = generate_from_prompt(
+            prompt=f"Continue this track: {prompt}",
+            output_path=output_midi_path,
+            genre=genre, tempo=tempo, key=key,
+            audio_path=tail_path, mode="source",
+        )
+
+        store_dir = MIDI_STORE / ext_job_id
+        _persist_files(ext_dir, store_dir)
+
+        try:
+            from pipelines.midi_analyzer import analyze_midi
+            analysis = analyze_midi(midi_path)
+        except Exception:
+            analysis = {"tempo": tempo, "duration": 0, "time_signature": "4/4", "key": key, "tracks": []}
+
+        ext_gen = Generation(
+            id=ext_job_id, user_id=user_id, mode="text",
+            genre=genre, tempo=tempo, key=key, prompt=prompt,
+            midi_filename=Path(midi_path).name,
+            tracks_count=len(analysis.get("tracks", [])),
+            duration=analysis.get("duration", 0.0),
+            time_signature=analysis.get("time_signature", "4/4"),
+            replicate_cost=0.0, parent_job_id=parent_job_id,
+        )
+        db.add(ext_gen)
+        db.commit()
+
+        audio_url = None
+        if out_audio and Path(out_audio).exists():
+            audio_url = f"/api/download/{ext_job_id}/{Path(out_audio).name}"
+
+        result = {
+            "job_id": ext_job_id, "parent_job_id": parent_job_id,
+            "midi_url": f"/api/download/{ext_job_id}/{Path(midi_path).name}",
+            "audio_url": audio_url, "vocal_audio_url": None, "stems": {},
+            "genre": genre, "tempo": analysis.get("tempo") or tempo,
+            "key": analysis.get("key") or key,
+            "duration": analysis.get("duration", 0),
+            "time_signature": analysis.get("time_signature", "4/4"),
+            "tracks": analysis.get("tracks", []), "prompt": prompt, "versions": [],
+        }
+        update_job(ext_job_id, {"status": "complete", "progress": 100, "result": result})
+    except Exception as e:
+        print(f"[extend] error: {e}")
+        import traceback; traceback.print_exc()
+        update_job(ext_job_id, {"status": "error", "message": "Extend failed."})
+    finally:
+        db.close()
+
+
+@router.post("/concat/{job_id}")
+async def concat_generations(
+    job_id: str,
+    ext_job_id: str = Form(...),
+    current_user: User = Depends(get_current_user),
+):
+    """Concatenate original audio with its extension using ffmpeg."""
+    import subprocess, tempfile
+    orig_audio: Optional[Path] = None
+    ext_audio: Optional[Path] = None
+    for base in (MIDI_STORE, UPLOAD_DIR):
+        for jid, target in ((job_id, "orig"), (ext_job_id, "ext")):
+            d = base / jid
+            if not d.exists(): continue
+            for name in _AUDIO_NAMES:
+                p = d / name
+                if p.exists():
+                    if target == "orig": orig_audio = p
+                    else: ext_audio = p
+                    break
+        if orig_audio and ext_audio: break
+
+    if not orig_audio or not ext_audio:
+        raise HTTPException(status_code=404, detail="Audio files not found")
+
+    out_dir = MIDI_STORE / f"concat_{job_id}"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_path = str(out_dir / "full_mix.mp3")
+    list_file = out_dir / "concat.txt"
+    list_file.write_text(f"file '{orig_audio}'\nfile '{ext_audio}'\n")
+    try:
+        subprocess.run(
+            ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", str(list_file), "-c:a", "libmp3lame", out_path],
+            check=True, capture_output=True
+        )
+    except subprocess.CalledProcessError as e:
+        raise HTTPException(status_code=500, detail="Concat failed")
+    return {"audio_url": f"/api/download/concat_{job_id}/full_mix.mp3"}
 
 
 def parse_prompt(prompt: str) -> dict:

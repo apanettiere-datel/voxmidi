@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react'
-import { useParams, Link } from 'react-router-dom'
+import { useParams, Link, useNavigate } from 'react-router-dom'
 import ResultPanel from '@/components/voxmidi/ResultPanel'
 
 export default function SharePage() {
   const { jobId } = useParams()
+  const navigate = useNavigate()
   const [result, setResult] = useState(null)
   const [error, setError] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -87,12 +88,28 @@ export default function SharePage() {
               <p className="text-sm text-indigo-700 dark:text-indigo-300">
                 Type any music description and get MIDI + audio in seconds.
               </p>
-              <Link
-                to="/"
-                className="inline-block rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2.5 font-semibold text-sm transition"
-              >
-                Try VoxMIDI →
-              </Link>
+              <div className="flex items-center justify-center gap-3 flex-wrap">
+                <Link
+                  to="/"
+                  className="inline-block rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2.5 font-semibold text-sm transition"
+                >
+                  Try VoxMIDI →
+                </Link>
+                <button
+                  onClick={() => {
+                    sessionStorage.setItem('voxmidi_remix', JSON.stringify({
+                      prompt: result.prompt || '',
+                      genre: result.genre || 'pop',
+                      tempo: result.tempo || 120,
+                      key: result.key || 'Am',
+                    }))
+                    navigate('/')
+                  }}
+                  className="inline-block rounded-xl border border-indigo-400 dark:border-indigo-600 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100 dark:hover:bg-indigo-900/30 px-6 py-2.5 font-semibold text-sm transition"
+                >
+                  🔀 Remix This
+                </button>
+              </div>
             </div>
           </div>
         )}

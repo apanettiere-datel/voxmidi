@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 
-import { startGenerateMidi, startExtractSource } from '@/lib/api'
+import { startGenerateMidi } from '@/lib/api'
 import { useAuthFetch } from '@/lib/authFetch'
 import { useJobs, JobsNotificationBar } from '@/lib/JobsContext'
 import VoicePanel from '@/components/voxmidi/VoicePanel'
@@ -252,17 +252,22 @@ export default function CreatePage() {
   // Core inputs
   const [prompt, setPrompt] = useState('')
   const [audioBlob, setAudioBlob] = useState(null)
-  const [sourceUrl, setSourceUrl] = useState('')
   const [sourceFile, setSourceFile] = useState(null)
   const [sourceMode, setSourceMode] = useState('extract') // 'extract' | 'reference'
   const [lyrics, setLyrics] = useState('')
 
   // Panel open/close
   const [showVoice, setShowVoice] = useState(false)
-  const [showSource, setShowSource] = useState(false)
   const [showLyrics, setShowLyrics] = useState(false)
   const [showPiano, setShowPiano] = useState(false)
   const [showAdvanced, setShowAdvanced] = useState(false)
+
+  // Song length
+  const [songDuration, setSongDuration] = useState(0) // 0 = default
+
+  // Presets
+  const [presets, setPresets] = useState([])
+  const [detectedInfo, setDetectedInfo] = useState(null)
 
   // Vocal mode state
   const [vocalMode, setVocalMode] = useState('hum') // 'hum' | 'sing'
@@ -304,14 +309,6 @@ export default function CreatePage() {
       sessionStorage.removeItem('voxmidi_pending_result')
     }
 
-    // Source URL passed from Sources page
-    const url = sessionStorage.getItem('voxmidi_load_source')
-    if (url) {
-      setSourceUrl(url)
-      setShowSource(true)
-      sessionStorage.removeItem('voxmidi_load_source')
-    }
-
     // Remix data
     const remixRaw = sessionStorage.getItem('voxmidi_remix')
     if (remixRaw) {
@@ -328,15 +325,32 @@ export default function CreatePage() {
     }
 
     setPromptHistory(getPromptHistory())
-  }, [])
+
+    // Load presets
+    authFetch('/api/presets')
+      .then(r => r.ok ? r.json() : [])
+      .then(setPresets)
+      .catch(() => {})
+  }, [authFetch])
 
   // ── Silent prompt auto-detection — fills genre/tempo/key when not explicitly set ──
   useEffect(() => {
-    if (!prompt.trim() || advancedDirty) return
+    if (!prompt.trim()) { setDetectedInfo(null); return }
     const detected = detectFromPrompt(prompt)
-    if (detected.genre && GENRE_DEFAULTS[detected.genre]) setGenre(detected.genre)
-    if (detected.tempo) setTempo(detected.tempo)
-    if (detected.key) setMusicalKey(detected.key)
+    if (!advancedDirty) {
+      if (detected.genre && GENRE_DEFAULTS[detected.genre]) setGenre(detected.genre)
+      if (detected.tempo) setTempo(detected.tempo)
+      if (detected.key) setMusicalKey(detected.key)
+    }
+    // Build display string
+    if (detected.genre || detected.tempo || detected.key) {
+      const GENRE_LABEL_MAP = { 'lo-fi-hip-hop': 'Lo-fi', 'drum-and-bass': 'DnB', 'r-and-b': 'R&B', metal: 'Metal', edm: 'EDM', trap: 'Trap', house: 'House', synthwave: 'Synthwave', pop: 'Pop', rock: 'Rock', jazz: 'Jazz', ambient: 'Ambient', classical: 'Classical' }
+      const genreLabel = detected.genre ? (GENRE_LABEL_MAP[detected.genre] || detected.genre) : null
+      const parts = [genreLabel, detected.tempo ? `${detected.tempo} BPM` : null, detected.key].filter(Boolean)
+      setDetectedInfo(parts.length ? parts.join(' - ') : null)
+    } else {
+      setDetectedInfo(null)
+    }
   }, [prompt]) // eslint-disable-line
 
   // ── Watch global job state for this page's active job ────────────────────
@@ -392,6 +406,22 @@ export default function CreatePage() {
     }
   }
 
+  async function analyzeAudio(blobOrFile) {
+    try {
+      const fd = new FormData()
+      fd.append('audio', blobOrFile, blobOrFile.name || 'audio.webm')
+      const res = await authFetch('/api/analyze-audio', { method: 'POST', body: fd })
+      if (!res.ok) return
+      const data = await res.json()
+      if (!advancedDirty) {
+        if (data.tempo) setTempo(data.tempo)
+        if (data.key) setMusicalKey(data.key)
+      }
+      const parts = [data.tempo ? `${data.tempo} BPM` : null, data.key].filter(Boolean)
+      setDetectedInfo(parts.length ? `Audio: ${parts.join(', ')}` : null)
+    } catch { /* ignore */ }
+  }
+
   async function handleCancel() {
     if (currentJobId) {
       await cancelJob(currentJobId)
@@ -415,48 +445,35 @@ export default function CreatePage() {
 
     try {
       const isReferenceMode = sourceFile && sourceMode === 'reference'
-      const isSourceMode = !isReferenceMode && (sourceFile || (sourceUrl && !sourceUrl.startsWith('file://')))
-      let jobData
-
-      if (isSourceMode) {
-        const formData = new FormData()
-        if (sourceFile) formData.append('file', sourceFile, sourceFile.name)
-        else formData.append('url', sourceUrl)
-        formData.append('genre', effectiveGenre)
-        formData.append('tempo', String(tempo))
-        formData.append('key', musicalKey)
-        jobData = await startExtractSource(formData, authFetch)
+      const formData = new FormData()
+      if (isReferenceMode) {
+        formData.append('audio', sourceFile, sourceFile.name)
+        formData.append('mode', 'source')
+      } else if (audioBlob) {
+        formData.append('audio', audioBlob, 'recording.webm')
+        formData.append('mode', 'voice')
       } else {
-        const formData = new FormData()
-        if (isReferenceMode) {
-          formData.append('audio', sourceFile, sourceFile.name)
-          formData.append('mode', 'source')
-        } else if (audioBlob) {
-          formData.append('audio', audioBlob, 'recording.webm')
-          formData.append('mode', vocalMode === 'sing' ? 'voice' : 'voice')
-        } else {
-          formData.append('mode', 'text')
-        }
-        formData.append('prompt', prompt)
-        formData.append('genre', effectiveGenre)
-        formData.append('tempo', String(tempo))
-        formData.append('key', musicalKey)
-        formData.append('advanced_dirty', advancedDirty ? 'true' : 'false')
-        formData.append('vocal_mode', vocalMode)
-        formData.append('autotune', String(autotune))
-        formData.append('reverb', String(reverb))
-        if (showLyrics && lyrics.trim()) formData.append('lyrics', lyrics)
-        if (chordProgression.length > 0) formData.append('chord_progression', JSON.stringify(chordProgression))
-        if (melodyBlob) formData.append('piano_melody', melodyBlob, 'piano_melody.wav')
-        jobData = await startGenerateMidi(formData, authFetch)
+        formData.append('mode', 'text')
       }
+      formData.append('prompt', prompt)
+      formData.append('genre', effectiveGenre)
+      formData.append('tempo', String(tempo))
+      formData.append('key', musicalKey)
+      formData.append('advanced_dirty', advancedDirty ? 'true' : 'false')
+      formData.append('vocal_mode', vocalMode)
+      formData.append('autotune', String(autotune))
+      formData.append('reverb', String(reverb))
+      formData.append('duration', String(songDuration))
+      if (showLyrics && lyrics.trim()) formData.append('lyrics', lyrics)
+      if (chordProgression.length > 0) formData.append('chord_progression', JSON.stringify(chordProgression))
+      if (melodyBlob) formData.append('piano_melody', melodyBlob, 'piano_melody.wav')
+      const jobData = await startGenerateMidi(formData, authFetch)
 
       const jobId = jobData.job_id
       setCurrentJobId(jobId)
 
-      // Register with global context so notification bar works when navigating away
       startJob(jobId, {
-        label: `${effectiveGenre} · ${tempo} BPM${prompt ? ` — "${prompt.slice(0, 40)}"` : ''}`,
+        label: `${effectiveGenre} · ${tempo} BPM${prompt ? ` - "${prompt.slice(0, 40)}"` : ''}`,
         genre: effectiveGenre,
         tempo,
         key: musicalKey,
@@ -470,8 +487,7 @@ export default function CreatePage() {
   const hasPrompt   = prompt.trim().length > 0
   const isReferenceMode = sourceFile && sourceMode === 'reference'
   const isExtractMode   = sourceFile && sourceMode === 'extract'
-  const hasSource   = !!(sourceFile || (sourceUrl && !sourceUrl.startsWith('file://')))
-  const canGenerate = !isGenerating && (hasPrompt || !!audioBlob || hasSource || (showLyrics && lyrics.trim()))
+  const canGenerate = !isGenerating && (hasPrompt || !!audioBlob || !!sourceFile || (showLyrics && lyrics.trim()))
 
   const generateLabel = () => {
     if (isGenerating) return 'Generating...'
@@ -479,7 +495,7 @@ export default function CreatePage() {
     if (showLyrics && lyrics.trim()) return '🎤 Generate Song with Vocals'
     if (isReferenceMode) return '🎵 Generate from Melody Reference'
     if (isExtractMode) return '🔪 Extract & Separate Stems'
-    if (hasSource) return '🎼 Extract & Convert to MIDI'
+    if (sourceFile) return '🎼 Extract & Convert to MIDI'
     if (audioBlob) return '🎵 Generate from Your Melody'
     return '✨ Generate Music'
   }
@@ -491,6 +507,35 @@ export default function CreatePage() {
     <div className="max-w-2xl mx-auto px-4 py-8 space-y-5">
 
       {/* Prompt */}
+      {/* Preset pills */}
+      {presets.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {presets.map((p) => (
+            <button key={p.id} type="button"
+              onClick={() => {
+                if (p.prompt_prefix) setPrompt(p.prompt_prefix)
+                if (p.genre) setGenre(p.genre)
+                if (p.tempo) setTempo(p.tempo)
+                if (p.key) setMusicalKey(p.key)
+                setAdvancedDirty(true)
+              }}
+              className="rounded-full px-3 py-1 text-xs font-medium bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 hover:bg-indigo-100 dark:hover:bg-indigo-900/40 hover:text-indigo-700 dark:hover:text-indigo-300 transition flex items-center gap-1"
+            >
+              💾 {p.name}
+              <span
+                onClick={(e) => {
+                  e.stopPropagation()
+                  authFetch(`/api/presets/${p.id}`, { method: 'DELETE' })
+                    .then(() => setPresets((prev) => prev.filter((x) => x.id !== p.id)))
+                    .catch(() => {})
+                }}
+                className="ml-1 text-zinc-400 hover:text-red-500 cursor-pointer"
+              >×</span>
+            </button>
+          ))}
+        </div>
+      )}
+
       <div className="relative">
         <textarea
           value={prompt}
@@ -513,6 +558,9 @@ export default function CreatePage() {
           </div>
         )}
       </div>
+      {detectedInfo && (
+        <p className="text-xs text-indigo-500 dark:text-indigo-400 -mt-3">Detected: {detectedInfo}</p>
+      )}
 
       {/* Action buttons */}
       <div className="flex flex-wrap gap-2">
@@ -528,12 +576,6 @@ export default function CreatePage() {
           }
         />
         <ActionButton
-          active={showSource}
-          onClick={() => setShowSource((v) => !v)}
-          icon="🔗"
-          label={sourceUrl ? 'URL set ✓' : 'Audio URL'}
-        />
-        <ActionButton
           active={showLyrics}
           onClick={() => setShowLyrics((v) => !v)}
           icon="✍️"
@@ -543,7 +585,7 @@ export default function CreatePage() {
           active={showPiano}
           onClick={() => setShowPiano((v) => !v)}
           icon="🎹"
-          label={chordProgression.length > 0 ? `Chords: ${chordProgression.join(' → ')}` : melodyBlob ? 'Melody recorded ✓' : 'Piano / Chords'}
+          label={chordProgression.length > 0 ? `Chords: ${chordProgression.join(' - ')}` : melodyBlob ? 'Melody recorded ✓' : 'Piano / Chords'}
         />
       </div>
 
@@ -551,32 +593,24 @@ export default function CreatePage() {
       {showVoice && (
         <VoicePanel
           lyrics={lyrics}
-          onHumBlob={(blob) => { setAudioBlob(blob); setVocalMode('hum'); if (blob) { setSourceFile(null) } }}
-          onSingBlob={(blob) => { setAudioBlob(blob); setVocalMode('sing'); if (blob) { setSourceFile(null) } }}
+          onHumBlob={(blob) => {
+            setAudioBlob(blob); setVocalMode('hum')
+            if (blob) { setSourceFile(null); analyzeAudio(blob) }
+          }}
+          onSingBlob={(blob) => {
+            setAudioBlob(blob); setVocalMode('sing')
+            if (blob) { setSourceFile(null); analyzeAudio(blob) }
+          }}
           onUploadFile={(file, mode) => {
             if (!file) { setSourceFile(null); return }
             setSourceFile(file)
             setSourceMode(mode === 'extract' ? 'extract' : 'reference')
             setAudioBlob(null)
+            analyzeAudio(file)
           }}
           onAutotuneChange={setAutotune}
           onReverbChange={setReverb}
         />
-      )}
-
-      {/* Audio URL source panel (file upload moved to Voice → Upload tab) */}
-      {showSource && (
-        <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-5 space-y-3">
-          <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">YouTube / audio URL</label>
-          <input
-            type="url"
-            value={sourceUrl}
-            onChange={(e) => setSourceUrl(e.target.value)}
-            placeholder="https://youtube.com/watch?v=... or direct audio URL"
-            className="w-full rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-3 py-2 text-sm text-zinc-900 dark:text-white placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-          />
-          <p className="text-xs text-zinc-400 dark:text-zinc-500">VoxMIDI downloads the audio, extracts the melody, and converts to MIDI.</p>
-        </div>
       )}
 
       {/* Lyrics panel */}
@@ -681,6 +715,34 @@ export default function CreatePage() {
               </div>
             </div>
           </div>
+        )}
+      </div>
+
+      {/* Song duration pills */}
+      <div className="flex flex-wrap gap-2 items-center">
+        <span className="text-xs text-zinc-500 dark:text-zinc-400">Length:</span>
+        {[
+          { label: '15s', value: 15 },
+          { label: '30s', value: 30 },
+          { label: '1 min', value: 60 },
+          { label: '2 min', value: 120 },
+          { label: '4 min', value: 240 },
+        ].map(({ label, value }) => (
+          <button key={value} type="button"
+            onClick={() => setSongDuration(songDuration === value ? 0 : value)}
+            className={`rounded-full px-3 py-1 text-xs font-medium transition ${
+              songDuration === value
+                ? 'bg-indigo-600 text-white'
+                : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-700'
+            }`}>
+            {label}
+          </button>
+        ))}
+        {songDuration > 0 && (
+          <button type="button" onClick={() => setSongDuration(0)}
+            className="text-xs text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 transition">
+            Clear
+          </button>
         )}
       </div>
 

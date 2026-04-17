@@ -54,16 +54,3 @@ async def health():
     return {"status": "ok", "version": "0.2.0", "dev_mode": os.environ.get("DEV_MODE", "false")}
 
 
-@app.get("/api/presets")
-async def presets():
-    return [
-        {"genre": "edm",           "tempo": 128, "key": "Am", "tracks": ["melody", "bass", "chords", "drums"]},
-        {"genre": "lo-fi-hip-hop", "tempo": 85,  "key": "Cm", "tracks": ["melody", "bass", "chords", "drums"]},
-        {"genre": "trap",          "tempo": 140, "key": "Fm", "tracks": ["melody", "bass", "drums"]},
-        {"genre": "house",         "tempo": 124, "key": "Gm", "tracks": ["melody", "bass", "chords", "drums"]},
-        {"genre": "drum-and-bass", "tempo": 174, "key": "Am", "tracks": ["melody", "bass", "drums"]},
-        {"genre": "synthwave",     "tempo": 108, "key": "Em", "tracks": ["melody", "bass", "chords", "drums"]},
-        {"genre": "pop",           "tempo": 120, "key": "C",  "tracks": ["melody", "bass", "chords", "drums"]},
-        {"genre": "jazz",          "tempo": 110, "key": "Dm", "tracks": ["melody", "bass", "chords", "drums"]},
-        {"genre": "ambient",       "tempo": 70,  "key": "D",  "tracks": ["melody", "chords"]},
-    ]
