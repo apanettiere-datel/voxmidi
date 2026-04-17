@@ -5,6 +5,16 @@ import { useAuthFetch } from '@/lib/authFetch'
 import AudioRecorder from '@/components/voxmidi/AudioRecorder'
 import ResultPanel from '@/components/voxmidi/ResultPanel'
 
+const HISTORY_KEY = 'voxmidi_prompt_history'
+function getPromptHistory() {
+  try { return JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]') } catch { return [] }
+}
+function savePromptHistory(prompt) {
+  if (!prompt.trim()) return
+  const h = [prompt, ...getPromptHistory().filter((p) => p !== prompt)].slice(0, 10)
+  localStorage.setItem(HISTORY_KEY, JSON.stringify(h))
+}
+
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const GENRES = [
@@ -197,6 +207,8 @@ export default function CreatePage() {
   const [result, setResult] = useState(null)
 
   const [generatingLyrics, setGeneratingLyrics] = useState(false)
+  const [promptHistory, setPromptHistory] = useState([])
+  const [showHistory, setShowHistory] = useState(false)
   const fileInputRef = useRef(null)
   const tapTimesRef = useRef([])
   const pollRef = useRef(null)
@@ -209,6 +221,7 @@ export default function CreatePage() {
       setShowSource(true)
       sessionStorage.removeItem('voxmidi_load_source')
     }
+    setPromptHistory(getPromptHistory())
   }, [])
 
   // Auto-parse prompt → fill advanced settings (only when advanced is not manually open)
@@ -293,6 +306,11 @@ export default function CreatePage() {
     setJobStatus(null)
     setIsGenerating(true)
 
+    if (prompt.trim()) {
+      savePromptHistory(prompt)
+      setPromptHistory(getPromptHistory())
+    }
+
     try {
       const isSourceMode = sourceFile || (sourceUrl && !sourceUrl.startsWith('file://'))
       let jobData
@@ -350,14 +368,32 @@ export default function CreatePage() {
     <div className="max-w-2xl mx-auto px-4 py-8 space-y-5">
 
       {/* Prompt — hero input */}
-      <div>
+      <div className="relative">
         <textarea
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
+          onFocus={() => setShowHistory(promptHistory.length > 0)}
+          onBlur={() => setTimeout(() => setShowHistory(false), 150)}
           rows={4}
           placeholder="Describe the music you want... e.g., Tech house like John Summit, 126 BPM, groovy bassline, festival energy"
           className="w-full rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-4 py-3 text-base text-zinc-900 dark:text-white placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none shadow-sm"
         />
+        {/* Recent prompts dropdown */}
+        {showHistory && promptHistory.length > 0 && (
+          <div className="absolute left-0 right-0 top-full mt-1 z-20 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 shadow-lg overflow-hidden">
+            <p className="px-3 py-2 text-xs text-zinc-400 dark:text-zinc-500 border-b border-zinc-100 dark:border-zinc-800">Recent prompts</p>
+            {promptHistory.map((h, i) => (
+              <button
+                key={i}
+                type="button"
+                onMouseDown={() => { setPrompt(h); setShowHistory(false) }}
+                className="w-full text-left px-3 py-2 text-sm text-zinc-700 dark:text-zinc-300 hover:bg-indigo-50 dark:hover:bg-indigo-950/20 hover:text-indigo-700 dark:hover:text-indigo-300 truncate transition"
+              >
+                {h}
+              </button>
+            ))}
+          </div>
+        )}
         {prompt && (
           <p className="mt-1.5 text-xs text-zinc-400 dark:text-zinc-500 pl-1">
             Detected: <span className="text-indigo-500">{genre}</span>

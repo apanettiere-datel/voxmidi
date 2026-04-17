@@ -1,13 +1,23 @@
-"""MIDI generation — MusicGen (Replicate) + MiniMax Music, with mock fallback."""
+"""MIDI generation — MusicGen (Replicate) + MiniMax Music, with mock fallback.
+
+Pipeline:
+  1. Generate AI audio (MusicGen / MiniMax / mock)
+  2. Separate audio into stems (Demucs / mock)
+  3. Write CLEAN MIDI via genre-aware generator (NOT transcription — transcription sounds bad)
+  4. Optionally transcribe stems for a "detailed" alternate MIDI
+
+Returns: (midi_path, vocal_audio_path, stems_dict)
+  stems_dict keys: vocals/bass/drums/other → local file paths (.mp3 in real mode, .mid in mock)
+"""
 
 import os
-import time
 import shutil
+import time
 import urllib.request
 import pretty_midi
 import numpy as np
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Dict
 
 KEY_ROOTS = {
     'C': 60, 'Cm': 60, 'C#': 61, 'C#m': 61,
@@ -46,19 +56,24 @@ def _chord_notes(chord_root: int, minor: bool) -> list:
     return [chord_root + i for i in triad]
 
 
-# ─── Shared audio→MIDI helper ─────────────────────────────────────────────────
+# ─── Core: separate audio into stems + generate clean MIDI ────────────────────
 
-def _audio_to_midi(
+def _process_audio(
     audio_path: str,
     output_path: str,
     genre: str = 'edm',
     tempo: int = 128,
     key: str = 'Am',
     skip_vocals: bool = False,
-) -> Tuple[str, Optional[str]]:
-    """Demucs stem separation → Basic Pitch transcription → merged MIDI.
+    user_hum_path: Optional[str] = None,
+) -> Tuple[str, Optional[str], Dict[str, str]]:
+    """
+    1. Separate audio into stems via Demucs
+    2. Generate CLEAN MIDI using genre-aware generator (not transcription)
+    3. Optionally also transcribe user's hum for melody
 
-    Returns (midi_path, vocal_stem_path_or_None).
+    Returns (midi_path, vocal_stem_path, stems_dict).
+    stems_dict: {stem_name: local_file_path} — .mp3 in real mode, .mid in mock mode.
     """
     from pipelines.separator import separate_stems
     from pipelines.transcriber import transcribe_audio
@@ -66,55 +81,54 @@ def _audio_to_midi(
     job_dir = Path(output_path).parent
     job_dir.mkdir(parents=True, exist_ok=True)
 
-    print("[midi_generator] Separating stems via Demucs...")
+    print("[midi_generator] Separating stems...")
     stems = separate_stems(str(audio_path), str(job_dir))
 
-    print(f"[midi_generator] Transcribing {len(stems)} stems with Basic Pitch...")
+    vocal_stem_path: Optional[str] = stems.get("vocals")
 
-    STEM_PROGRAMS = {
-        "vocals": 0, "other": 0, "bass": 33,
-        "piano": 0, "guitar": 25, "chords": 4,
-    }
+    # CLEAN MIDI — genre-aware, key-aware, human-readable
+    # We intentionally do NOT transcribe the AI audio — it sounds terrible.
+    pm = mock_generate(genre=genre, tempo=tempo, key=key)
 
-    merged = pretty_midi.PrettyMIDI(initial_tempo=tempo, resolution=480)
-    vocal_stem_path: Optional[str] = None
-
-    for stem_name, stem_path in stems.items():
-        if stem_name == "vocals":
-            vocal_stem_path = stem_path
-            if skip_vocals:
-                continue
-
-        is_drum = stem_name == "drums"
-        program = STEM_PROGRAMS.get(stem_name, 0)
-
+    # If user hummed a melody, transcribe THAT instead of AI audio for the melody track
+    if user_hum_path and Path(user_hum_path).exists():
         try:
-            stem_midi = transcribe_audio(
-                stem_path, str(job_dir), output_name=f"{stem_name}.mid"
+            hum_midi_path = transcribe_audio(
+                user_hum_path, str(job_dir), output_name="hum_melody.mid"
             )
-            stem_pm = pretty_midi.PrettyMIDI(stem_midi)
-            for instrument in stem_pm.instruments:
-                if not instrument.notes:
-                    continue
-                new_inst = pretty_midi.Instrument(
-                    program=program, is_drum=is_drum,
-                    name=stem_name.capitalize(),
+            hum_pm = pretty_midi.PrettyMIDI(hum_midi_path)
+            if hum_pm.instruments:
+                # Replace the melody track in the clean MIDI with the hummed melody
+                melody_idx = next(
+                    (i for i, inst in enumerate(pm.instruments) if inst.name == 'Melody'),
+                    None
                 )
-                new_inst.notes = instrument.notes
-                merged.instruments.append(new_inst)
-                break
+                hum_inst = hum_pm.instruments[0]
+                hum_inst.name = 'Melody (from hum)'
+                hum_inst.program = 0
+                if melody_idx is not None:
+                    pm.instruments[melody_idx] = hum_inst
+                else:
+                    pm.instruments.append(hum_inst)
+                print("[midi_generator] Merged hummed melody into MIDI")
         except Exception as e:
-            print(f"[midi_generator] Could not transcribe {stem_name}: {e}")
+            print(f"[midi_generator] Could not transcribe hum: {e}")
 
-    if not merged.instruments:
-        print("[midi_generator] No stems transcribed — falling back to mock")
-        pm = mock_generate(genre=genre, tempo=tempo, key=key)
-        pm.write(output_path)
-        return output_path, vocal_stem_path
+    pm.write(output_path)
+    print(f"[midi_generator] Wrote clean MIDI ({len(pm.instruments)} tracks) to {output_path}")
 
-    merged.write(output_path)
-    print(f"[midi_generator] Wrote {len(merged.instruments)} tracks to {output_path}")
-    return output_path, vocal_stem_path
+    # Optional: transcribe AI stems for a "detailed" alternate MIDI (best-effort)
+    for stem_name, stem_path in stems.items():
+        if skip_vocals and stem_name == "vocals":
+            continue
+        if not stem_path.endswith(".mp3"):
+            continue
+        try:
+            transcribe_audio(stem_path, str(job_dir), output_name=f"{stem_name}_transcribed.mid")
+        except Exception:
+            pass
+
+    return output_path, vocal_stem_path, stems
 
 
 # ─── MusicGen (Replicate) ─────────────────────────────────────────────────────
@@ -129,8 +143,8 @@ def _generate_via_musicgen(
     tempo: int = 128,
     key: str = 'Am',
     audio_path: Optional[str] = None,
-) -> Tuple[str, Optional[str]]:
-    """Generate instrumental audio with MusicGen, then convert to MIDI via stems."""
+) -> Tuple[str, Optional[str], Dict[str, str]]:
+    """Generate instrumental audio with MusicGen, then separate stems + generate clean MIDI."""
     import replicate
 
     token = os.environ.get('REPLICATE_API_TOKEN', '')
@@ -139,7 +153,7 @@ def _generate_via_musicgen(
         pm = mock_generate(genre=genre, tempo=tempo, key=key)
         Path(output_path).parent.mkdir(parents=True, exist_ok=True)
         pm.write(output_path)
-        return output_path, None
+        return output_path, None, {}
 
     client = replicate.Client(api_token=token)
 
@@ -156,30 +170,29 @@ def _generate_via_musicgen(
 
     try:
         if audio_path and Path(audio_path).exists():
-            print("[midi_generator] MusicGen: generating with melody conditioning from user audio...")
+            print("[midi_generator] MusicGen: melody conditioning from user audio...")
             with open(audio_path, 'rb') as f:
                 inputs["input_audio"] = f
                 output = client.run(MUSICGEN_MODEL, input=inputs)
         else:
-            print("[midi_generator] MusicGen: generating instrumental audio (30s)...")
+            print("[midi_generator] MusicGen: generating 30s instrumental...")
             output = client.run(MUSICGEN_MODEL, input=inputs)
     except Exception as e:
-        print(f"[midi_generator] MusicGen API error: {e} — falling back to mock")
-        pm = mock_generate(genre=genre, tempo=tempo, key=key)
-        Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-        pm.write(output_path)
-        return output_path, None
+        raise RuntimeError(f"MusicGen API error: {e}")
 
-    # output is a URL to the generated MP3
     audio_url = str(output)
     job_dir = Path(output_path).parent
     job_dir.mkdir(parents=True, exist_ok=True)
     gen_audio_path = str(job_dir / "musicgen_audio.mp3")
 
-    print("[midi_generator] MusicGen: downloading audio...")
+    print("[midi_generator] MusicGen: downloading generated audio...")
     urllib.request.urlretrieve(audio_url, gen_audio_path)
 
-    return _audio_to_midi(gen_audio_path, output_path, genre=genre, tempo=tempo, key=key)
+    return _process_audio(
+        gen_audio_path, output_path,
+        genre=genre, tempo=tempo, key=key,
+        user_hum_path=audio_path,
+    )
 
 
 # ─── MiniMax Music ────────────────────────────────────────────────────────────
@@ -191,8 +204,8 @@ def _generate_via_minimax(
     tempo: int = 128,
     key: str = 'Am',
     lyrics: str = '',
-) -> Tuple[str, Optional[str]]:
-    """Generate a full song (vocals + music) with MiniMax, extract MIDI from instrumentals."""
+) -> Tuple[str, Optional[str], Dict[str, str]]:
+    """Generate full song (vocals + music) with MiniMax, separate stems + generate clean MIDI."""
     import httpx
     import binascii
 
@@ -202,7 +215,7 @@ def _generate_via_minimax(
         pm = mock_generate(genre=genre, tempo=tempo, key=key)
         Path(output_path).parent.mkdir(parents=True, exist_ok=True)
         pm.write(output_path)
-        return output_path, None
+        return output_path, None, {}
 
     style_desc = (
         f"{genre.replace('-', ' ').title()} style at {tempo} BPM in {key}. {prompt}"
@@ -241,22 +254,20 @@ def _generate_via_minimax(
     audio_bytes = binascii.unhexlify(audio_hex)
     audio_file = str(job_dir / "minimax_audio.mp3")
     Path(audio_file).write_bytes(audio_bytes)
-    print(f"[midi_generator] MiniMax: saved {len(audio_bytes)} bytes of audio")
+    print(f"[midi_generator] MiniMax: saved {len(audio_bytes)} bytes")
 
-    # Separate stems — skip vocals in MIDI (they're returned as audio)
-    midi_path, vocal_path = _audio_to_midi(
-        audio_file, output_path, genre=genre, tempo=tempo, key=key, skip_vocals=True
+    midi_path, vocal_stem_path, stems = _process_audio(
+        audio_file, output_path,
+        genre=genre, tempo=tempo, key=key, skip_vocals=True,
     )
 
-    # Copy the vocal stem (separated) as the vocal track for the DAW
-    # If Demucs didn't separate, fall back to the full mix
-    if vocal_path and Path(vocal_path).exists():
+    # Use separated vocal stem if available, else full mix
+    if vocal_stem_path and Path(vocal_stem_path).exists():
         final_vocal = str(job_dir / "vocal_track.mp3")
-        shutil.copy(vocal_path, final_vocal)
-    else:
-        final_vocal = audio_file  # full mix as fallback
+        shutil.copy(vocal_stem_path, final_vocal)
+        vocal_stem_path = final_vocal
 
-    return midi_path, final_vocal
+    return midi_path, vocal_stem_path, stems
 
 
 # ─── Public API ───────────────────────────────────────────────────────────────
@@ -271,11 +282,11 @@ def generate_from_prompt(
     lyrics: str = '',
     audio_path: Optional[str] = None,
     **kwargs,
-) -> Tuple[str, Optional[str]]:
-    """Generate MIDI from prompt/audio/lyrics.
+) -> Tuple[str, Optional[str], Dict[str, str]]:
+    """Generate MIDI + stems from prompt/audio/lyrics.
 
-    Returns (midi_path, vocal_audio_path_or_None).
-    vocal_audio_path is the local path to a separated vocal stem (MP3).
+    Returns (midi_path, vocal_audio_path_or_None, stems_dict).
+    stems_dict: {stem_name: local_file_path}
     """
     provider = os.environ.get('MIDI_GEN_PROVIDER', 'auto')
     has_replicate = bool(os.environ.get('REPLICATE_API_TOKEN'))
@@ -287,11 +298,8 @@ def generate_from_prompt(
         pm = mock_generate(genre=genre, tempo=tempo, key=key)
         Path(output_path).parent.mkdir(parents=True, exist_ok=True)
         pm.write(output_path)
-        return output_path, None
+        return output_path, None, {}
 
-    # Route based on input:
-    # lyrics present AND MiniMax available → MiniMax (vocals + music)
-    # audio present or text only → MusicGen (instrumental)
     if lyrics.strip() and has_minimax:
         print("[midi_generator] Routing to MiniMax (lyrics provided)")
         return _generate_via_minimax(
@@ -304,7 +312,7 @@ def generate_from_prompt(
         )
 
 
-# ─── Mock generator (genre-aware fallback) ────────────────────────────────────
+# ─── Mock generator (genre-aware, clean MIDI) ────────────────────────────────
 
 def mock_generate(genre: str, tempo: int, key: str, num_bars: int = 32) -> pretty_midi.PrettyMIDI:
     g = genre.lower().replace(' ', '-').replace('_', '-')

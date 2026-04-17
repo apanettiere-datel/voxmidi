@@ -1,7 +1,9 @@
+import io
 import uuid
+import zipfile
 from pathlib import Path
 from fastapi import APIRouter, UploadFile, File, HTTPException, Depends
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy.orm import Session
 
 from pipelines.transcriber import transcribe_audio
@@ -62,10 +64,58 @@ async def transcribe(
 
 @router.get("/download/{job_id}/{filename}")
 async def download_file(job_id: str, filename: str):
-    """Download a generated file. Checks /tmp first, then persistent data store."""
-    for base in (UPLOAD_DIR, MIDI_STORE):
+    """Download a generated file. Checks persistent store first, then /tmp."""
+    if filename == "stems.zip":
+        return await _stems_zip(job_id)
+
+    for base in (MIDI_STORE, UPLOAD_DIR):
         file_path = base / job_id / filename
         if file_path.exists():
-            media_type = "audio/mpeg" if filename.endswith(".mp3") else "audio/midi"
-            return FileResponse(str(file_path), media_type=media_type, filename=filename)
+            if filename.endswith(".mp3"):
+                media_type = "audio/mpeg"
+            elif filename.endswith(".mid"):
+                media_type = "audio/midi"
+            else:
+                media_type = "application/octet-stream"
+            return FileResponse(
+                str(file_path),
+                media_type=media_type,
+                filename=filename,
+                headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+            )
     raise HTTPException(status_code=404, detail="File not found")
+
+
+async def _stems_zip(job_id: str) -> StreamingResponse:
+    """Stream a zip of all stem MP3s for the given job."""
+    STEM_NAMES = ["vocals", "bass", "drums", "other"]
+    buf = io.BytesIO()
+    found = False
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for base in (MIDI_STORE, UPLOAD_DIR):
+            job_dir = base / job_id
+            if not job_dir.exists():
+                continue
+            for stem in STEM_NAMES:
+                src = job_dir / f"{stem}.mp3"
+                if src.exists():
+                    zf.write(src, f"{stem}.mp3")
+                    found = True
+            # Also include full mix
+            for name in ("musicgen_audio.mp3", "minimax_audio.mp3"):
+                src = job_dir / name
+                if src.exists():
+                    zf.write(src, "full_mix.mp3")
+                    found = True
+                    break
+            if found:
+                break
+    if not found:
+        raise HTTPException(status_code=404, detail="No stems found")
+    buf.seek(0)
+    zip_name = f"voxmidi_{job_id}_stems.zip"
+    return StreamingResponse(
+        buf,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{zip_name}"'},
+    )

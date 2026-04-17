@@ -12,6 +12,7 @@ import SourcesPage from '@/pages/SourcesPage'
 import SettingsPage from '@/pages/SettingsPage'
 import SignInPage from '@/pages/SignInPage'
 import SignUpPage from '@/pages/SignUpPage'
+import SharePage from '@/pages/SharePage'
 import { useAuthFetch } from '@/lib/authFetch'
 
 const CLERK_KEY = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY
@@ -117,14 +118,19 @@ function AppRoutes() {
 
 export default function App() {
   if (!CLERK_KEY) {
-    // Dev mode: no Clerk, skip auth
-    return <AppRoutes />
+    return (
+      <Routes>
+        <Route path="/share/:jobId" element={<SharePage />} />
+        <Route path="/*" element={<AppRoutes />} />
+      </Routes>
+    )
   }
 
   return (
     <Routes>
       <Route path="/sign-in/*" element={<SignInPage />} />
       <Route path="/sign-up/*" element={<SignUpPage />} />
+      <Route path="/share/:jobId" element={<SharePage />} />
       <Route
         path="/*"
         element={

@@ -113,9 +113,10 @@ def _run_generate(
 
         output_midi_path = str(job_dir / "output.mid")
         vocal_audio_path: Optional[str] = None
+        stems_dict: dict = {}
 
         try:
-            output_midi_path, vocal_audio_path = generate_from_prompt(
+            output_midi_path, vocal_audio_path, stems_dict = generate_from_prompt(
                 prompt=full_prompt,
                 output_path=output_midi_path,
                 genre=genre,
@@ -126,10 +127,10 @@ def _run_generate(
             )
         except Exception as e:
             err_str = str(e).lower()
-            if any(w in err_str for w in ("replicate", "rate limit", "timeout", "model")):
+            if any(w in err_str for w in ("replicate", "rate limit", "timeout", "model", "api")):
                 msg = "Music generation service is temporarily busy. Please try again in a minute."
             else:
-                msg = f"Generation failed. Please try again."
+                msg = "Generation failed. Please try again."
             print(f"[generate] error job={job_id}: {e}")
             update_job(job_id, {"status": "error", "message": msg})
             return
@@ -151,26 +152,34 @@ def _run_generate(
         except Exception:
             analysis = {"tempo": tempo, "duration": 0, "time_signature": "4/4", "key": key, "tracks": []}
 
-        # Find generated audio file (MP3 produced by MusicGen/MiniMax before MIDI extraction)
+        # Find main generated audio (musicgen_audio.mp3 or minimax_audio.mp3)
         generated_audio_path: Optional[str] = None
-        for mp3 in job_dir.glob("*.mp3"):
-            # Exclude the vocal stem which is handled separately
-            if vocal_audio_path and str(mp3) == vocal_audio_path:
-                continue
-            if "input" not in mp3.name:
-                generated_audio_path = str(mp3)
+        for name in ("musicgen_audio.mp3", "minimax_audio.mp3"):
+            p = job_dir / name
+            if p.exists():
+                generated_audio_path = str(p)
                 break
+        # Fallback: any MP3 not named vocal_track
+        if not generated_audio_path:
+            for mp3 in job_dir.glob("*.mp3"):
+                if "vocal" not in mp3.name and "input" not in mp3.name:
+                    generated_audio_path = str(mp3)
+                    break
 
-        # Persist to mounted data volume so files survive container restarts
+        # Build stem URL map — only include stems that are audio files
+        stem_urls: dict = {}
+        for stem_name, stem_path in stems_dict.items():
+            if Path(stem_path).exists() and stem_path.endswith(".mp3"):
+                stem_urls[stem_name] = f"/api/download/{job_id}/{Path(stem_path).name}"
+
+        # Persist everything to the data volume
         try:
             MIDI_STORE.mkdir(parents=True, exist_ok=True)
             store_dir = MIDI_STORE / job_id
             store_dir.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(output_midi_path, store_dir / output_filename)
-            if generated_audio_path and Path(generated_audio_path).exists():
-                shutil.copy2(generated_audio_path, store_dir / Path(generated_audio_path).name)
-            if vocal_audio_path and Path(vocal_audio_path).exists():
-                shutil.copy2(vocal_audio_path, store_dir / Path(vocal_audio_path).name)
+            for src in job_dir.iterdir():
+                if src.is_file():
+                    shutil.copy2(src, store_dir / src.name)
         except Exception as e:
             print(f"[generate] persist failed job={job_id}: {e}")
 
@@ -207,6 +216,7 @@ def _run_generate(
             "midi_url": f"/api/download/{job_id}/{output_filename}",
             "audio_url": audio_url,
             "vocal_audio_url": vocal_audio_url,
+            "stems": stem_urls,
             "preview_url": None,
             "provider": provider_used,
             "genre": genre,
@@ -215,6 +225,7 @@ def _run_generate(
             "duration": analysis.get("duration", 0),
             "time_signature": analysis.get("time_signature", "4/4"),
             "tracks": analysis.get("tracks", []),
+            "prompt": prompt,
         }
 
         update_job(job_id, {"status": "complete", "progress": 100, "result": result})
