@@ -109,6 +109,7 @@ export default function PianoPanel({ onChordProgressionChange, onMelodyBlobChang
   const [renderingAudio, setRenderingAudio] = useState(false)
 
   const synthRef = useRef(null)
+  const toneRef = useRef(null)
   const pianoContainerRef = useRef(null)
   const recordStartRef = useRef(null)
   const noteStartsRef = useRef({})
@@ -123,16 +124,23 @@ export default function PianoPanel({ onChordProgressionChange, onMelodyBlobChang
   useEffect(() => { isRecordingRef.current = isRecording }, [isRecording])
   useEffect(() => { pianoFocusedRef.current = pianoFocused }, [pianoFocused])
 
+  // Pre-load Tone module on mount so first touch can unlock AudioContext synchronously on iOS
+  useEffect(() => {
+    import('tone').then((Tone) => { toneRef.current = Tone })
+  }, [])
+
   // Auto-focus piano container on mount so keyboard shortcuts work immediately
   useEffect(() => {
     const t = setTimeout(() => pianoContainerRef.current?.focus(), 100)
     return () => clearTimeout(t)
   }, [])
 
-  // Init Tone.js synth (lazy)
+  // Init Tone.js synth (lazy). toneRef is pre-loaded on mount so AudioContext
+  // can be unlocked synchronously in touch handlers before this async chain runs.
   async function getSynth() {
     if (synthRef.current) return synthRef.current
-    const Tone = await import('tone')
+    const Tone = toneRef.current || await import('tone')
+    toneRef.current = Tone
     await Tone.start()
     synthRef.current = new Tone.PolySynth(Tone.Synth, {
       oscillator: { type: 'triangle' },
@@ -140,6 +148,11 @@ export default function PianoPanel({ onChordProgressionChange, onMelodyBlobChang
     }).toDestination()
     synthRef.current._tone = Tone
     return synthRef.current
+  }
+
+  // Call this synchronously in every onTouchStart to satisfy iOS AudioContext unlock requirement
+  function unlockAudio() {
+    toneRef.current?.start()
   }
 
   function startNote(note) {
@@ -340,7 +353,7 @@ export default function PianoPanel({ onChordProgressionChange, onMelodyBlobChang
                 onMouseDown={(e) => { e.preventDefault(); playChordAttack(chord) }}
                 onMouseUp={() => { playChordRelease(); addChord(chord) }}
                 onMouseLeave={() => playChordRelease()}
-                onTouchStart={(e) => { e.preventDefault(); playChordAttack(chord) }}
+                onTouchStart={(e) => { e.preventDefault(); unlockAudio(); playChordAttack(chord) }}
                 onTouchEnd={() => { playChordRelease(); addChord(chord) }}
                 className="rounded-lg px-2.5 py-1 text-xs font-medium bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 hover:bg-indigo-100 dark:hover:bg-indigo-900/40 hover:text-indigo-700 dark:hover:text-indigo-300 transition border border-zinc-200 dark:border-zinc-700 select-none"
               >
@@ -486,7 +499,7 @@ export default function PianoPanel({ onChordProgressionChange, onMelodyBlobChang
                   onMouseDown={(e) => { e.preventDefault(); startNote(key.note) }}
                   onMouseUp={() => stopNote(key.note)}
                   onMouseLeave={() => activeNotes.has(key.note) && stopNote(key.note)}
-                  onTouchStart={(e) => { e.preventDefault(); startNote(key.note) }}
+                  onTouchStart={(e) => { e.preventDefault(); unlockAudio(); startNote(key.note) }}
                   onTouchEnd={(e) => { e.preventDefault(); stopNote(key.note) }}
                   onTouchCancel={(e) => { e.preventDefault(); stopNote(key.note) }}
                   style={{ left: key.wIdx * W, width: W - 1, height: WH }}
@@ -521,7 +534,7 @@ export default function PianoPanel({ onChordProgressionChange, onMelodyBlobChang
                   onMouseDown={(e) => { e.preventDefault(); startNote(key.note) }}
                   onMouseUp={() => stopNote(key.note)}
                   onMouseLeave={() => activeNotes.has(key.note) && stopNote(key.note)}
-                  onTouchStart={(e) => { e.preventDefault(); startNote(key.note) }}
+                  onTouchStart={(e) => { e.preventDefault(); unlockAudio(); startNote(key.note) }}
                   onTouchEnd={(e) => { e.preventDefault(); stopNote(key.note) }}
                   onTouchCancel={(e) => { e.preventDefault(); stopNote(key.note) }}
                   style={{ left, width: BW, height: BH, zIndex: 10 }}
