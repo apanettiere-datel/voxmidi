@@ -256,34 +256,49 @@ def _run_generate(
         db.close()
 
 
+_AUDIO_NAMES = ("musicgen_audio.mp3", "minimax_audio.mp3", "full_mix.mp3", "full_mix.wav")
+
+
 @router.post("/separate/{job_id}")
 async def separate_stems_endpoint(
     job_id: str,
     current_user: User = Depends(get_current_user),
 ):
-    """Trigger on-demand stem separation for a completed job."""
-    job = get_job(job_id)
-    if not job:
-        raise HTTPException(status_code=404, detail="Job not found")
-
+    """Trigger on-demand stem separation for a completed job (works for in-memory and library entries)."""
     sep_job_id = f"sep_{job_id}"
 
-    # Return existing sep job if already running or done
     existing = get_job(sep_job_id)
     if existing:
         return {"sep_job_id": sep_job_id, "status": existing.get("status", "unknown")}
 
-    result = job.get("result") or {}
-    audio_url = result.get("audio_url")
-    if not audio_url:
-        raise HTTPException(status_code=400, detail="No audio available for separation")
+    # Find audio file — check persistent store first, then /tmp
+    audio_path: Optional[Path] = None
+    for base in (MIDI_STORE, UPLOAD_DIR):
+        store_dir = base / job_id
+        if not store_dir.exists():
+            continue
+        for name in _AUDIO_NAMES:
+            p = store_dir / name
+            if p.exists():
+                audio_path = p
+                break
+        if not audio_path:
+            for p in sorted(store_dir.iterdir()):
+                if p.is_file() and p.suffix in (".mp3", ".wav") and \
+                   not any(p.name.startswith(s) for s in ("vocals.", "bass.", "drums.", "other.", "vocal_")):
+                    audio_path = p
+                    break
+        if audio_path:
+            break
 
-    audio_filename = audio_url.split("/")[-1]
-    store_dir = MIDI_STORE / job_id
-    audio_path = store_dir / audio_filename
+    if not audio_path:
+        raise HTTPException(status_code=404, detail="Audio file not found")
 
-    if not audio_path.exists():
-        raise HTTPException(status_code=404, detail="Audio file not found on server")
+    # Ensure job entry exists in memory (needed by _run_separate to update result)
+    if not get_job(job_id):
+        set_job(job_id, {"status": "complete", "progress": 100, "result": {
+            "audio_url": f"/api/download/{job_id}/{audio_path.name}"
+        }})
 
     set_job(sep_job_id, {"status": "separating_stems", "progress": 0})
 

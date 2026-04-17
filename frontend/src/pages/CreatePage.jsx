@@ -32,6 +32,7 @@ const GENRES = [
   { id: 'ambient', label: 'Ambient' },
   { id: 'r-and-b', label: 'R&B' },
   { id: 'classical', label: 'Classical' },
+  { id: 'custom', label: 'Custom...' },
 ]
 
 const KEYS = ['C', 'Cm', 'C#', 'C#m', 'D', 'Dm', 'Eb', 'Ebm', 'E', 'Em', 'F', 'Fm', 'F#', 'F#m', 'G', 'Gm', 'Ab', 'Abm', 'A', 'Am', 'Bb', 'Bbm', 'B', 'Bm']
@@ -218,6 +219,7 @@ export default function CreatePage() {
 
   // Advanced settings
   const [genre, setGenre] = useState('pop')
+  const [customGenreText, setCustomGenreText] = useState('')
   const [tempo, setTempo] = useState(120)
   const [musicalKey, setMusicalKey] = useState('Am')
   const [advancedDirty, setAdvancedDirty] = useState(false)
@@ -228,6 +230,7 @@ export default function CreatePage() {
   const [error, setError] = useState(null)
   const [result, setResult] = useState(null)
 
+  const [lyricsTheme, setLyricsTheme] = useState('')
   const [generatingLyrics, setGeneratingLyrics] = useState(false)
   const [promptHistory, setPromptHistory] = useState([])
   const [showHistory, setShowHistory] = useState(false)
@@ -297,8 +300,9 @@ export default function CreatePage() {
     setGeneratingLyrics(true)
     try {
       const formData = new FormData()
-      formData.append('theme', prompt || genre)
-      formData.append('genre', genre)
+      formData.append('theme', lyricsTheme.trim())
+      const effectiveGenre = genre === 'custom' ? (customGenreText.trim() || 'pop') : genre
+      formData.append('genre', effectiveGenre)
       const res = await authFetch('/api/generate-lyrics', { method: 'POST', body: formData })
       if (!res.ok) throw new Error('Lyrics generation failed')
       const data = await res.json()
@@ -338,6 +342,8 @@ export default function CreatePage() {
     setResult(null)
     setIsGenerating(true)
 
+    const effectiveGenre = genre === 'custom' ? (customGenreText.trim() || 'pop') : genre
+
     if (prompt.trim()) {
       savePromptHistory(prompt)
       setPromptHistory(getPromptHistory())
@@ -352,7 +358,7 @@ export default function CreatePage() {
         const formData = new FormData()
         if (sourceFile) formData.append('file', sourceFile, sourceFile.name)
         else formData.append('url', sourceUrl)
-        formData.append('genre', genre)
+        formData.append('genre', effectiveGenre)
         formData.append('tempo', String(tempo))
         formData.append('key', musicalKey)
         jobData = await startExtractSource(formData, authFetch)
@@ -368,7 +374,7 @@ export default function CreatePage() {
           formData.append('mode', 'text')
         }
         formData.append('prompt', prompt)
-        formData.append('genre', genre)
+        formData.append('genre', effectiveGenre)
         formData.append('tempo', String(tempo))
         formData.append('key', musicalKey)
         formData.append('advanced_dirty', advancedDirty ? 'true' : 'false')
@@ -383,8 +389,8 @@ export default function CreatePage() {
 
       // Register with global context so notification bar works when navigating away
       startJob(jobId, {
-        label: `${genre} · ${tempo} BPM${prompt ? ` — "${prompt.slice(0, 40)}"` : ''}`,
-        genre,
+        label: `${effectiveGenre} · ${tempo} BPM${prompt ? ` — "${prompt.slice(0, 40)}"` : ''}`,
+        genre: effectiveGenre,
         tempo,
         key: musicalKey,
       })
@@ -553,15 +559,28 @@ export default function CreatePage() {
       {/* Lyrics panel */}
       {showLyrics && (
         <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-5 space-y-3">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-2 flex-wrap">
             <label className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
               Lyrics
               <span className="ml-2 text-xs text-indigo-500 font-normal">enables vocal generation via MiniMax</span>
             </label>
-            <button onClick={handleGenerateLyrics} disabled={generatingLyrics}
-              className="text-xs px-3 py-1.5 rounded-lg bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-700 disabled:opacity-50 transition font-medium">
-              {generatingLyrics ? 'Generating...' : '✨ Write lyrics for me'}
-            </button>
+          </div>
+          {/* Lyric theme — separate from the music style prompt */}
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-zinc-500 dark:text-zinc-400">What should the lyrics be about?</label>
+            <div className="flex gap-2">
+              <input
+                value={lyricsTheme}
+                onChange={(e) => setLyricsTheme(e.target.value)}
+                placeholder="e.g., dancing at night, missing someone, a black cat named Treble"
+                className="flex-1 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-3 py-2 text-sm text-zinc-900 dark:text-white placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+              <button onClick={handleGenerateLyrics} disabled={generatingLyrics}
+                className="text-xs px-3 py-2 rounded-lg bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-700 disabled:opacity-50 transition font-medium whitespace-nowrap">
+                {generatingLyrics ? 'Generating...' : '✨ Write for me'}
+              </button>
+            </div>
+            <p className="text-xs text-zinc-400 dark:text-zinc-500">Leave blank to auto-generate based on genre</p>
           </div>
           <textarea value={lyrics} onChange={(e) => setLyrics(e.target.value)} rows={8}
             placeholder={`[Verse]\nYour verse here...\n\n[Chorus]\nYour chorus here...`}
@@ -600,6 +619,15 @@ export default function CreatePage() {
                   </button>
                 ))}
               </div>
+              {genre === 'custom' && (
+                <input
+                  value={customGenreText}
+                  onChange={(e) => { setCustomGenreText(e.target.value); setAdvancedDirty(true) }}
+                  placeholder="e.g., tropical house, afrobeats, bossa nova, hyperpop..."
+                  className="mt-2 w-full rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-3 py-2 text-sm text-zinc-900 dark:text-white placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  autoFocus
+                />
+              )}
             </div>
 
             {/* Tempo + Key */}

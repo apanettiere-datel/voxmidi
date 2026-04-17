@@ -18,7 +18,7 @@ UPLOAD_DIR = Path("/tmp/voxmidi")
 AUDIO_NAMES = ("musicgen_audio.mp3", "minimax_audio.mp3", "full_mix.mp3", "full_mix.wav")
 
 
-def _generation_to_dict(g: Generation) -> dict:
+def _generation_to_dict(g: Generation, include_tracks: bool = False) -> dict:
     job_dir = MIDI_STORE / g.id
     files = {f.name: f for f in job_dir.iterdir()} if job_dir.exists() else {}
 
@@ -57,6 +57,26 @@ def _generation_to_dict(g: Generation) -> dict:
     elif "final.mid" in files:
         midi_url = f"/api/download/{g.id}/final.mid"
 
+    # Tracks — loaded from MIDI file on demand
+    tracks = []
+    if include_tracks:
+        midi_path_local = None
+        for base in (MIDI_STORE, UPLOAD_DIR):
+            for name in [n for n in [g.midi_filename, "final.mid", "output.mid"] if n]:
+                p = base / g.id / name
+                if p.exists():
+                    midi_path_local = p
+                    break
+            if midi_path_local:
+                break
+        if midi_path_local:
+            try:
+                from pipelines.midi_analyzer import analyze_midi
+                analysis = analyze_midi(str(midi_path_local))
+                tracks = analysis.get("tracks", [])
+            except Exception:
+                pass
+
     # Display label for prompt
     prompt = g.prompt or ""
     if prompt == "file_upload":
@@ -66,6 +86,7 @@ def _generation_to_dict(g: Generation) -> dict:
 
     return {
         "id": g.id,
+        "job_id": g.id,
         "date": g.created_at.isoformat(),
         "mode": g.mode,
         "genre": g.genre,
@@ -82,6 +103,8 @@ def _generation_to_dict(g: Generation) -> dict:
         "replicate_cost": g.replicate_cost or 0.0,
         "is_favorite": getattr(g, "is_favorite", False) or False,
         "is_shared": getattr(g, "is_shared", False) or False,
+        "tracks": tracks,
+        "provider": "minimax" if audio_url else "mock",
     }
 
 
@@ -136,7 +159,7 @@ async def get_generation(
     ).first()
     if not gen:
         raise HTTPException(status_code=404, detail="Generation not found")
-    return _generation_to_dict(gen)
+    return _generation_to_dict(gen, include_tracks=True)
 
 
 @router.post("/library/{gen_id}/favorite")
@@ -203,4 +226,4 @@ async def get_shared(gen_id: str, db: Session = Depends(get_db)):
     gen = db.query(Generation).filter(Generation.id == gen_id).first()
     if not gen:
         raise HTTPException(status_code=404, detail="Not found")
-    return _generation_to_dict(gen)
+    return _generation_to_dict(gen, include_tracks=True)

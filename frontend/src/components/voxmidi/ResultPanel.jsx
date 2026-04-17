@@ -310,34 +310,33 @@ export default function ResultPanel({ result, onShare }) {
         <AudioPlayer src={displayVocalUrl} label="🎤 Vocal Track" />
       )}
 
-      {/* On-demand stem separation */}
+      {/* On-demand stem separation — opt-in checkbox */}
       {!hasAudioStems && result?.audio_url && (
         <div className="rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-4">
-          {stemsSepState === 'idle' && (
-            <div className="flex items-center justify-between gap-3 flex-wrap">
-              <div>
-                <p className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Separate Stems</p>
-                <p className="text-xs text-zinc-400 dark:text-zinc-500">Split into vocals, bass, drums & other (~1-2 min)</p>
-              </div>
-              <button
-                onClick={handleSeparateStems}
-                className="flex items-center gap-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 text-sm font-medium transition"
-              >
-                🎛️ Separate Stems
-              </button>
+          <label className={`flex items-start gap-3 ${stemsSepState === 'loading' ? 'opacity-60' : 'cursor-pointer'}`}>
+            <input
+              type="checkbox"
+              checked={stemsSepState !== 'idle'}
+              onChange={(e) => { if (e.target.checked && stemsSepState === 'idle') handleSeparateStems() }}
+              disabled={stemsSepState === 'loading'}
+              className="mt-0.5 h-4 w-4 rounded accent-indigo-600 flex-shrink-0"
+            />
+            <div>
+              <p className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
+                Separate into stems
+                <span className="ml-1.5 font-normal text-zinc-400 text-xs">(+$0.02, ~60 seconds)</span>
+              </p>
+              <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-0.5">Split audio into vocals, bass, drums &amp; other for individual editing</p>
             </div>
-          )}
+          </label>
           {stemsSepState === 'loading' && (
-            <div className="flex items-center gap-3">
-              <span className="text-lg animate-spin">🔄</span>
-              <div>
-                <p className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Separating stems...</p>
-                <p className="text-xs text-zinc-400 dark:text-zinc-500">Vocals, bass, drums & other tracks — ~1-2 minutes</p>
-              </div>
+            <div className="flex items-center gap-2 mt-3 ml-7">
+              <span className="text-sm leading-none" style={{ display: 'inline-block', animation: 'spin 1s linear infinite' }}>🔄</span>
+              <p className="text-sm text-zinc-600 dark:text-zinc-400">Separating stems… this takes ~60 seconds</p>
             </div>
           )}
           {stemsSepState === 'error' && (
-            <p className="text-sm text-red-500 dark:text-red-400">Stem separation failed. Your full mix audio is still available above.</p>
+            <p className="text-xs text-red-500 dark:text-red-400 mt-2 ml-7">Separation failed. Your full mix is still available above.</p>
           )}
         </div>
       )}
