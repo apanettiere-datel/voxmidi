@@ -3,7 +3,7 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import { startGenerateMidi, startExtractSource } from '@/lib/api'
 import { useAuthFetch } from '@/lib/authFetch'
 import { useJobs, JobsNotificationBar } from '@/lib/JobsContext'
-import AudioRecorder from '@/components/voxmidi/AudioRecorder'
+import VoicePanel from '@/components/voxmidi/VoicePanel'
 import ResultPanel from '@/components/voxmidi/ResultPanel'
 import PianoPanel from '@/components/voxmidi/PianoPanel'
 
@@ -50,6 +50,57 @@ const GENRE_DEFAULTS = {
   ambient: { tempo: 70, key: 'D' },
   'r-and-b': { tempo: 90, key: 'Bbm' },
   classical: { tempo: 100, key: 'C' },
+  metal: { tempo: 140, key: 'Dm' },
+}
+
+// Silent prompt auto-detection — fills Advanced Settings without affecting MiniMax prompt
+function detectFromPrompt(text) {
+  const lower = text.toLowerCase()
+  const result = { genre: null, tempo: null, key: null }
+
+  // BPM detection
+  const bpmMatch = lower.match(/\b(\d{2,3})\s*(?:bpm)\b/) || lower.match(/\bat\s+(\d{2,3})\b/)
+  if (bpmMatch) {
+    const bpm = parseInt(bpmMatch[1], 10)
+    if (bpm >= 60 && bpm <= 220) result.tempo = bpm
+  }
+
+  // Key detection
+  const keyMatch = text.match(/\bin\s+(?:the\s+key\s+of\s+)?([A-G][b#]?m?)\b/i)
+    || text.match(/\bkey\s+of\s+([A-G][b#]?m?)\b/i)
+    || text.match(/\b([A-G](?:b|#)?m(?:in(?:or)?)?)\b/)
+  if (keyMatch) result.key = keyMatch[1].replace('min', 'm').replace('or', '').replace('minor', 'm')
+
+  // Genre — ordered by specificity (longer matches first)
+  const GENRE_KEYWORDS = [
+    ['metal',          ['heavy metal','metalcore','death metal','metal']],
+    ['metal',          ['deftones','alt metal','alternative metal','slipknot','tool','korn','linkin park']],
+    ['rock',           ['rock','punk','grunge','indie rock','alt rock','alternative']],
+    ['drum-and-bass',  ['drum and bass','dnb','d&b','drum & bass','liquid dnb']],
+    ['lo-fi-hip-hop',  ['lo-fi','lofi','lo fi','chillhop','chill hop','lofi hip hop']],
+    ['trap',           ['trap','drill','travis scott','21 savage','future']],
+    ['r-and-b',        ['r&b','rnb','r and b','soul','neo soul']],
+    ['house',          ['tech house','deep house','progressive house','house','john summit','fisher']],
+    ['edm',            ['edm','electronic dance','big room','electro']],
+    ['synthwave',      ['synthwave','retrowave','outrun','80s synth','vaporwave']],
+    ['jazz',           ['jazz','bebop','swing','bossa nova','jazz fusion']],
+    ['ambient',        ['ambient','atmospheric','drone','meditation']],
+    ['classical',      ['classical','orchestral','orchestra','symphony','baroque']],
+    ['pop',            ['pop','chart']],
+  ]
+  for (const [genreId, keywords] of GENRE_KEYWORDS) {
+    if (keywords.some((kw) => lower.includes(kw))) {
+      result.genre = genreId
+      break
+    }
+  }
+
+  // Apply genre defaults if tempo/key not explicitly mentioned
+  const defaults = GENRE_DEFAULTS[result.genre || 'pop']
+  if (!result.tempo && result.genre) result.tempo = defaults?.tempo || null
+  if (!result.key && result.genre) result.key = defaults?.key || null
+
+  return result
 }
 
 const STEPS = [
@@ -207,11 +258,16 @@ export default function CreatePage() {
   const [lyrics, setLyrics] = useState('')
 
   // Panel open/close
-  const [showRecorder, setShowRecorder] = useState(false)
+  const [showVoice, setShowVoice] = useState(false)
   const [showSource, setShowSource] = useState(false)
   const [showLyrics, setShowLyrics] = useState(false)
   const [showPiano, setShowPiano] = useState(false)
   const [showAdvanced, setShowAdvanced] = useState(false)
+
+  // Vocal mode state
+  const [vocalMode, setVocalMode] = useState('hum') // 'hum' | 'sing'
+  const [autotune, setAutotune] = useState(0)
+  const [reverb, setReverb] = useState(0)
 
   // Piano / chord state
   const [chordProgression, setChordProgression] = useState([])
@@ -236,7 +292,6 @@ export default function CreatePage() {
   const [showHistory, setShowHistory] = useState(false)
   const [tapPulse, setTapPulse] = useState(false)
   const [showShortcuts, setShowShortcuts] = useState(false)
-  const fileInputRef = useRef(null)
   const tapTimesRef = useRef([])
   const tapResetRef = useRef(null)
 
@@ -274,6 +329,15 @@ export default function CreatePage() {
 
     setPromptHistory(getPromptHistory())
   }, [])
+
+  // ── Silent prompt auto-detection — fills genre/tempo/key when not explicitly set ──
+  useEffect(() => {
+    if (!prompt.trim() || advancedDirty) return
+    const detected = detectFromPrompt(prompt)
+    if (detected.genre && GENRE_DEFAULTS[detected.genre]) setGenre(detected.genre)
+    if (detected.tempo) setTempo(detected.tempo)
+    if (detected.key) setMusicalKey(detected.key)
+  }, [prompt]) // eslint-disable-line
 
   // ── Watch global job state for this page's active job ────────────────────
   const currentJob = currentJobId ? jobs[currentJobId] : null
@@ -369,7 +433,7 @@ export default function CreatePage() {
           formData.append('mode', 'source')
         } else if (audioBlob) {
           formData.append('audio', audioBlob, 'recording.webm')
-          formData.append('mode', 'voice')
+          formData.append('mode', vocalMode === 'sing' ? 'voice' : 'voice')
         } else {
           formData.append('mode', 'text')
         }
@@ -378,6 +442,9 @@ export default function CreatePage() {
         formData.append('tempo', String(tempo))
         formData.append('key', musicalKey)
         formData.append('advanced_dirty', advancedDirty ? 'true' : 'false')
+        formData.append('vocal_mode', vocalMode)
+        formData.append('autotune', String(autotune))
+        formData.append('reverb', String(reverb))
         if (showLyrics && lyrics.trim()) formData.append('lyrics', lyrics)
         if (chordProgression.length > 0) formData.append('chord_progression', JSON.stringify(chordProgression))
         if (melodyBlob) formData.append('piano_melody', melodyBlob, 'piano_melody.wav')
@@ -402,13 +469,16 @@ export default function CreatePage() {
 
   const hasPrompt   = prompt.trim().length > 0
   const isReferenceMode = sourceFile && sourceMode === 'reference'
+  const isExtractMode   = sourceFile && sourceMode === 'extract'
   const hasSource   = !!(sourceFile || (sourceUrl && !sourceUrl.startsWith('file://')))
   const canGenerate = !isGenerating && (hasPrompt || !!audioBlob || hasSource || (showLyrics && lyrics.trim()))
 
   const generateLabel = () => {
     if (isGenerating) return 'Generating...'
+    if (vocalMode === 'sing' && audioBlob) return '🎤 Generate with My Vocals'
     if (showLyrics && lyrics.trim()) return '🎤 Generate Song with Vocals'
     if (isReferenceMode) return '🎵 Generate from Melody Reference'
+    if (isExtractMode) return '🔪 Extract & Separate Stems'
     if (hasSource) return '🎼 Extract & Convert to MIDI'
     if (audioBlob) return '🎵 Generate from Your Melody'
     return '✨ Generate Music'
@@ -447,16 +517,21 @@ export default function CreatePage() {
       {/* Action buttons */}
       <div className="flex flex-wrap gap-2">
         <ActionButton
-          active={showRecorder}
-          onClick={() => setShowRecorder((v) => !v)}
+          active={showVoice}
+          onClick={() => setShowVoice((v) => !v)}
           icon="🎤"
-          label={audioBlob ? 'Melody recorded ✓' : 'Hum a Melody'}
+          label={
+            vocalMode === 'sing' && audioBlob ? '🎙️ Vocals recorded ✓'
+            : vocalMode === 'hum' && audioBlob ? 'Melody recorded ✓'
+            : sourceFile ? '📁 Audio uploaded ✓'
+            : 'Voice / Audio'
+          }
         />
         <ActionButton
           active={showSource}
           onClick={() => setShowSource((v) => !v)}
           icon="🔗"
-          label={sourceFile ? sourceFile.name.slice(0, 20) : sourceUrl ? 'URL set ✓' : 'Audio Source'}
+          label={sourceUrl ? 'URL set ✓' : 'Audio URL'}
         />
         <ActionButton
           active={showLyrics}
@@ -472,87 +547,35 @@ export default function CreatePage() {
         />
       </div>
 
-      {/* Voice / melody recorder panel */}
-      {showRecorder && (
-        <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-5 space-y-3">
-          <div className="rounded-lg bg-indigo-50 dark:bg-indigo-950/30 border border-indigo-100 dark:border-indigo-900 px-4 py-3 text-sm text-indigo-800 dark:text-indigo-200">
-            <p className="font-medium">🎵 Hum, whistle, or beatbox a melody</p>
-            <p className="mt-1 text-xs text-indigo-600 dark:text-indigo-300">
-              The AI will build a full arrangement around it.
-              <br/>
-              <span className="italic opacity-75">This is for melody input — use "Add Lyrics" to sing words.</span>
-            </p>
-          </div>
-          <AudioRecorder onRecordingComplete={setAudioBlob} />
-        </div>
+      {/* Voice / audio panel */}
+      {showVoice && (
+        <VoicePanel
+          lyrics={lyrics}
+          onHumBlob={(blob) => { setAudioBlob(blob); setVocalMode('hum'); if (blob) { setSourceFile(null) } }}
+          onSingBlob={(blob) => { setAudioBlob(blob); setVocalMode('sing'); if (blob) { setSourceFile(null) } }}
+          onUploadFile={(file, mode) => {
+            if (!file) { setSourceFile(null); return }
+            setSourceFile(file)
+            setSourceMode(mode === 'extract' ? 'extract' : 'reference')
+            setAudioBlob(null)
+          }}
+          onAutotuneChange={setAutotune}
+          onReverbChange={setReverb}
+        />
       )}
 
-      {/* Audio source panel */}
+      {/* Audio URL source panel (file upload moved to Voice → Upload tab) */}
       {showSource && (
-        <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-5 space-y-4">
-          {/* File upload */}
-          <div>
-            <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-2">
-              Upload an audio file <span className="font-normal text-zinc-400">(MP3, WAV, FLAC)</span>
-            </label>
-            <div
-              onClick={() => fileInputRef.current?.click()}
-              className={`cursor-pointer rounded-xl border-2 border-dashed p-6 text-center transition ${
-                sourceFile
-                  ? 'border-indigo-400 bg-indigo-50 dark:bg-indigo-950/20'
-                  : 'border-zinc-200 dark:border-zinc-700 hover:border-indigo-400 hover:bg-zinc-50 dark:hover:bg-zinc-800/50'
-              }`}
-              onDragOver={(e) => e.preventDefault()}
-              onDrop={(e) => {
-                e.preventDefault()
-                const f = e.dataTransfer.files[0]
-                if (f) { setSourceFile(f); setSourceUrl('') }
-              }}
-            >
-              {sourceFile ? (
-                <div className="space-y-1">
-                  <p className="text-sm font-medium text-indigo-600 dark:text-indigo-400">🎵 {sourceFile.name}</p>
-                  <p className="text-xs text-zinc-400">{(sourceFile.size / 1048576).toFixed(1)} MB</p>
-                  <button type="button" onClick={(e) => { e.stopPropagation(); setSourceFile(null) }}
-                    className="text-xs text-zinc-400 hover:text-red-500 underline">Remove</button>
-                </div>
-              ) : (
-                <>
-                  <p className="text-sm text-zinc-500 dark:text-zinc-400">Drop audio here or click to browse</p>
-                  <p className="text-xs text-zinc-400 mt-1">MP3, WAV, FLAC, OGG, M4A</p>
-                </>
-              )}
-            </div>
-            <input ref={fileInputRef} type="file" accept="audio/*" className="hidden"
-              onChange={(e) => { const f = e.target.files?.[0]; if (f) { setSourceFile(f); setSourceUrl('') } }} />
-
-            {/* Mode toggle — only when a file is selected */}
-            {sourceFile && (
-              <div className="mt-3 flex gap-2">
-                <button type="button" onClick={() => setSourceMode('extract')}
-                  className={`flex-1 rounded-lg px-3 py-2 text-xs font-medium border transition ${
-                    sourceMode === 'extract'
-                      ? 'bg-indigo-600 text-white border-indigo-600'
-                      : 'bg-white dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 border-zinc-200 dark:border-zinc-700 hover:border-indigo-400'
-                  }`}>
-                  🎼 Extract Stems → MIDI
-                </button>
-                <button type="button" onClick={() => setSourceMode('reference')}
-                  className={`flex-1 rounded-lg px-3 py-2 text-xs font-medium border transition ${
-                    sourceMode === 'reference'
-                      ? 'bg-indigo-600 text-white border-indigo-600'
-                      : 'bg-white dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 border-zinc-200 dark:border-zinc-700 hover:border-indigo-400'
-                  }`}>
-                  🎵 Use as Melody Reference
-                </button>
-              </div>
-            )}
-            {sourceFile && sourceMode === 'reference' && (
-              <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-1.5">
-                VoxMIDI analyzes the melody and style of your audio and uses it to guide MiniMax generation.
-              </p>
-            )}
-          </div>
+        <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-5 space-y-3">
+          <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">YouTube / audio URL</label>
+          <input
+            type="url"
+            value={sourceUrl}
+            onChange={(e) => setSourceUrl(e.target.value)}
+            placeholder="https://youtube.com/watch?v=... or direct audio URL"
+            className="w-full rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-3 py-2 text-sm text-zinc-900 dark:text-white placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+          />
+          <p className="text-xs text-zinc-400 dark:text-zinc-500">VoxMIDI downloads the audio, extracts the melody, and converts to MIDI.</p>
         </div>
       )}
 

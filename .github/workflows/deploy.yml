@@ -44,6 +44,7 @@ jobs:
             cd /home/ubuntu/voxmidi
             git checkout -- .
             git pull
+            rm -rf /home/ubuntu/voxmidi/frontend/dist/assets
             if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.no_cache }}" = "true" ]; then
               echo "Full rebuild (--no-cache)..."
               docker compose -f docker-compose.prod.yml down
@@ -62,7 +63,7 @@ jobs:
           username: ubuntu
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           source: frontend/dist/
-          target: /home/ubuntu/voxmidi/frontend/
+          target: /home/ubuntu/voxmidi/
           strip_components: 0
 
       - name: Restart nginx

@@ -1,5 +1,5 @@
 import { Routes, Route, useLocation } from 'react-router-dom'
-import { MusicalNoteIcon, MicrophoneIcon, FolderIcon, LinkIcon, Cog6ToothIcon } from '@heroicons/react/20/solid'
+import { MusicalNoteIcon, MicrophoneIcon, FolderIcon, Cog6ToothIcon } from '@heroicons/react/20/solid'
 import { SidebarLayout } from '@/components/catalyst/sidebar-layout'
 import { Sidebar, SidebarBody, SidebarFooter, SidebarHeader, SidebarItem, SidebarLabel, SidebarSection } from '@/components/catalyst/sidebar'
 import { Navbar, NavbarSpacer } from '@/components/catalyst/navbar'
@@ -9,7 +9,6 @@ import { useNavigate } from 'react-router-dom'
 
 import CreatePage from '@/pages/CreatePage'
 import LibraryPage from '@/pages/LibraryPage'
-import SourcesPage from '@/pages/SourcesPage'
 import SettingsPage from '@/pages/SettingsPage'
 import SignInPage from '@/pages/SignInPage'
 import SignUpPage from '@/pages/SignUpPage'
@@ -22,7 +21,6 @@ const CLERK_KEY = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY
 const navigation = [
   { name: 'Create', href: '/', icon: MicrophoneIcon },
   { name: 'Library', href: '/library', icon: FolderIcon },
-  { name: 'Sources', href: '/sources', icon: LinkIcon },
   { name: 'Settings', href: '/settings', icon: Cog6ToothIcon },
 ]
 
@@ -128,7 +126,6 @@ function AppRoutes() {
       <Routes>
         <Route path="/" element={<CreatePage />} />
         <Route path="/library" element={<LibraryPage />} />
-        <Route path="/sources" element={<SourcesPage />} />
         <Route path="/settings" element={<SettingsPage />} />
       </Routes>
     </AppLayout>

@@ -204,10 +204,9 @@ export default function PianoPanel({ onChordProgressionChange, onMelodyBlobChang
     }, 800)
   }
 
-  // Keyboard event handler
+  // Keyboard event handler — active whenever PianoPanel is mounted (not just when div is focused)
   useEffect(() => {
     function onKeyDown(e) {
-      if (!pianoFocusedRef.current) return
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return
       if (e.repeat) return
       const note = KB_MAP[e.key]
@@ -217,7 +216,7 @@ export default function PianoPanel({ onChordProgressionChange, onMelodyBlobChang
       if (e.key === 'Enter') { e.preventDefault(); stopRecording() }
     }
     function onKeyUp(e) {
-      if (!pianoFocusedRef.current) return
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return
       const note = KB_MAP[e.key]
       if (note) stopNote(note)
     }
@@ -543,16 +542,9 @@ export default function PianoPanel({ onChordProgressionChange, onMelodyBlobChang
           </div>
         </div>
 
-        {pianoFocused && (
-          <p className="text-xs text-indigo-500 dark:text-indigo-400 text-center">
-            ⌨️ Keyboard active — A S D F G H J K for white keys, W E T Y U for black keys · Space=play · Backspace=delete last
-          </p>
-        )}
-        {!pianoFocused && (
-          <p className="text-xs text-zinc-400 dark:text-zinc-500 text-center">
-            Click the piano to enable keyboard shortcuts
-          </p>
-        )}
+        <p className="text-xs text-zinc-400 dark:text-zinc-500 text-center">
+          ⌨️ A S D F G H J K — white keys · W E T Y U — black keys · Space=play · Backspace=delete
+        </p>
 
         {/* Recorded notes timeline */}
         {recordedNotes.length > 0 && (
