@@ -9,7 +9,7 @@ librosa>=0.10.0
 soundfile>=0.12.1
 
 # Transcription — ONNX Runtime (no TensorFlow needed)
-# Install basic-pitch WITHOUT deps: pip install basic-pitch==0.4.0 --no-deps
+basic-pitch==0.4.0
 onnxruntime>=1.16.0
 mir-eval>=0.6
 resampy>=0.4.3

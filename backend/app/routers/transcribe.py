@@ -11,6 +11,7 @@ from middleware.auth import get_current_user
 
 router = APIRouter()
 UPLOAD_DIR = Path("/tmp/voxmidi")
+MIDI_STORE = Path("/app/data/midi")
 
 
 @router.post("/transcribe")
@@ -61,8 +62,10 @@ async def transcribe(
 
 @router.get("/download/{job_id}/{filename}")
 async def download_file(job_id: str, filename: str):
-    """Download a generated file."""
-    file_path = UPLOAD_DIR / job_id / filename
-    if not file_path.exists():
-        raise HTTPException(status_code=404, detail="File not found")
-    return FileResponse(str(file_path), media_type="audio/midi", filename=filename)
+    """Download a generated file. Checks /tmp first, then persistent data store."""
+    for base in (UPLOAD_DIR, MIDI_STORE):
+        file_path = base / job_id / filename
+        if file_path.exists():
+            media_type = "audio/mpeg" if filename.endswith(".mp3") else "audio/midi"
+            return FileResponse(str(file_path), media_type=media_type, filename=filename)
+    raise HTTPException(status_code=404, detail="File not found")

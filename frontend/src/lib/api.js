@@ -1,14 +1,30 @@
 const API_BASE = '/api'
 
 // ─── Core API calls ───────────────────────────────────────────────────────────
-// All functions accept an optional fetchFn (defaults to window.fetch).
-// Pass authFetch from useAuthFetch() to include Clerk auth headers.
 
-export async function generateMidi(formData, fetchFn = fetch) {
+export async function startGenerateMidi(formData, fetchFn = fetch) {
   const res = await fetchFn(`${API_BASE}/generate`, { method: 'POST', body: formData })
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }))
     throw new Error(err.detail || `Generation failed: ${res.status}`)
+  }
+  return res.json() // { job_id, status }
+}
+
+export async function startExtractSource(formData, fetchFn = fetch) {
+  const res = await fetchFn(`${API_BASE}/source`, { method: 'POST', body: formData })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }))
+    throw new Error(err.detail || `Source extraction failed: ${res.status}`)
+  }
+  return res.json() // { job_id, status }
+}
+
+export async function getJobStatus(jobId, fetchFn = fetch) {
+  const res = await fetchFn(`${API_BASE}/status/${jobId}`)
+  if (!res.ok) {
+    if (res.status === 404) return null
+    throw new Error(`Status check failed: ${res.status}`)
   }
   return res.json()
 }
@@ -20,19 +36,6 @@ export async function transcribeAudio(audioBlob, fetchFn = fetch) {
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }))
     throw new Error(err.detail || `Transcription failed: ${res.status}`)
-  }
-  return res.json()
-}
-
-export async function extractSource(url, startTime = null, endTime = null, genre = 'edm', tempo = 128, key = 'Am', fetchFn = fetch) {
-  const res = await fetchFn(`${API_BASE}/source`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ url, start_time: startTime, end_time: endTime, genre, tempo, key }),
-  })
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ detail: res.statusText }))
-    throw new Error(err.detail || `Source extraction failed: ${res.status}`)
   }
   return res.json()
 }
@@ -78,6 +81,8 @@ export function saveToLibrary(result, { genre, tempo, key } = {}) {
     key: result.key || key || '?',
     tracks: result.tracks,
     midi_url: result.midi_url || null,
+    audio_url: result.audio_url || null,
+    vocal_audio_url: result.vocal_audio_url || null,
     duration: result.duration || 0,
     time_signature: result.time_signature || '4/4',
   }
@@ -105,7 +110,7 @@ const SOURCES_KEY = 'voxmidi_sources'
 
 export function saveSource(url, title = '') {
   const sources = getSources()
-  if (sources.some((s) => s.url === url)) return // dedupe
+  if (sources.some((s) => s.url === url)) return
   const entry = { id: Date.now().toString(), url, title: title || url, date: new Date().toISOString() }
   const updated = [entry, ...sources].slice(0, 100)
   localStorage.setItem(SOURCES_KEY, JSON.stringify(updated))

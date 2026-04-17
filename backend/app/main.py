@@ -14,7 +14,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from database import init_db
-from routers import transcribe, generate, source, transform, preview
+from routers import transcribe, generate, source, transform, preview, status as status_router
 from routers import user as user_router
 from routers import lyrics as lyrics_router
 
@@ -42,6 +42,7 @@ async def startup():
 app.include_router(transcribe.router, prefix="/api")
 app.include_router(generate.router, prefix="/api")
 app.include_router(source.router, prefix="/api")
+app.include_router(status_router.router, prefix="/api")
 app.include_router(transform.router, prefix="/api")
 app.include_router(preview.router, prefix="/api")
 app.include_router(user_router.router, prefix="/api")
