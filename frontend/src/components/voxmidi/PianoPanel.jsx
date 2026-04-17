@@ -109,6 +109,7 @@ export default function PianoPanel({ onChordProgressionChange, onMelodyBlobChang
   const [renderingAudio, setRenderingAudio] = useState(false)
 
   const synthRef = useRef(null)
+  const pianoContainerRef = useRef(null)
   const recordStartRef = useRef(null)
   const noteStartsRef = useRef({})
   const recordedNotesRef = useRef([])
@@ -121,6 +122,12 @@ export default function PianoPanel({ onChordProgressionChange, onMelodyBlobChang
   // Sync refs
   useEffect(() => { isRecordingRef.current = isRecording }, [isRecording])
   useEffect(() => { pianoFocusedRef.current = pianoFocused }, [pianoFocused])
+
+  // Auto-focus piano container on mount so keyboard shortcuts work immediately
+  useEffect(() => {
+    const t = setTimeout(() => pianoContainerRef.current?.focus(), 100)
+    return () => clearTimeout(t)
+  }, [])
 
   // Init Tone.js synth (lazy)
   async function getSynth() {
@@ -450,6 +457,7 @@ export default function PianoPanel({ onChordProgressionChange, onMelodyBlobChang
 
         {/* Focus area for keyboard shortcuts */}
         <div
+          ref={pianoContainerRef}
           tabIndex={0}
           onFocus={() => setPianoFocused(true)}
           onBlur={() => setPianoFocused(false)}
@@ -479,8 +487,11 @@ export default function PianoPanel({ onChordProgressionChange, onMelodyBlobChang
                   onMouseDown={(e) => { e.preventDefault(); startNote(key.note) }}
                   onMouseUp={() => stopNote(key.note)}
                   onMouseLeave={() => activeNotes.has(key.note) && stopNote(key.note)}
+                  onTouchStart={(e) => { e.preventDefault(); startNote(key.note) }}
+                  onTouchEnd={(e) => { e.preventDefault(); stopNote(key.note) }}
+                  onTouchCancel={(e) => { e.preventDefault(); stopNote(key.note) }}
                   style={{ left: key.wIdx * W, width: W - 1, height: WH }}
-                  className={`absolute top-0 border border-zinc-300 dark:border-zinc-600 rounded-b-md cursor-pointer select-none flex flex-col justify-end items-center pb-1 transition-colors ${
+                  className={`absolute top-0 border border-zinc-300 dark:border-zinc-600 rounded-b-md cursor-pointer select-none flex flex-col justify-end items-center pb-1 transition-colors touch-none ${
                     active
                       ? 'bg-indigo-300 dark:bg-indigo-500'
                       : highlighted
@@ -511,8 +522,11 @@ export default function PianoPanel({ onChordProgressionChange, onMelodyBlobChang
                   onMouseDown={(e) => { e.preventDefault(); startNote(key.note) }}
                   onMouseUp={() => stopNote(key.note)}
                   onMouseLeave={() => activeNotes.has(key.note) && stopNote(key.note)}
+                  onTouchStart={(e) => { e.preventDefault(); startNote(key.note) }}
+                  onTouchEnd={(e) => { e.preventDefault(); stopNote(key.note) }}
+                  onTouchCancel={(e) => { e.preventDefault(); stopNote(key.note) }}
                   style={{ left, width: BW, height: BH, zIndex: 10 }}
-                  className={`absolute top-0 rounded-b-md cursor-pointer select-none flex flex-col justify-end items-center pb-1 transition-colors ${
+                  className={`absolute top-0 rounded-b-md cursor-pointer select-none flex flex-col justify-end items-center pb-1 transition-colors touch-none ${
                     active
                       ? 'bg-indigo-500'
                       : highlighted

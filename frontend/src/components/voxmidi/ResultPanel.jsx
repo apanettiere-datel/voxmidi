@@ -1,5 +1,7 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useAuthFetch } from '@/lib/authFetch'
+import { separateStems, getJobStatus } from '@/lib/api'
 import PianoRoll from './PianoRoll'
 import MidiPlayer from './MidiPlayer'
 import TrackMixer from './TrackMixer'
@@ -118,14 +120,20 @@ function AudioPlayer({ src, label, compact = false }) {
   )
 }
 
-export default function ResultPanel({ result, onShare, stemsLoading = false }) {
+export default function ResultPanel({ result, onShare }) {
   const navigate = useNavigate()
+  const authFetch = useAuthFetch()
   const [mutedTracks, setMutedTracks] = useState(new Set())
   const [soloTrack, setSoloTrack] = useState(null)
   const [playheadSecs, setPlayheadSecs] = useState(0)
   const [showMidiPlayer, setShowMidiPlayer] = useState(false)
   const [shareMsg, setShareMsg] = useState('')
   const [activeVersion, setActiveVersion] = useState(0)
+  const [stemsSepState, setStemsSepState] = useState('idle') // 'idle'|'loading'|'done'|'error'
+  const [stemsOverride, setStemsOverride] = useState(null)
+  const pollRef = useRef(null)
+
+  useEffect(() => () => clearInterval(pollRef.current), [])
 
   if (!result) return null
 
@@ -149,8 +157,38 @@ export default function ResultPanel({ result, onShare, stemsLoading = false }) {
   // Only show "Demo Mode" when the backend explicitly used the mock provider
   const isDemoMode = result.provider === 'mock'
 
-  const stems = displayStems
+  const stems = stemsOverride !== null ? stemsOverride : displayStems
   const hasAudioStems = Object.values(stems).some((url) => typeof url === 'string' && url.endsWith('.mp3'))
+
+  async function handleSeparateStems() {
+    if (!result?.job_id) return
+    setStemsSepState('loading')
+    try {
+      const data = await separateStems(result.job_id, authFetch)
+      const sepJobId = data.sep_job_id
+      if (data.status === 'already_done' || !sepJobId) {
+        setStemsSepState('done')
+        return
+      }
+      clearInterval(pollRef.current)
+      pollRef.current = setInterval(async () => {
+        try {
+          const status = await getJobStatus(sepJobId, authFetch)
+          if (!status) return
+          if (status.status === 'complete' && status.result?.stems) {
+            clearInterval(pollRef.current)
+            setStemsOverride(status.result.stems)
+            setStemsSepState('done')
+          } else if (status.status === 'error') {
+            clearInterval(pollRef.current)
+            setStemsSepState('error')
+          }
+        } catch { /* poll silently */ }
+      }, 3000)
+    } catch {
+      setStemsSepState('error')
+    }
+  }
 
   function handleClientDownload() {
     import('@/lib/api').then(({ downloadMidiClientSide }) => {
@@ -272,16 +310,35 @@ export default function ResultPanel({ result, onShare, stemsLoading = false }) {
         <AudioPlayer src={displayVocalUrl} label="🎤 Vocal Track" />
       )}
 
-      {/* Stems section — Phase 2 loading state */}
-      {stemsLoading && !hasAudioStems && (
+      {/* On-demand stem separation */}
+      {!hasAudioStems && result?.audio_url && (
         <div className="rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-4">
-          <div className="flex items-center gap-3">
-            <span className="text-lg animate-spin">🔄</span>
-            <div>
-              <p className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Separating stems...</p>
-              <p className="text-xs text-zinc-400 dark:text-zinc-500">Vocals, bass, drums & other tracks will appear here (~1-2 min)</p>
+          {stemsSepState === 'idle' && (
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <div>
+                <p className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Separate Stems</p>
+                <p className="text-xs text-zinc-400 dark:text-zinc-500">Split into vocals, bass, drums & other (~1-2 min)</p>
+              </div>
+              <button
+                onClick={handleSeparateStems}
+                className="flex items-center gap-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 text-sm font-medium transition"
+              >
+                🎛️ Separate Stems
+              </button>
             </div>
-          </div>
+          )}
+          {stemsSepState === 'loading' && (
+            <div className="flex items-center gap-3">
+              <span className="text-lg animate-spin">🔄</span>
+              <div>
+                <p className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Separating stems...</p>
+                <p className="text-xs text-zinc-400 dark:text-zinc-500">Vocals, bass, drums & other tracks — ~1-2 minutes</p>
+              </div>
+            </div>
+          )}
+          {stemsSepState === 'error' && (
+            <p className="text-sm text-red-500 dark:text-red-400">Stem separation failed. Your full mix audio is still available above.</p>
+          )}
         </div>
       )}
 

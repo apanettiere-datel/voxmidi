@@ -55,45 +55,8 @@ const STEPS = [
   { key: 'queued',           label: 'Waiting in queue...', icon: '⏳' },
   { key: 'processing',       label: 'Starting...',          icon: '⚙️' },
   { key: 'generating_audio', label: 'Generating audio...',  icon: '🎵' },
-  { key: 'audio_ready',      label: 'Audio ready!',         icon: '🎶' },
-  { key: 'separating_stems', label: 'Separating stems...',  icon: '🔄' },
   { key: 'complete',         label: 'Done!',                icon: '✅' },
 ]
-
-// ─── Prompt parser ────────────────────────────────────────────────────────────
-
-function parsePrompt(text) {
-  const result = { genre: null, tempo: null, key: null }
-  const bpmMatch = text.match(/\b(\d{2,3})\s*(?:bpm)\b/i) || text.match(/\bat\s+(\d{2,3})\b/i)
-  if (bpmMatch) {
-    const bpm = parseInt(bpmMatch[1])
-    if (bpm >= 60 && bpm <= 220) result.tempo = bpm
-  }
-  const keyMatch =
-    text.match(/\b(?:in\s+(?:the\s+key\s+of\s+)?|key\s+of\s+)([A-G][b#]?m?)\b/i) ||
-    text.match(/\b([A-G][b#]?m)\b/)
-  if (keyMatch) result.key = keyMatch[1]
-
-  const genreMap = [
-    ['edm', ['edm', 'electronic dance']],
-    ['house', ['tech house', 'deep house', 'progressive house', 'house']],
-    ['trap', ['trap', 'drill']],
-    ['lo-fi-hip-hop', ['lo-fi', 'lofi', 'lo fi', 'chillhop']],
-    ['drum-and-bass', ['drum and bass', 'dnb', 'd&b']],
-    ['synthwave', ['synthwave', 'retrowave', '80s synth']],
-    ['pop', ['pop']],
-    ['rock', ['rock']],
-    ['jazz', ['jazz', 'bebop', 'swing']],
-    ['ambient', ['ambient', 'atmospheric']],
-    ['r-and-b', ['r&b', 'rnb', 'soul']],
-    ['classical', ['classical', 'orchestral']],
-  ]
-  const lower = text.toLowerCase()
-  for (const [id, kws] of genreMap) {
-    if (kws.some((kw) => lower.includes(kw))) { result.genre = id; break }
-  }
-  return result
-}
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
@@ -257,6 +220,7 @@ export default function CreatePage() {
   const [genre, setGenre] = useState('pop')
   const [tempo, setTempo] = useState(120)
   const [musicalKey, setMusicalKey] = useState('Am')
+  const [advancedDirty, setAdvancedDirty] = useState(false)
 
   // Generation state — wired to global context
   const [currentJobId, setCurrentJobId] = useState(null)
@@ -300,6 +264,7 @@ export default function CreatePage() {
         if (remix.tempo) setTempo(remix.tempo)
         if (remix.key) setMusicalKey(remix.key)
         setShowAdvanced(true)
+        setAdvancedDirty(true)
       } catch {}
       sessionStorage.removeItem('voxmidi_remix')
     }
@@ -317,9 +282,6 @@ export default function CreatePage() {
       setIsGenerating(false)
       setCurrentJobId(null)
       removeJob(currentJobId)
-    } else if (currentJob.status === 'audio_ready') {
-      // Show partial result immediately while stems are being separated
-      if (currentJob.result) setResult(currentJob.result)
     } else if (currentJob.status === 'error') {
       setError(currentJob.error || 'Generation failed. Please try again.')
       setIsGenerating(false)
@@ -330,20 +292,6 @@ export default function CreatePage() {
       setCurrentJobId(null)
     }
   }, [currentJob?.status]) // eslint-disable-line
-
-  // ── Auto-parse prompt ────────────────────────────────────────────────────
-  useEffect(() => {
-    if (!prompt.trim() || showAdvanced) return
-    const parsed = parsePrompt(prompt)
-    if (parsed.genre) {
-      setGenre(parsed.genre)
-      const defaults = GENRE_DEFAULTS[parsed.genre]
-      if (defaults && !parsed.tempo) setTempo(defaults.tempo)
-      if (defaults && !parsed.key) setMusicalKey(defaults.key)
-    }
-    if (parsed.tempo) setTempo(parsed.tempo)
-    if (parsed.key) setMusicalKey(parsed.key)
-  }, [prompt]) // eslint-disable-line
 
   async function handleGenerateLyrics() {
     setGeneratingLyrics(true)
@@ -423,6 +371,7 @@ export default function CreatePage() {
         formData.append('genre', genre)
         formData.append('tempo', String(tempo))
         formData.append('key', musicalKey)
+        formData.append('advanced_dirty', advancedDirty ? 'true' : 'false')
         if (showLyrics && lyrics.trim()) formData.append('lyrics', lyrics)
         if (chordProgression.length > 0) formData.append('chord_progression', JSON.stringify(chordProgression))
         if (melodyBlob) formData.append('piano_melody', melodyBlob, 'piano_melody.wav')
@@ -486,13 +435,6 @@ export default function CreatePage() {
               </button>
             ))}
           </div>
-        )}
-        {prompt && (
-          <p className="mt-1.5 text-xs text-zinc-400 dark:text-zinc-500 pl-1">
-            Detected: <span className="text-indigo-500">{genre}</span>
-            {' · '}<span className="text-indigo-500">{tempo} BPM</span>
-            {' · '}<span className="text-indigo-500">{musicalKey}</span>
-          </p>
         )}
       </div>
 
@@ -650,7 +592,7 @@ export default function CreatePage() {
               <div className="flex flex-wrap gap-2">
                 {GENRES.map((g) => (
                   <button key={g.id} type="button"
-                    onClick={() => { setGenre(g.id); const d = GENRE_DEFAULTS[g.id]; if (d) { setTempo(d.tempo); setMusicalKey(d.key) } }}
+                    onClick={() => { setGenre(g.id); setAdvancedDirty(true); const d = GENRE_DEFAULTS[g.id]; if (d) { setTempo(d.tempo); setMusicalKey(d.key) } }}
                     className={`rounded-full px-3 py-1 text-sm font-medium transition ${
                       genre === g.id ? 'bg-indigo-600 text-white' : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-700'
                     }`}>
@@ -676,12 +618,12 @@ export default function CreatePage() {
                   </div>
                 </div>
                 <input type="range" min={60} max={200} value={tempo}
-                  onChange={(e) => setTempo(Number(e.target.value))} className="w-full accent-indigo-600" />
+                  onChange={(e) => { setTempo(Number(e.target.value)); setAdvancedDirty(true) }} className="w-full accent-indigo-600" />
                 <div className="flex justify-between text-xs text-zinc-400 mt-1"><span>60</span><span>200</span></div>
               </div>
               <div>
                 <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-2">Key</label>
-                <select value={musicalKey} onChange={(e) => setMusicalKey(e.target.value)}
+                <select value={musicalKey} onChange={(e) => { setMusicalKey(e.target.value); setAdvancedDirty(true) }}
                   className="w-full rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-3 py-2 text-sm text-zinc-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
                   {KEYS.map((k) => <option key={k} value={k}>{k}</option>)}
                 </select>
@@ -702,12 +644,7 @@ export default function CreatePage() {
       {!isGenerating && error && <ProgressArea status={null} error={error} />}
 
       {/* Results */}
-      {result && (
-        <ResultPanel
-          result={result}
-          stemsLoading={isGenerating && currentJob?.status === 'separating_stems'}
-        />
-      )}
+      {result && <ResultPanel result={result} />}
 
       {/* Keyboard shortcuts help (when piano open) */}
       {showPiano && (

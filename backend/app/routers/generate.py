@@ -3,6 +3,7 @@ import re
 import uuid
 import json as _json
 import shutil
+import threading
 from pathlib import Path
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Depends
 from typing import Optional
@@ -32,6 +33,7 @@ async def generate(
     mode: str = Form("text"),
     lyrics: str = Form(""),
     chord_progression: str = Form(""),
+    advanced_dirty: str = Form("false"),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -43,6 +45,7 @@ async def generate(
         )
 
     job_id = str(uuid.uuid4())[:8]
+    is_advanced_dirty = advanced_dirty.lower() in ("true", "1", "yes")
 
     audio_content: Optional[bytes] = None
     audio_suffix = ".webm"
@@ -62,7 +65,7 @@ async def generate(
     args = (
         job_id, audio_content, audio_suffix, piano_melody_content,
         source_url, prompt, genre, tempo, key, mode, lyrics,
-        chord_progression, current_user.id,
+        chord_progression, current_user.id, is_advanced_dirty,
     )
     started = try_start(job_id, _run_generate, args)
 
@@ -106,6 +109,7 @@ def _run_generate(
     lyrics: str,
     chord_progression: str,
     user_id: str,
+    advanced_dirty: bool = False,
 ) -> None:
     db = SessionLocal()
     store_dir = MIDI_STORE / job_id
@@ -134,19 +138,23 @@ def _run_generate(
             except Exception:
                 pass
 
-        full_prompt = _build_prompt(genre, tempo, key, prompt)
+        # Build MiniMax prompt: raw if user didn't touch advanced settings,
+        # otherwise include genre/tempo/key context
+        if advanced_dirty:
+            minimax_prompt = _build_prompt(genre, tempo, key, prompt)
+        else:
+            minimax_prompt = prompt
 
         has_minimax = bool(os.environ.get("MINIMAX_API_KEY"))
         provider_used = "minimax" if has_minimax else "mock"
 
-        print(f"[generate] job={job_id} provider={provider_used} genre={genre} tempo={tempo} key={key} mode={mode}")
+        print(f"[generate] job={job_id} provider={provider_used} genre={genre} tempo={tempo} key={key} mode={mode} advanced_dirty={advanced_dirty}")
 
         output_midi_path = str(job_dir / "output.mid")
 
-        # ── PHASE 1: Generate audio + MIDI ───────────────────────────────────
         try:
             midi_path, vocal_path, audio_path = generate_from_prompt(
-                prompt=full_prompt,
+                prompt=minimax_prompt,
                 output_path=output_midi_path,
                 genre=genre,
                 tempo=tempo,
@@ -169,18 +177,15 @@ def _run_generate(
             update_job(job_id, {"status": "error", "message": msg})
             return
 
-        # Check cancellation
         if get_job(job_id) and get_job(job_id).get("status") == "cancelled":
             return
 
-        # Post-process MIDI
         try:
             final_path = post_process_midi(output_midi_path, str(job_dir / "final.mid"), tempo=tempo, key=key)
             output_midi_path = final_path
         except Exception:
             pass
 
-        # Analyze MIDI
         try:
             analysis = analyze_midi(output_midi_path)
         except Exception:
@@ -188,7 +193,6 @@ def _run_generate(
 
         output_filename = Path(output_midi_path).name
 
-        # Find audio file
         generated_audio_path = audio_path
         if not generated_audio_path or not Path(generated_audio_path).exists():
             for name in ("minimax_audio.mp3",):
@@ -201,10 +205,8 @@ def _run_generate(
         if generated_audio_path and Path(generated_audio_path).exists():
             audio_url = f"/api/download/{job_id}/{Path(generated_audio_path).name}"
 
-        # Persist Phase 1 files
         _persist_files(job_dir, store_dir)
 
-        # Save to DB
         try:
             gen = Generation(
                 id=job_id,
@@ -225,8 +227,7 @@ def _run_generate(
         except Exception as e:
             print(f"[generate] DB error job={job_id}: {e}")
 
-        # Build Phase 1 result
-        phase1_result = {
+        final_result = {
             "job_id": job_id,
             "midi_url": f"/api/download/{job_id}/{output_filename}",
             "audio_url": audio_url,
@@ -244,31 +245,8 @@ def _run_generate(
             "versions": [],
         }
 
-        update_job(job_id, {"status": "audio_ready", "progress": 60, "result": phase1_result})
-        print(f"[generate] job={job_id} Phase 1 complete → audio_ready")
-
-        # ── PHASE 2: Stem separation ──────────────────────────────────────────
-        stem_urls: dict = {}
-
-        if generated_audio_path and Path(generated_audio_path).exists():
-            update_job(job_id, {"status": "separating_stems", "progress": 70})
-            try:
-                from pipelines.separator import separate_stems
-                stems_dict = separate_stems(generated_audio_path, str(job_dir))
-
-                for stem_name, stem_path in stems_dict.items():
-                    sp = Path(stem_path)
-                    if sp.exists() and str(stem_path).endswith(".mp3"):
-                        stem_urls[stem_name] = f"/api/download/{job_id}/{sp.name}"
-
-                # Persist newly created stem files
-                _persist_files(job_dir, store_dir)
-                print(f"[generate] job={job_id} Phase 2 complete: {list(stem_urls.keys())} stems")
-            except Exception as e:
-                print(f"[generate] Phase 2 (Demucs) failed job={job_id}: {e} — continuing without stems")
-
-        final_result = {**phase1_result, "stems": stem_urls}
         update_job(job_id, {"status": "complete", "progress": 100, "result": final_result})
+        print(f"[generate] job={job_id} complete")
 
     except Exception as e:
         print(f"[generate] unexpected error job={job_id}: {e}")
@@ -276,6 +254,83 @@ def _run_generate(
         update_job(job_id, {"status": "error", "message": "An unexpected error occurred. Please try again."})
     finally:
         db.close()
+
+
+@router.post("/separate/{job_id}")
+async def separate_stems_endpoint(
+    job_id: str,
+    current_user: User = Depends(get_current_user),
+):
+    """Trigger on-demand stem separation for a completed job."""
+    job = get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    sep_job_id = f"sep_{job_id}"
+
+    # Return existing sep job if already running or done
+    existing = get_job(sep_job_id)
+    if existing:
+        return {"sep_job_id": sep_job_id, "status": existing.get("status", "unknown")}
+
+    result = job.get("result") or {}
+    audio_url = result.get("audio_url")
+    if not audio_url:
+        raise HTTPException(status_code=400, detail="No audio available for separation")
+
+    audio_filename = audio_url.split("/")[-1]
+    store_dir = MIDI_STORE / job_id
+    audio_path = store_dir / audio_filename
+
+    if not audio_path.exists():
+        raise HTTPException(status_code=404, detail="Audio file not found on server")
+
+    set_job(sep_job_id, {"status": "separating_stems", "progress": 0})
+
+    t = threading.Thread(
+        target=_run_separate,
+        args=(sep_job_id, job_id, str(audio_path)),
+        daemon=True,
+    )
+    t.start()
+
+    return {"sep_job_id": sep_job_id, "status": "separating_stems"}
+
+
+def _run_separate(sep_job_id: str, original_job_id: str, audio_path: str) -> None:
+    store_dir = MIDI_STORE / original_job_id
+    job_dir = UPLOAD_DIR / original_job_id
+    job_dir.mkdir(parents=True, exist_ok=True)
+
+    try:
+        update_job(sep_job_id, {"status": "separating_stems", "progress": 20})
+        from pipelines.separator import separate_stems
+        stems_dict = separate_stems(audio_path, str(job_dir))
+
+        stem_urls: dict = {}
+        for stem_name, stem_path in stems_dict.items():
+            sp = Path(stem_path)
+            if sp.exists() and str(stem_path).endswith(".mp3"):
+                stem_urls[stem_name] = f"/api/download/{original_job_id}/{sp.name}"
+
+        _persist_files(job_dir, store_dir)
+        print(f"[separate] sep_job={sep_job_id} complete: {list(stem_urls.keys())}")
+
+        # Update the original job result with stems
+        original_job = get_job(original_job_id)
+        if original_job and original_job.get("result"):
+            merged_result = {**original_job["result"], "stems": stem_urls}
+            update_job(original_job_id, {"status": "complete", "progress": 100, "result": merged_result})
+
+        update_job(sep_job_id, {"status": "complete", "progress": 100, "result": {"stems": stem_urls}})
+
+    except Exception as e:
+        print(f"[separate] failed sep_job={sep_job_id}: {e}")
+        import traceback; traceback.print_exc()
+        update_job(sep_job_id, {
+            "status": "error",
+            "message": "Stem separation failed. You can still use the full mix audio.",
+        })
 
 
 @router.post("/cancel/{job_id}")

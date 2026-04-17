@@ -29,6 +29,15 @@ export async function getJobStatus(jobId, fetchFn = fetch) {
   return res.json()
 }
 
+export async function separateStems(jobId, fetchFn = fetch) {
+  const res = await fetchFn(`${API_BASE}/separate/${jobId}`, { method: 'POST' })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }))
+    throw new Error(err.detail || `Stem separation failed: ${res.status}`)
+  }
+  return res.json() // { sep_job_id, status }
+}
+
 export async function transcribeAudio(audioBlob, fetchFn = fetch) {
   const formData = new FormData()
   formData.append('audio', audioBlob, 'recording.webm')
