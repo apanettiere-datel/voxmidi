@@ -18,10 +18,9 @@ resampy==0.4.2
 pretty_midi>=0.2.10
 mido>=1.3.2
 
-# HTTP / Replicate / yt-dlp
+# HTTP / Replicate
 httpx>=0.27.0
 replicate>=0.34.0
-yt-dlp>=2024.1.0
 
 # Auth + DB
 pyjwt[crypto]>=2.8.0

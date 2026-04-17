@@ -41,7 +41,7 @@ def _separate_via_replicate(audio_path: str, output_dir: str) -> Dict[str, str]:
             "cjwbw/demucs:25a173108cff36ef9f80f854c162d01df9e6528be175794b81158fa03836d953",
             input={
                 "audio": f,
-                "model_name": "htdemucs",
+                "model_name": "htdemucs_ft",
                 "shifts": 1,
                 "float32": False,
                 "output_format": "mp3",

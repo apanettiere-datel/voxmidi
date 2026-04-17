@@ -118,7 +118,7 @@ function AudioPlayer({ src, label, compact = false }) {
   )
 }
 
-export default function ResultPanel({ result, onShare }) {
+export default function ResultPanel({ result, onShare, stemsLoading = false }) {
   const navigate = useNavigate()
   const [mutedTracks, setMutedTracks] = useState(new Set())
   const [soloTrack, setSoloTrack] = useState(null)
@@ -270,6 +270,19 @@ export default function ResultPanel({ result, onShare }) {
       {/* Vocal track (MiniMax) */}
       {displayVocalUrl && (
         <AudioPlayer src={displayVocalUrl} label="🎤 Vocal Track" />
+      )}
+
+      {/* Stems section — Phase 2 loading state */}
+      {stemsLoading && !hasAudioStems && (
+        <div className="rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-4">
+          <div className="flex items-center gap-3">
+            <span className="text-lg animate-spin">🔄</span>
+            <div>
+              <p className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Separating stems...</p>
+              <p className="text-xs text-zinc-400 dark:text-zinc-500">Vocals, bass, drums & other tracks will appear here (~1-2 min)</p>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Stems section */}

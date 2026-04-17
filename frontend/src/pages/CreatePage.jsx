@@ -55,9 +55,8 @@ const STEPS = [
   { key: 'queued',           label: 'Waiting in queue...', icon: '⏳' },
   { key: 'processing',       label: 'Starting...',          icon: '⚙️' },
   { key: 'generating_audio', label: 'Generating audio...',  icon: '🎵' },
-  { key: 'downloading',      label: 'Downloading audio...', icon: '⬇️' },
+  { key: 'audio_ready',      label: 'Audio ready!',         icon: '🎶' },
   { key: 'separating_stems', label: 'Separating stems...',  icon: '🔄' },
-  { key: 'transcribing',     label: 'Creating MIDI...',     icon: '📝' },
   { key: 'complete',         label: 'Done!',                icon: '✅' },
 ]
 
@@ -318,6 +317,9 @@ export default function CreatePage() {
       setIsGenerating(false)
       setCurrentJobId(null)
       removeJob(currentJobId)
+    } else if (currentJob.status === 'audio_ready') {
+      // Show partial result immediately while stems are being separated
+      if (currentJob.result) setResult(currentJob.result)
     } else if (currentJob.status === 'error') {
       setError(currentJob.error || 'Generation failed. Please try again.')
       setIsGenerating(false)
@@ -599,22 +601,9 @@ export default function CreatePage() {
             )}
             {sourceFile && sourceMode === 'reference' && (
               <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-1.5">
-                MusicGen conditions on your audio's melody and generates a new track. Add a text prompt above to describe the style.
+                VoxMIDI analyzes the melody and style of your audio and uses it to guide MiniMax generation.
               </p>
             )}
-          </div>
-
-          {/* URL input */}
-          <div>
-            <label className="block text-sm font-medium text-zinc-500 dark:text-zinc-400 mb-2">
-              Or paste a YouTube URL{' '}
-              <span className="font-normal text-zinc-400">(may be blocked by YouTube)</span>
-            </label>
-            <input type="url" value={sourceUrl}
-              onChange={(e) => { setSourceUrl(e.target.value); setSourceFile(null) }}
-              placeholder="https://www.youtube.com/watch?v=..."
-              className="w-full rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-3 py-2 text-sm text-zinc-900 dark:text-white placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            />
           </div>
         </div>
       )}
@@ -716,7 +705,7 @@ export default function CreatePage() {
       {result && (
         <ResultPanel
           result={result}
-          onSaveToLibrary={() => {}}
+          stemsLoading={isGenerating && currentJob?.status === 'separating_stems'}
         />
       )}
 

@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuthFetch } from '@/lib/authFetch'
+import { useJobs } from '@/lib/JobsContext'
 import { Heading } from '@/components/catalyst/heading'
 import { Text } from '@/components/catalyst/text'
 
@@ -37,6 +38,7 @@ function AudioMiniPlayer({ src }) {
 export default function LibraryPage() {
   const authFetch = useAuthFetch()
   const navigate = useNavigate()
+  const { jobs, removeJob } = useJobs()
   const [entries, setEntries] = useState([])
   const [expanded, setExpanded] = useState(null)
   const [deleting, setDeleting] = useState(null)
@@ -44,6 +46,9 @@ export default function LibraryPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [filter, setFilter] = useState('all') // 'all' | 'favorites'
+  const [toasts, setToasts] = useState([]) // [{jobId, result, ts}]
+  const [newBadges, setNewBadges] = useState(new Set()) // set of entry IDs
+  const seenJobsRef = useRef(new Set())
 
   useEffect(() => {
     setLoading(true)
@@ -52,6 +57,28 @@ export default function LibraryPage() {
       .then((data) => { setEntries(data); setLoading(false) })
       .catch((err) => { setError(`Could not load library (${err})`); setLoading(false) })
   }, [authFetch])
+
+  // Watch for newly completed jobs → show toast + refresh library
+  useEffect(() => {
+    Object.values(jobs).forEach((job) => {
+      if (job.status === 'complete' && !seenJobsRef.current.has(job.jobId) && job.result) {
+        seenJobsRef.current.add(job.jobId)
+        // Add toast
+        const toast = { jobId: job.jobId, result: job.result, ts: Date.now() }
+        setToasts((prev) => [...prev, toast])
+        // Add new badge
+        setNewBadges((prev) => new Set([...prev, job.jobId]))
+        setTimeout(() => setNewBadges((prev) => { const n = new Set(prev); n.delete(job.jobId); return n }), 60000)
+        // Auto-dismiss toast after 10s
+        setTimeout(() => setToasts((prev) => prev.filter((t) => t.jobId !== job.jobId)), 10000)
+        // Refresh library to show new entry
+        authFetch('/api/library')
+          .then((r) => r.ok ? r.json() : null)
+          .then((data) => data && setEntries(data))
+          .catch(() => {})
+      }
+    })
+  }, [jobs, authFetch])
 
   async function handleDelete(id) {
     setDeleting(id)
@@ -122,6 +149,39 @@ export default function LibraryPage() {
         <Text>Your past generations — audio, stems, and MIDI.</Text>
       </div>
 
+      {/* Job completion toasts */}
+      {toasts.length > 0 && (
+        <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-2 w-80">
+          {toasts.map((toast) => (
+            <div key={toast.jobId}
+              className="rounded-xl border border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/90 shadow-xl p-4 space-y-2"
+            >
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-semibold text-emerald-800 dark:text-emerald-200">🎵 Your music is ready!</p>
+                <button onClick={() => setToasts((p) => p.filter((t) => t.jobId !== toast.jobId))}
+                  className="text-zinc-400 hover:text-zinc-600 text-sm">✕</button>
+              </div>
+              {toast.result?.audio_url && (
+                <audio controls src={toast.result.audio_url} className="w-full h-8 rounded" />
+              )}
+              <div className="flex gap-2">
+                <button
+                  onClick={() => {
+                    sessionStorage.setItem('voxmidi_pending_result', JSON.stringify(toast.result))
+                    removeJob(toast.jobId)
+                    setToasts((p) => p.filter((t) => t.jobId !== toast.jobId))
+                    navigate('/')
+                  }}
+                  className="flex-1 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold py-1.5 transition"
+                >
+                  View on Create →
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
       {error && (
         <div className="rounded-lg bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900 p-4 text-sm text-red-700 dark:text-red-400">
           {error}
@@ -179,9 +239,16 @@ export default function LibraryPage() {
                 </div>
 
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-zinc-900 dark:text-white capitalize">
-                    {entry.genre?.replace(/-/g, ' ') || '—'} · {entry.tempo} BPM · {entry.key}
-                  </p>
+                  <div className="flex items-center gap-2">
+                    <p className="text-sm font-medium text-zinc-900 dark:text-white capitalize">
+                      {entry.genre?.replace(/-/g, ' ') || '—'} · {entry.tempo} BPM · {entry.key}
+                    </p>
+                    {newBadges.has(entry.id) && (
+                      <span className="inline-flex items-center rounded-full bg-emerald-100 dark:bg-emerald-900/40 px-1.5 py-0.5 text-xs font-bold text-emerald-700 dark:text-emerald-300 animate-pulse">
+                        NEW
+                      </span>
+                    )}
+                  </div>
                   <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
                     {modeLabel(entry)} · {entry.tracks_count} tracks ·{' '}
                     {Math.round(entry.duration || 0)}s · {new Date(entry.date).toLocaleDateString()}

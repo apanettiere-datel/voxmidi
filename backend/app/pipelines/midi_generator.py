@@ -1,21 +1,20 @@
-"""MIDI generation — smart routing: MiniMax (instrumental/vocal) + MusicGen (melody conditioning).
+"""MIDI generation — MiniMax-only routing (7 routes).
 
-Routing logic:
-  Route 1 — text only: MiniMax instrumental (best quality) → fallback MusicGen
-  Route 2 — text + lyrics: MiniMax with lyrics (vocals)
-  Route 3 — audio + no lyrics: MusicGen melody-conditioning (primary) + MiniMax instrumental (secondary)
-  Route 4 — audio + lyrics: MusicGen melody (instrumental) + MiniMax lyrics (vocal)
-  Mock — no API keys: deterministic MIDI generator
+Route 1: Text only, no lyrics → MiniMax instrumental
+Route 2: Text + lyrics → MiniMax vocal
+Route 3: Voice/hum, no lyrics → Basic Pitch → MiniMax instrumental
+Route 4: Voice/hum + lyrics → Basic Pitch melody → MiniMax vocal
+Route 5: Piano/chords, no lyrics → chord MIDI → MiniMax instrumental
+Route 6: Piano/chords + lyrics → chord MIDI → MiniMax vocal
+Route 7: Uploaded reference file → librosa analysis → MiniMax instrumental/vocal
+Mock: no API key → deterministic MIDI generator
 
-Returns: Tuple[midi_path, vocal_audio_path, primary_stems_dict, versions_list]
-  versions_list: [] for single version, list of dicts for multiple
+Returns: Tuple[midi_path, vocal_audio_path, generated_audio_path]
+  Stem separation is handled separately by the caller (two-phase pipeline).
 """
 
 import os
-import shutil
 import time
-import threading
-import urllib.request
 import pretty_midi
 import numpy as np
 from pathlib import Path
@@ -30,8 +29,6 @@ KEY_ROOTS = {
     'Bb': 70, 'Bbm': 70, 'B': 71, 'Bm': 71,
 }
 MINOR_KEYS = {'Cm','C#m','Dm','Ebm','Em','Fm','F#m','Gm','Abm','Am','Bbm','Bm'}
-
-MUSICGEN_MODEL = "meta/musicgen:671ac645ce5e552cc63a54a2bbff63fcf798043055d2dac5fc9e36a837eedcfb"
 
 
 # ─── Music theory helpers ─────────────────────────────────────────────────────
@@ -58,176 +55,7 @@ def _chord_notes(chord_root: int, minor: bool) -> list:
     return [chord_root + i for i in triad]
 
 
-# ─── Stem separation + clean MIDI ────────────────────────────────────────────
-
-def _process_audio(
-    audio_path: str,
-    output_path: str,
-    genre: str = 'edm',
-    tempo: int = 128,
-    key: str = 'Am',
-    skip_vocals: bool = False,
-    user_hum_path: Optional[str] = None,
-    stem_prefix: str = "",
-) -> Tuple[str, Optional[str], Dict[str, str]]:
-    """
-    Separate audio into stems, generate clean MIDI, optionally merge hummed melody.
-    stem_prefix: if set, stem files are renamed as {prefix}_{stem}.mp3
-    Returns (midi_path, vocal_stem_path, stems_dict).
-    """
-    from pipelines.separator import separate_stems
-    from pipelines.transcriber import transcribe_audio
-
-    job_dir = Path(output_path).parent
-    job_dir.mkdir(parents=True, exist_ok=True)
-
-    # Use a temp subdir for demucs output when prefix is used (avoid overwriting primary stems)
-    if stem_prefix:
-        sep_dir = job_dir / f"_sep_{stem_prefix}"
-        sep_dir.mkdir(parents=True, exist_ok=True)
-    else:
-        sep_dir = job_dir
-
-    print(f"[midi_generator] Separating stems for {stem_prefix or 'primary'}...")
-    raw_stems = separate_stems(str(audio_path), str(sep_dir))
-
-    # Rename/copy stems with prefix into job_dir
-    stems: Dict[str, str] = {}
-    for stem_name, stem_path in raw_stems.items():
-        src = Path(stem_path)
-        if stem_prefix:
-            dest_name = f"{stem_prefix}_{stem_name}{src.suffix}"
-        else:
-            dest_name = src.name
-        dest = job_dir / dest_name
-        if src != dest:
-            shutil.copy2(src, dest)
-        stems[stem_name] = str(dest)
-
-    vocal_stem_path: Optional[str] = stems.get("vocals")
-
-    # Generate clean MIDI (NOT transcription — transcription sounds bad)
-    pm = mock_generate(genre=genre, tempo=tempo, key=key)
-
-    # If user hummed a melody, transcribe THAT for the melody track
-    if user_hum_path and Path(user_hum_path).exists():
-        try:
-            hum_midi_path = transcribe_audio(user_hum_path, str(job_dir), output_name="hum_melody.mid")
-            hum_pm = pretty_midi.PrettyMIDI(hum_midi_path)
-            if hum_pm.instruments:
-                melody_idx = next(
-                    (i for i, inst in enumerate(pm.instruments) if inst.name == 'Melody'), None
-                )
-                hum_inst = hum_pm.instruments[0]
-                hum_inst.name = 'Melody (from hum)'
-                hum_inst.program = 0
-                if melody_idx is not None:
-                    pm.instruments[melody_idx] = hum_inst
-                else:
-                    pm.instruments.append(hum_inst)
-                print("[midi_generator] Merged hummed melody into MIDI")
-        except Exception as e:
-            print(f"[midi_generator] Could not transcribe hum: {e}")
-
-    pm.write(output_path)
-    print(f"[midi_generator] Wrote clean MIDI ({len(pm.instruments)} tracks) to {output_path}")
-
-    return output_path, vocal_stem_path, stems
-
-
-# ─── MusicGen ────────────────────────────────────────────────────────────────
-
-def _musicgen_generate_audio(
-    prompt: str,
-    job_dir: Path,
-    genre: str,
-    tempo: int,
-    key: str,
-    audio_path: Optional[str] = None,
-    max_retries: int = 2,
-) -> str:
-    """
-    Call MusicGen API and return path to downloaded mp3.
-    Retries on CUDA errors; raises RuntimeError on final failure.
-    """
-    import replicate
-
-    token = os.environ.get('REPLICATE_API_TOKEN', '')
-    if not token:
-        raise RuntimeError("REPLICATE_API_TOKEN not set")
-
-    client = replicate.Client(api_token=token)
-
-    built_prompt = f"{genre.replace('-', ' ').title()} music at {tempo} BPM in the key of {key}. {prompt}".strip()
-    inputs: dict = {
-        "prompt": built_prompt,
-        "model_version": "stereo-melody-large",
-        "duration": 30,
-        "output_format": "mp3",
-    }
-
-    gen_audio_path = str(job_dir / "musicgen_audio.mp3")
-
-    for attempt in range(max_retries + 1):
-        try:
-            if audio_path and Path(audio_path).exists():
-                print(f"[midi_generator] MusicGen: melody conditioning (attempt {attempt+1})...")
-                with open(audio_path, 'rb') as f:
-                    inputs_with_audio = {**inputs, "input_audio": f}
-                    output = client.run(MUSICGEN_MODEL, input=inputs_with_audio)
-            else:
-                print(f"[midi_generator] MusicGen: text prompt (attempt {attempt+1})...")
-                output = client.run(MUSICGEN_MODEL, input=inputs)
-
-            audio_url = str(output)
-            print("[midi_generator] MusicGen: downloading generated audio...")
-            urllib.request.urlretrieve(audio_url, gen_audio_path)
-            return gen_audio_path
-
-        except Exception as e:
-            err_str = str(e).lower()
-            is_cuda = "cuda" in err_str or "gpu" in err_str or "out of memory" in err_str
-            if is_cuda and attempt < max_retries:
-                print(f"[midi_generator] MusicGen CUDA error (attempt {attempt+1}), retrying in 5s...")
-                time.sleep(5)
-                continue
-            raise RuntimeError(f"MusicGen API error: {e}")
-
-
-def _generate_via_musicgen(
-    prompt: str,
-    output_path: str,
-    genre: str = 'edm',
-    tempo: int = 128,
-    key: str = 'Am',
-    audio_path: Optional[str] = None,
-    stem_prefix: str = "",
-) -> Tuple[str, None, Dict[str, str]]:
-    """Generate with MusicGen, run Demucs, generate clean MIDI."""
-    job_dir = Path(output_path).parent
-    job_dir.mkdir(parents=True, exist_ok=True)
-
-    has_minimax = bool(os.environ.get('MINIMAX_API_KEY'))
-
-    try:
-        gen_audio_path = _musicgen_generate_audio(prompt, job_dir, genre, tempo, key, audio_path)
-    except RuntimeError as e:
-        err_str = str(e).lower()
-        is_cuda = "cuda" in err_str or "gpu" in err_str
-        if is_cuda and has_minimax:
-            print("[midi_generator] MusicGen CUDA error — falling back to MiniMax instrumental")
-            return _generate_via_minimax_instrumental(prompt, output_path, genre, tempo, key, stem_prefix=stem_prefix)
-        raise
-
-    return _process_audio(
-        gen_audio_path, output_path,
-        genre=genre, tempo=tempo, key=key,
-        user_hum_path=audio_path,
-        stem_prefix=stem_prefix,
-    )
-
-
-# ─── MiniMax ─────────────────────────────────────────────────────────────────
+# ─── MiniMax API ─────────────────────────────────────────────────────────────
 
 def _minimax_api_call(
     style_desc: str,
@@ -252,15 +80,17 @@ def _minimax_api_call(
             "format": "mp3",
         },
     }
-    if lyrics:
-        payload["lyrics"] = lyrics
+    if lyrics and lyrics.strip():
+        payload["lyrics"] = lyrics.strip()
+    else:
+        payload["is_instrumental"] = True
 
-    print(f"[midi_generator] MiniMax: generating {'vocal' if lyrics else 'instrumental'}...")
+    print(f"[midi_generator] MiniMax: generating {'vocal' if lyrics and lyrics.strip() else 'instrumental'}...")
     resp = httpx.post(
         "https://api.minimax.io/v1/music_generation",
         headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
         json=payload,
-        timeout=120.0,
+        timeout=180.0,
     )
     resp.raise_for_status()
 
@@ -276,84 +106,96 @@ def _minimax_api_call(
     return str(audio_file)
 
 
-def _generate_via_minimax_instrumental(
-    prompt: str,
-    output_path: str,
-    genre: str = 'edm',
-    tempo: int = 128,
-    key: str = 'Am',
-    stem_prefix: str = "",
-) -> Tuple[str, None, Dict[str, str]]:
-    """MiniMax instrumental (empty lyrics). Best quality for text-only prompts."""
-    job_dir = Path(output_path).parent
-    job_dir.mkdir(parents=True, exist_ok=True)
+# ─── Melody extraction (Basic Pitch) ─────────────────────────────────────────
 
-    api_key = os.environ.get('MINIMAX_API_KEY', '')
-    if not api_key:
-        raise RuntimeError("MINIMAX_API_KEY not set")
-
-    style_desc = f"{genre.replace('-', ' ').title()} style at {tempo} BPM in {key}. {prompt}".strip()
-    audio_file = _minimax_api_call(style_desc, lyrics="", job_dir=job_dir,
-                                   out_filename="minimax_audio.mp3")
-
-    midi_path, _, stems = _process_audio(
-        audio_file, output_path,
-        genre=genre, tempo=tempo, key=key, skip_vocals=False,
-        stem_prefix=stem_prefix,
-    )
-    return midi_path, None, stems
+NOTE_NAMES_FLAT = ['C', 'Db', 'D', 'Eb', 'E', 'F', 'Gb', 'G', 'Ab', 'A', 'Bb', 'B']
+NOTE_NAMES_SHARP = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
 
 
-def _generate_via_minimax_vocal(
-    prompt: str,
-    output_path: str,
-    genre: str = 'edm',
-    tempo: int = 128,
-    key: str = 'Am',
-    lyrics: str = '',
-    stem_prefix: str = "",
-) -> Tuple[str, Optional[str], Dict[str, str]]:
-    """MiniMax with lyrics = vocal track generation."""
-    job_dir = Path(output_path).parent
-    job_dir.mkdir(parents=True, exist_ok=True)
-
-    api_key = os.environ.get('MINIMAX_API_KEY', '')
-    if not api_key:
-        raise RuntimeError("MINIMAX_API_KEY not set")
-
-    style_desc = f"{genre.replace('-', ' ').title()} style at {tempo} BPM in {key}. {prompt}".strip()
-    audio_file = _minimax_api_call(style_desc, lyrics=lyrics, job_dir=job_dir,
-                                   out_filename="minimax_audio.mp3")
-
-    midi_path, vocal_stem_path, stems = _process_audio(
-        audio_file, output_path,
-        genre=genre, tempo=tempo, key=key, skip_vocals=True,
-        stem_prefix=stem_prefix,
-    )
-
-    if vocal_stem_path and Path(vocal_stem_path).exists():
-        final_vocal = str(job_dir / "vocal_track.mp3")
-        shutil.copy(vocal_stem_path, final_vocal)
-        vocal_stem_path = final_vocal
-
-    return midi_path, vocal_stem_path, stems
-
-
-def _minimax_audio_only(
-    prompt: str,
-    job_dir: Path,
-    genre: str,
-    tempo: int,
-    key: str,
-    out_filename: str = "minimax_audio.mp3",
-) -> Optional[str]:
-    """Generate MiniMax audio only (no Demucs). For secondary version."""
+def _extract_melody_from_hum(audio_path: str, job_dir: Path) -> Tuple[Optional[str], str]:
+    """
+    Run Basic Pitch on hummed audio to extract melody notes.
+    Returns (hum_midi_path, description_string).
+    """
+    from pipelines.transcriber import transcribe_audio
     try:
-        style_desc = f"{genre.replace('-', ' ').title()} style at {tempo} BPM in {key}. {prompt}".strip()
-        return _minimax_api_call(style_desc, lyrics="", job_dir=job_dir, out_filename=out_filename)
+        hum_midi_path = transcribe_audio(audio_path, str(job_dir), output_name="hum_melody.mid")
+        pm = pretty_midi.PrettyMIDI(hum_midi_path)
+        notes = []
+        for inst in pm.instruments:
+            notes.extend(inst.notes)
+        if not notes:
+            return hum_midi_path, ""
+
+        notes.sort(key=lambda n: n.start)
+        pitches = [n.pitch for n in notes[:24]]
+
+        # Detect root by most common pitch class
+        pitch_classes = [p % 12 for p in pitches]
+        most_common_pc = max(set(pitch_classes), key=pitch_classes.count)
+        root_name = NOTE_NAMES_SHARP[most_common_pc]
+
+        # Minor/major heuristic
+        minor_intervals = {3, 7, 10}
+        intervals_from_root = {(p - most_common_pc) % 12 for p in pitch_classes}
+        is_minor = bool(intervals_from_root & minor_intervals)
+        key_desc = f"{root_name}{'m' if is_minor else ''}"
+
+        # Range
+        min_p, max_p = min(pitches), max(pitches)
+        range_desc = (
+            f"{NOTE_NAMES_SHARP[min_p % 12]}{min_p // 12 - 1}"
+            f"-{NOTE_NAMES_SHARP[max_p % 12]}{max_p // 12 - 1}"
+        )
+
+        # Sample note names
+        note_sample = ' '.join(f"{NOTE_NAMES_SHARP[p % 12]}{p // 12 - 1}" for p in pitches[:8])
+
+        desc = f"melody in {key_desc}, note range {range_desc}, melody notes: {note_sample}"
+        return hum_midi_path, desc
     except Exception as e:
-        print(f"[midi_generator] MiniMax audio-only failed: {e}")
-        return None
+        print(f"[midi_generator] _extract_melody_from_hum failed: {e}")
+        return None, ""
+
+
+# ─── Reference audio analysis (librosa) ──────────────────────────────────────
+
+def _analyze_reference_audio(audio_path: str) -> Tuple[float, str, str]:
+    """
+    Detect tempo, key, and energy from reference audio using librosa.
+    Returns (detected_tempo, detected_key, style_description).
+    """
+    try:
+        import librosa
+
+        y, sr = librosa.load(audio_path, sr=22050, mono=True, duration=60)
+
+        # Tempo
+        tempo_val, _ = librosa.beat.beat_track(y=y, sr=sr)
+        tempo_f = float(tempo_val)
+        if tempo_f < 60:
+            tempo_f *= 2
+        if tempo_f > 220:
+            tempo_f /= 2
+
+        # Key from chroma
+        chroma = librosa.feature.chroma_cqt(y=y, sr=sr)
+        chroma_mean = np.mean(chroma, axis=1)
+        root_idx = int(np.argmax(chroma_mean))
+        root_name = NOTE_NAMES_SHARP[root_idx]
+
+        major_template = np.array([1,0,1,0,1,1,0,1,0,1,0,1], dtype=float)
+        minor_template = np.array([1,0,1,1,0,1,0,1,1,0,1,0], dtype=float)
+        major_score = float(np.dot(np.roll(major_template, root_idx), chroma_mean))
+        minor_score = float(np.dot(np.roll(minor_template, root_idx), chroma_mean))
+        mode_suffix = 'm' if minor_score > major_score else ''
+        key_str = f"{root_name}{mode_suffix}"
+
+        style_desc = f"inspired by the provided reference audio, approximately {int(tempo_f)} BPM in {key_str}"
+        return round(tempo_f, 1), key_str, style_desc
+    except Exception as e:
+        print(f"[midi_generator] _analyze_reference_audio failed: {e}")
+        return 120.0, 'Am', "inspired by the provided reference audio"
 
 
 # ─── Public API ───────────────────────────────────────────────────────────────
@@ -368,190 +210,122 @@ def generate_from_prompt(
     audio_path: Optional[str] = None,
     chord_progression: Optional[list] = None,
     piano_melody_path: Optional[str] = None,
-    conditioning_midi: Optional[str] = None,
+    mode: str = 'text',
     **kwargs,
-) -> Tuple[str, Optional[str], Dict[str, str], List[dict]]:
+) -> Tuple[str, Optional[str], Optional[str]]:
     """
-    Smart model routing. Returns (midi_path, vocal_path, primary_stems, versions_list).
-
-    versions_list: [] for single version, list of version dicts for multiple:
-      [{"id": "musicgen"|"minimax", "label": str, "provider": str,
-        "audio_path": str, "stems": {stem_name: local_path}, "vocal_path": optional}]
+    Smart routing — 7 routes, all using MiniMax.
+    Returns (midi_path, vocal_audio_path, generated_audio_path).
+    Stem separation is handled by the caller.
     """
-    provider = os.environ.get('MIDI_GEN_PROVIDER', 'auto')
-    has_replicate = bool(os.environ.get('REPLICATE_API_TOKEN'))
     has_minimax = bool(os.environ.get('MINIMAX_API_KEY'))
-    use_api = provider == 'api' or (provider == 'auto' and (has_replicate or has_minimax))
+    provider = os.environ.get('MIDI_GEN_PROVIDER', 'auto')
+    use_api = provider == 'api' or (provider == 'auto' and has_minimax)
 
-    # Piano melody takes priority over voice recording as audio conditioning
-    effective_audio_path = audio_path or piano_melody_path
     job_dir = Path(output_path).parent
     job_dir.mkdir(parents=True, exist_ok=True)
+
+    has_lyrics = bool(lyrics and lyrics.strip())
+    has_voice = bool(
+        audio_path and Path(audio_path).exists()
+        and mode in ('voice', 'hum', 'recording')
+    )
+    has_reference = bool(
+        audio_path and Path(audio_path).exists()
+        and mode == 'source'
+    )
+    has_piano = bool(piano_melody_path and Path(piano_melody_path).exists())
+    has_chords = bool(chord_progression and len(chord_progression) > 0)
+
+    style_prefix = f"{genre.replace('-', ' ').title()} style at {tempo} BPM in {key}"
 
     # ── MOCK MODE ────────────────────────────────────────────────────────────
     if not use_api or provider == 'mock':
         pm = mock_generate(genre=genre, tempo=tempo, key=key, chord_progression=chord_progression)
         pm.write(output_path)
-        return output_path, None, {}, []
+        return output_path, None, None
 
-    has_audio = bool(effective_audio_path and Path(effective_audio_path).exists())
-    has_lyrics = bool(lyrics.strip())
-
-    # ── ROUTE 1: text only (no audio, no lyrics) → MiniMax instrumental ─────
-    if not has_audio and not has_lyrics:
-        if has_minimax:
-            print("[midi_generator] Route 1: MiniMax instrumental")
-            try:
-                midi, vocal, stems = _generate_via_minimax_instrumental(
-                    prompt, output_path, genre=genre, tempo=tempo, key=key
-                )
-                return midi, vocal, stems, []
-            except Exception as e:
-                print(f"[midi_generator] MiniMax failed: {e} — trying MusicGen")
-
-        if has_replicate:
-            print("[midi_generator] Route 1 fallback: MusicGen text-only")
-            midi, vocal, stems = _generate_via_musicgen(
-                prompt, output_path, genre=genre, tempo=tempo, key=key
-            )
-            return midi, vocal, stems, []
-
-        # No API at all → mock
+    # ─ Helper: write mock MIDI with optional hum melody merged ────────────────
+    def _write_midi(hum_midi_path: Optional[str] = None) -> str:
         pm = mock_generate(genre=genre, tempo=tempo, key=key, chord_progression=chord_progression)
-        pm.write(output_path)
-        return output_path, None, {}, []
-
-    # ── ROUTE 2: lyrics, no audio → MiniMax vocal ────────────────────────────
-    if has_lyrics and not has_audio:
-        if has_minimax:
-            print("[midi_generator] Route 2: MiniMax vocal (lyrics provided)")
-            midi, vocal, stems = _generate_via_minimax_vocal(
-                prompt, output_path, genre=genre, tempo=tempo, key=key, lyrics=lyrics
-            )
-            return midi, vocal, stems, []
-
-        if has_replicate:
-            print("[midi_generator] Route 2 fallback: MusicGen (no MiniMax key)")
-            midi, vocal, stems = _generate_via_musicgen(
-                prompt, output_path, genre=genre, tempo=tempo, key=key
-            )
-            return midi, vocal, stems, []
-
-        pm = mock_generate(genre=genre, tempo=tempo, key=key)
-        pm.write(output_path)
-        return output_path, None, {}, []
-
-    # ── ROUTE 3: audio input, no lyrics → MusicGen (melody) + MiniMax (alt) ─
-    if has_audio and not has_lyrics:
-        print("[midi_generator] Route 3: MusicGen melody-conditioning + MiniMax alternate")
-
-        if has_replicate:
-            # Primary: MusicGen with melody conditioning
-            midi, vocal, primary_stems = _generate_via_musicgen(
-                prompt, output_path, genre=genre, tempo=tempo, key=key,
-                audio_path=effective_audio_path
-            )
-            musicgen_audio = job_dir / "musicgen_audio.mp3"
-            versions = [
-                {
-                    "id": "musicgen",
-                    "label": "🎤 Your Melody",
-                    "provider": "musicgen",
-                    "audio_path": str(musicgen_audio) if musicgen_audio.exists() else None,
-                    "stems": primary_stems,
-                    "vocal_path": None,
-                }
-            ]
-
-            # Secondary: MiniMax instrumental (audio only, no Demucs — cheaper)
-            if has_minimax:
-                alt_audio = _minimax_audio_only(prompt, job_dir, genre, tempo, key,
-                                                out_filename="minimax_audio.mp3")
-                if alt_audio:
-                    versions.append({
-                        "id": "minimax",
-                        "label": "✨ High Quality",
-                        "provider": "minimax",
-                        "audio_path": alt_audio,
-                        "stems": {},
-                        "vocal_path": None,
-                    })
-
-            return midi, vocal, primary_stems, versions
-
-        # No Replicate but has MiniMax → single MiniMax version
-        if has_minimax:
-            midi, vocal, stems = _generate_via_minimax_instrumental(
-                prompt, output_path, genre=genre, tempo=tempo, key=key
-            )
-            return midi, vocal, stems, []
-
-        pm = mock_generate(genre=genre, tempo=tempo, key=key)
-        pm.write(output_path)
-        return output_path, None, {}, []
-
-    # ── ROUTE 4: audio + lyrics → MusicGen melody + MiniMax vocal ────────────
-    if has_audio and has_lyrics:
-        print("[midi_generator] Route 4: MusicGen melody + MiniMax vocal")
-        versions = []
-        vocal = None  # may be set below
-
-        if has_replicate:
+        if hum_midi_path and Path(hum_midi_path).exists():
             try:
-                midi, _, mg_stems = _generate_via_musicgen(
-                    prompt, output_path, genre=genre, tempo=tempo, key=key,
-                    audio_path=effective_audio_path
-                )
-                musicgen_audio = job_dir / "musicgen_audio.mp3"
-                versions.append({
-                    "id": "musicgen",
-                    "label": "🎤 Your Melody (Instrumental)",
-                    "provider": "musicgen",
-                    "audio_path": str(musicgen_audio) if musicgen_audio.exists() else None,
-                    "stems": mg_stems,
-                    "vocal_path": None,
-                })
+                hum_pm = pretty_midi.PrettyMIDI(hum_midi_path)
+                if hum_pm.instruments:
+                    melody_idx = next(
+                        (i for i, inst in enumerate(pm.instruments) if inst.name == 'Melody'), None
+                    )
+                    hum_inst = hum_pm.instruments[0]
+                    hum_inst.name = 'Melody'
+                    hum_inst.program = 0
+                    if melody_idx is not None:
+                        pm.instruments[melody_idx] = hum_inst
+                    else:
+                        pm.instruments.append(hum_inst)
             except Exception as e:
-                print(f"[midi_generator] Route 4 MusicGen failed: {e}")
-                # Generate a basic MIDI if MusicGen fails
-                pm = mock_generate(genre=genre, tempo=tempo, key=key)
-                pm.write(output_path)
-                midi = output_path
+                print(f"[midi_generator] Could not merge hum melody: {e}")
+        pm.write(output_path)
+        return output_path
 
-        if has_minimax:
-            try:
-                mm_midi_path = str(job_dir / "minimax_output.mid")
-                shutil.copy(output_path, mm_midi_path) if Path(output_path).exists() else None
-                _, vocal_path, mm_stems = _generate_via_minimax_vocal(
-                    prompt, mm_midi_path if Path(mm_midi_path).exists() else output_path,
-                    genre=genre, tempo=tempo, key=key, lyrics=lyrics, stem_prefix="mm"
-                )
-                minimax_audio = job_dir / "minimax_audio.mp3"
-                versions.append({
-                    "id": "minimax",
-                    "label": "✨ Full Song (Vocals)",
-                    "provider": "minimax",
-                    "audio_path": str(minimax_audio) if minimax_audio.exists() else None,
-                    "stems": mm_stems,
-                    "vocal_path": vocal_path,
-                })
-                if not versions or versions[0]["id"] == "musicgen":
-                    vocal = vocal_path
-            except Exception as e:
-                print(f"[midi_generator] Route 4 MiniMax failed: {e}")
+    def _call_minimax(style_desc: str) -> Optional[str]:
+        try:
+            return _minimax_api_call(style_desc, lyrics=lyrics if has_lyrics else "", job_dir=job_dir)
+        except Exception as e:
+            print(f"[midi_generator] MiniMax failed: {e}")
+            raise
 
-        if not Path(output_path).exists():
-            pm = mock_generate(genre=genre, tempo=tempo, key=key)
-            pm.write(output_path)
+    # ── ROUTE 3/4: Voice / hum input ─────────────────────────────────────────
+    if has_voice:
+        route = "4 (hum + vocals)" if has_lyrics else "3 (hum, instrumental)"
+        print(f"[midi_generator] Route {route}: Basic Pitch melody extraction")
+        hum_midi_path, melody_desc = _extract_melody_from_hum(audio_path, job_dir)
+        midi_out = _write_midi(hum_midi_path)
 
-        primary_stems = versions[0]["stems"] if versions else {}
-        vocal = versions[-1].get("vocal_path") if versions else None
-        return output_path, vocal, primary_stems, versions
+        style_desc = f"{style_prefix}. {prompt}".strip('. ')
+        if melody_desc:
+            style_desc += f". Based on {melody_desc}"
+        audio_out = _call_minimax(style_desc)
+        return midi_out, None, audio_out
 
-    # Should never reach here
-    pm = mock_generate(genre=genre, tempo=tempo, key=key)
-    pm.write(output_path)
-    return output_path, None, {}, []
+    # ── ROUTE 7: Reference audio ──────────────────────────────────────────────
+    if has_reference:
+        print("[midi_generator] Route 7: Reference audio → librosa analysis → MiniMax")
+        ref_tempo, ref_key, ref_desc = _analyze_reference_audio(audio_path)
+
+        pm = mock_generate(
+            genre=genre,
+            tempo=int(ref_tempo) if ref_tempo else tempo,
+            key=ref_key or key,
+            chord_progression=chord_progression,
+        )
+        pm.write(output_path)
+
+        style_desc = f"{style_prefix}. {prompt}. {ref_desc}".strip('. ')
+        audio_out = _call_minimax(style_desc)
+        return output_path, None, audio_out
+
+    # ── ROUTE 5/6: Piano / chords input ──────────────────────────────────────
+    if has_piano or has_chords:
+        route = "6 (chords + vocals)" if has_lyrics else "5 (chords, instrumental)"
+        print(f"[midi_generator] Route {route}")
+        midi_out = _write_midi()
+
+        chord_desc = ""
+        if has_chords:
+            chord_desc = f"chord progression: {' - '.join(str(c) for c in chord_progression[:8])}"
+
+        style_desc = f"{style_prefix}. {chord_desc}. {prompt}".strip('. ')
+        audio_out = _call_minimax(style_desc)
+        return midi_out, None, audio_out
+
+    # ── ROUTE 1/2: Text only ──────────────────────────────────────────────────
+    route = "2 (text + vocals)" if has_lyrics else "1 (text, instrumental)"
+    print(f"[midi_generator] Route {route}")
+    midi_out = _write_midi()
+
+    style_desc = f"{style_prefix}. {prompt}".strip('. ')
+    audio_out = _call_minimax(style_desc)
+    return midi_out, None, audio_out
 
 
 # ─── Mock generator (genre-aware, clean MIDI) ────────────────────────────────

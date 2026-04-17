@@ -54,6 +54,7 @@ class Generation(Base):
     duration = Column(Float, default=0.0)
     time_signature = Column(String, default="4/4")
     is_favorite = Column(Boolean, default=False)
+    is_shared = Column(Boolean, default=False)
 
     user = relationship("User", back_populates="generations")
 

@@ -47,6 +47,31 @@ const CHORD_ROWS = [
   ['Cmaj7', 'Dm7', 'G7', 'Am7', 'Fmaj7', 'Em7', 'Bbmaj7'],
 ]
 
+// Map chord names to piano note strings for key highlighting
+const CHORD_NOTES_MAP = {
+  'C':      ['C3','E3','G3'],
+  'Cm':     ['C3','D#3','G3'],
+  'D':      ['D3','F#3','A3'],
+  'Dm':     ['D3','F3','A3'],
+  'E':      ['E3','G#3','B3'],
+  'Em':     ['E3','G3','B3'],
+  'F':      ['F3','A3','C4'],
+  'Fm':     ['F3','G#3','C4'],
+  'G':      ['G3','B3','D4'],
+  'Gm':     ['G3','A#3','D4'],
+  'A':      ['A3','C#4','E4'],
+  'Am':     ['A3','C4','E4'],
+  'B':      ['B3','D#4','F#4'],
+  'Bm':     ['B3','D4','F#4'],
+  'Cmaj7':  ['C3','E3','G3','B3'],
+  'Dm7':    ['D3','F3','A3','C4'],
+  'G7':     ['G3','B3','D4','F4'],
+  'Am7':    ['A3','C4','E4','G4'],
+  'Fmaj7':  ['F3','A3','C4','E4'],
+  'Em7':    ['E3','G3','B3','D4'],
+  'Bbmaj7': ['A#3','D4','F4','A4'],
+}
+
 // ─── WAV encoder ─────────────────────────────────────────────────────────────
 
 function audioBufferToWav(ab) {
@@ -74,6 +99,8 @@ function audioBufferToWav(ab) {
 export default function PianoPanel({ onChordProgressionChange, onMelodyBlobChange }) {
   const [chordProgression, setChordProgression] = useState([])
   const [activeNotes, setActiveNotes] = useState(new Set())
+  const [highlightedNotes, setHighlightedNotes] = useState(new Set())
+  const [chordLabel, setChordLabel] = useState('')
   const [isRecording, setIsRecording] = useState(false)
   const [recordedNotes, setRecordedNotes] = useState([])
   const [isPlaying, setIsPlaying] = useState(false)
@@ -83,11 +110,13 @@ export default function PianoPanel({ onChordProgressionChange, onMelodyBlobChang
 
   const synthRef = useRef(null)
   const recordStartRef = useRef(null)
-  const noteStartsRef = useRef({})  // note -> timestamp ms
+  const noteStartsRef = useRef({})
   const recordedNotesRef = useRef([])
   const isRecordingRef = useRef(false)
   const activeNotesRef = useRef(new Set())
   const pianoFocusedRef = useRef(false)
+  const highlightTimeoutRef = useRef(null)
+  const heldChordNotesRef = useRef([])
 
   // Sync refs
   useEffect(() => { isRecordingRef.current = isRecording }, [isRecording])
@@ -129,6 +158,43 @@ export default function PianoPanel({ onChordProgressionChange, onMelodyBlobChang
       setRecordedNotes([...recordedNotesRef.current])
       delete noteStartsRef.current[note]
     }
+  }
+
+  // Highlight chord notes on piano keys
+  function highlightChord(chord) {
+    const notes = CHORD_NOTES_MAP[chord] || []
+    clearTimeout(highlightTimeoutRef.current)
+    setHighlightedNotes(new Set(notes))
+    setChordLabel(chord)
+    highlightTimeoutRef.current = setTimeout(() => {
+      setHighlightedNotes(new Set())
+      setChordLabel('')
+    }, 1000)
+  }
+
+  function playChordAttack(chord) {
+    const notes = CHORD_NOTES_MAP[chord] || []
+    heldChordNotesRef.current = notes
+    clearTimeout(highlightTimeoutRef.current)
+    setHighlightedNotes(new Set(notes))
+    setChordLabel(chord)
+    getSynth().then((synth) => {
+      notes.forEach((note) => synth.triggerAttack(note, '+0'))
+    })
+  }
+
+  function playChordRelease() {
+    const notes = heldChordNotesRef.current
+    if (notes.length) {
+      getSynth().then((synth) => {
+        notes.forEach((note) => synth.triggerRelease(note, '+0'))
+      })
+    }
+    heldChordNotesRef.current = []
+    highlightTimeoutRef.current = setTimeout(() => {
+      setHighlightedNotes(new Set())
+      setChordLabel('')
+    }, 800)
   }
 
   // Keyboard event handler
@@ -265,8 +331,12 @@ export default function PianoPanel({ onChordProgressionChange, onMelodyBlobChang
               <button
                 key={chord}
                 type="button"
-                onClick={() => addChord(chord)}
-                className="rounded-lg px-2.5 py-1 text-xs font-medium bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 hover:bg-indigo-100 dark:hover:bg-indigo-900/40 hover:text-indigo-700 dark:hover:text-indigo-300 transition border border-zinc-200 dark:border-zinc-700"
+                onMouseDown={(e) => { e.preventDefault(); playChordAttack(chord) }}
+                onMouseUp={() => { playChordRelease(); addChord(chord) }}
+                onMouseLeave={() => playChordRelease()}
+                onTouchStart={(e) => { e.preventDefault(); playChordAttack(chord) }}
+                onTouchEnd={() => { playChordRelease(); addChord(chord) }}
+                className="rounded-lg px-2.5 py-1 text-xs font-medium bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 hover:bg-indigo-100 dark:hover:bg-indigo-900/40 hover:text-indigo-700 dark:hover:text-indigo-300 transition border border-zinc-200 dark:border-zinc-700 select-none"
               >
                 {chord}
               </button>
@@ -276,7 +346,29 @@ export default function PianoPanel({ onChordProgressionChange, onMelodyBlobChang
 
         {/* Progression pills */}
         {chordProgression.length > 0 && (
-          <div className="flex items-center gap-1.5 flex-wrap mt-3 p-3 rounded-lg bg-zinc-50 dark:bg-zinc-800/50 border border-zinc-200 dark:border-zinc-700 min-h-[48px]">
+          <div className="mt-3 space-y-2">
+          <button
+            type="button"
+            onClick={async () => {
+              const synth = await getSynth()
+              for (let i = 0; i < chordProgression.length; i++) {
+                const chord = chordProgression[i]
+                const notes = CHORD_NOTES_MAP[chord] || []
+                setHighlightedNotes(new Set(notes))
+                setChordLabel(chord)
+                notes.forEach((n) => synth.triggerAttack(n, '+0'))
+                await new Promise((r) => setTimeout(r, 600))
+                notes.forEach((n) => synth.triggerRelease(n, '+0'))
+                setHighlightedNotes(new Set())
+                setChordLabel('')
+                await new Promise((r) => setTimeout(r, 100))
+              }
+            }}
+            className="text-xs px-3 py-1 rounded-lg bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-200 dark:hover:bg-indigo-800/60 border border-indigo-200 dark:border-indigo-800 transition font-medium"
+          >
+            ▶ Play Progression
+          </button>
+          <div className="flex items-center gap-1.5 flex-wrap p-3 rounded-lg bg-zinc-50 dark:bg-zinc-800/50 border border-zinc-200 dark:border-zinc-700 min-h-[48px]">
             {chordProgression.map((chord, i) => (
               <div
                 key={i}
@@ -303,6 +395,7 @@ export default function PianoPanel({ onChordProgressionChange, onMelodyBlobChang
               </div>
             ))}
             <p className="text-xs text-zinc-400 dark:text-zinc-500 ml-1 italic">drag to reorder</p>
+          </div>
           </div>
         )}
         {chordProgression.length === 0 && (
@@ -362,6 +455,15 @@ export default function PianoPanel({ onChordProgressionChange, onMelodyBlobChang
           onBlur={() => setPianoFocused(false)}
           className={`outline-none rounded-xl overflow-x-auto pb-2 ${pianoFocused ? 'ring-2 ring-indigo-500 ring-offset-2 dark:ring-offset-zinc-900' : ''}`}
         >
+          {/* Floating chord label */}
+          {chordLabel && (
+            <div className="text-center mb-1">
+              <span className="inline-block rounded-full bg-indigo-600 text-white text-xs font-bold px-3 py-0.5 shadow">
+                {chordLabel}
+              </span>
+            </div>
+          )}
+
           {/* Piano keys */}
           <div
             className="relative mx-auto"
@@ -370,6 +472,7 @@ export default function PianoPanel({ onChordProgressionChange, onMelodyBlobChang
             {/* White keys */}
             {WHITE_KEYS.map((key) => {
               const active = activeNotes.has(key.note)
+              const highlighted = highlightedNotes.has(key.note)
               return (
                 <div
                   key={key.note}
@@ -380,6 +483,8 @@ export default function PianoPanel({ onChordProgressionChange, onMelodyBlobChang
                   className={`absolute top-0 border border-zinc-300 dark:border-zinc-600 rounded-b-md cursor-pointer select-none flex flex-col justify-end items-center pb-1 transition-colors ${
                     active
                       ? 'bg-indigo-300 dark:bg-indigo-500'
+                      : highlighted
+                      ? 'bg-indigo-200 dark:bg-indigo-700'
                       : 'bg-white dark:bg-zinc-100 hover:bg-indigo-50 dark:hover:bg-indigo-100'
                   }`}
                 >
@@ -398,6 +503,7 @@ export default function PianoPanel({ onChordProgressionChange, onMelodyBlobChang
             {/* Black keys */}
             {BLACK_KEYS.map((key) => {
               const active = activeNotes.has(key.note)
+              const highlighted = highlightedNotes.has(key.note)
               const left = key.wIdx * W + W * 0.7 - BW / 2
               return (
                 <div
@@ -409,6 +515,8 @@ export default function PianoPanel({ onChordProgressionChange, onMelodyBlobChang
                   className={`absolute top-0 rounded-b-md cursor-pointer select-none flex flex-col justify-end items-center pb-1 transition-colors ${
                     active
                       ? 'bg-indigo-500'
+                      : highlighted
+                      ? 'bg-indigo-600'
                       : 'bg-zinc-800 dark:bg-zinc-900 hover:bg-zinc-600 dark:hover:bg-zinc-700'
                   }`}
                 >

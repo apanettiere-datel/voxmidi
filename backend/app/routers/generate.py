@@ -1,8 +1,8 @@
 import os
 import re
 import uuid
+import json as _json
 import shutil
-import threading
 from pathlib import Path
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Depends
 from typing import Optional
@@ -35,7 +35,7 @@ async def generate(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Start async MIDI generation. Returns job_id immediately; poll /api/status/{job_id}."""
+    """Start async generation. Returns job_id immediately; poll /api/status/{job_id}."""
     if current_user.usage_count >= current_user.usage_limit:
         raise HTTPException(
             status_code=429,
@@ -44,7 +44,6 @@ async def generate(
 
     job_id = str(uuid.uuid4())[:8]
 
-    # Read audio bytes before spawning thread (UploadFile is not thread-safe)
     audio_content: Optional[bytes] = None
     audio_suffix = ".webm"
     if audio:
@@ -55,13 +54,16 @@ async def generate(
     if piano_melody:
         piano_melody_content = await piano_melody.read()
 
-    # Increment usage eagerly so concurrent requests don't exceed limits
     current_user.usage_count += 1
     db.commit()
 
     set_job(job_id, {"status": "processing", "progress": 0})
 
-    args = (job_id, audio_content, audio_suffix, piano_melody_content, source_url, prompt, genre, tempo, key, mode, lyrics, chord_progression, current_user.id)
+    args = (
+        job_id, audio_content, audio_suffix, piano_melody_content,
+        source_url, prompt, genre, tempo, key, mode, lyrics,
+        chord_progression, current_user.id,
+    )
     started = try_start(job_id, _run_generate, args)
 
     if not started:
@@ -74,6 +76,20 @@ async def generate(
         })
 
     return {"job_id": job_id, "status": "queued" if not started else "processing"}
+
+
+def _persist_files(job_dir: Path, store_dir: Path) -> None:
+    """Copy all files from job_dir to persistent store."""
+    try:
+        MIDI_STORE.mkdir(parents=True, exist_ok=True)
+        store_dir.mkdir(parents=True, exist_ok=True)
+        for src in job_dir.iterdir():
+            if src.is_file():
+                dest = store_dir / src.name
+                if not dest.exists() or src.stat().st_mtime > dest.stat().st_mtime:
+                    shutil.copy2(src, dest)
+    except Exception as e:
+        print(f"[generate] persist failed: {e}")
 
 
 def _run_generate(
@@ -92,8 +108,9 @@ def _run_generate(
     user_id: str,
 ) -> None:
     db = SessionLocal()
+    store_dir = MIDI_STORE / job_id
     try:
-        update_job(job_id, {"status": "generating_audio", "progress": 20})
+        update_job(job_id, {"status": "generating_audio", "progress": 15})
 
         job_dir = UPLOAD_DIR / job_id
         job_dir.mkdir(parents=True, exist_ok=True)
@@ -110,7 +127,6 @@ def _run_generate(
             piano_saved.write_bytes(piano_melody_content)
             piano_melody_path = str(piano_saved)
 
-        import json as _json
         chord_list: list = []
         if chord_progression.strip():
             try:
@@ -120,26 +136,16 @@ def _run_generate(
 
         full_prompt = _build_prompt(genre, tempo, key, prompt)
 
-        provider = os.environ.get("MIDI_GEN_PROVIDER", "auto")
-        has_replicate = bool(os.environ.get("REPLICATE_API_TOKEN"))
         has_minimax = bool(os.environ.get("MINIMAX_API_KEY"))
-        use_api = provider == "api" or (provider == "auto" and (has_replicate or has_minimax))
-        # Initial guess — updated below after we see which files were actually produced
-        provider_used = "mock"
-        if use_api and provider != "mock":
-            if has_minimax:
-                provider_used = "minimax"   # MiniMax preferred for everything
-            elif has_replicate:
-                provider_used = "musicgen"
+        provider_used = "minimax" if has_minimax else "mock"
 
-        print(f"[generate] job={job_id} provider={provider_used} genre={genre} tempo={tempo} key={key}")
+        print(f"[generate] job={job_id} provider={provider_used} genre={genre} tempo={tempo} key={key} mode={mode}")
 
         output_midi_path = str(job_dir / "output.mid")
-        vocal_audio_path: Optional[str] = None
-        stems_dict: dict = {}
 
+        # ── PHASE 1: Generate audio + MIDI ───────────────────────────────────
         try:
-            result_tuple = generate_from_prompt(
+            midi_path, vocal_path, audio_path = generate_from_prompt(
                 prompt=full_prompt,
                 output_path=output_midi_path,
                 genre=genre,
@@ -149,81 +155,56 @@ def _run_generate(
                 audio_path=raw_audio_path,
                 chord_progression=chord_list if chord_list else None,
                 piano_melody_path=piano_melody_path,
+                mode=mode,
             )
-            # Defensively handle 3-tuple (old code path) or 4-tuple
-            if len(result_tuple) == 4:
-                output_midi_path, vocal_audio_path, stems_dict, versions_list = result_tuple
-            elif len(result_tuple) == 3:
-                output_midi_path, vocal_audio_path, stems_dict = result_tuple
-                versions_list = []
-            else:
-                raise ValueError(f"generate_from_prompt returned {len(result_tuple)} values, expected 3 or 4")
+            output_midi_path = midi_path
         except Exception as e:
             err_str = str(e).lower()
-            if any(w in err_str for w in ("replicate", "rate limit", "timeout", "model", "api", "minimax")):
-                msg = "Music generation service is temporarily busy. Please try again in a minute."
+            if any(w in err_str for w in ("minimax", "api", "key", "rate", "timeout", "403", "401", "429")):
+                msg = "Music generation service is temporarily unavailable. Please try again in a moment."
             else:
                 msg = "Generation failed. Please try again."
-            print(f"[generate] error job={job_id}: {e}")
+            print(f"[generate] Phase 1 error job={job_id}: {e}")
             import traceback; traceback.print_exc()
             update_job(job_id, {"status": "error", "message": msg})
             return
 
-        # Check if job was cancelled while generating
-        from .jobs import get_job as _get_job
-        if _get_job(job_id) and _get_job(job_id).get("status") == "cancelled":
+        # Check cancellation
+        if get_job(job_id) and get_job(job_id).get("status") == "cancelled":
             return
 
-        update_job(job_id, {"status": "separating_stems", "progress": 50})
-
+        # Post-process MIDI
         try:
             final_path = post_process_midi(output_midi_path, str(job_dir / "final.mid"), tempo=tempo, key=key)
             output_midi_path = final_path
         except Exception:
             pass
 
-        update_job(job_id, {"status": "transcribing", "progress": 80})
-
-        output_filename = Path(output_midi_path).name
-
+        # Analyze MIDI
         try:
             analysis = analyze_midi(output_midi_path)
         except Exception:
             analysis = {"tempo": tempo, "duration": 0, "time_signature": "4/4", "key": key, "tracks": []}
 
-        # Find main generated audio and determine actual provider from output files
-        generated_audio_path: Optional[str] = None
-        for name in ("musicgen_audio.mp3", "minimax_audio.mp3"):
-            p = job_dir / name
-            if p.exists():
-                generated_audio_path = str(p)
-                if provider_used == "mock":  # only override if not already set
-                    provider_used = "musicgen" if "musicgen" in name else "minimax"
-                break
-        # Fallback: any MP3 not named vocal_track
-        if not generated_audio_path:
-            for mp3 in job_dir.glob("*.mp3"):
-                if "vocal" not in mp3.name and "input" not in mp3.name:
-                    generated_audio_path = str(mp3)
+        output_filename = Path(output_midi_path).name
+
+        # Find audio file
+        generated_audio_path = audio_path
+        if not generated_audio_path or not Path(generated_audio_path).exists():
+            for name in ("minimax_audio.mp3",):
+                p = job_dir / name
+                if p.exists():
+                    generated_audio_path = str(p)
                     break
 
-        # Build stem URL map — only include stems that are audio files
-        stem_urls: dict = {}
-        for stem_name, stem_path in stems_dict.items():
-            if Path(stem_path).exists() and stem_path.endswith(".mp3"):
-                stem_urls[stem_name] = f"/api/download/{job_id}/{Path(stem_path).name}"
+        audio_url: Optional[str] = None
+        if generated_audio_path and Path(generated_audio_path).exists():
+            audio_url = f"/api/download/{job_id}/{Path(generated_audio_path).name}"
 
-        # Persist everything to the data volume
-        try:
-            MIDI_STORE.mkdir(parents=True, exist_ok=True)
-            store_dir = MIDI_STORE / job_id
-            store_dir.mkdir(parents=True, exist_ok=True)
-            for src in job_dir.iterdir():
-                if src.is_file():
-                    shutil.copy2(src, store_dir / src.name)
-        except Exception as e:
-            print(f"[generate] persist failed job={job_id}: {e}")
+        # Persist Phase 1 files
+        _persist_files(job_dir, store_dir)
 
+        # Save to DB
         try:
             gen = Generation(
                 id=job_id,
@@ -244,42 +225,13 @@ def _run_generate(
         except Exception as e:
             print(f"[generate] DB error job={job_id}: {e}")
 
-        vocal_audio_url: Optional[str] = None
-        if vocal_audio_path and Path(vocal_audio_path).exists():
-            vocal_audio_url = f"/api/download/{job_id}/{Path(vocal_audio_path).name}"
-
-        audio_url: Optional[str] = None
-        if generated_audio_path and Path(generated_audio_path).exists():
-            audio_url = f"/api/download/{job_id}/{Path(generated_audio_path).name}"
-
-        # Convert versions list local paths → download URLs
-        versions_out: list = []
-        for v in (versions_list or []):
-            v_audio = v.get("audio_path")
-            v_vocal = v.get("vocal_path")
-            v_stems_raw = v.get("stems") or {}
-            v_audio_url = f"/api/download/{job_id}/{Path(v_audio).name}" if v_audio and Path(v_audio).exists() else None
-            v_vocal_url = f"/api/download/{job_id}/{Path(v_vocal).name}" if v_vocal and Path(v_vocal).exists() else None
-            v_stem_urls = {
-                sn: f"/api/download/{job_id}/{Path(sp).name}"
-                for sn, sp in v_stems_raw.items()
-                if sp and Path(sp).exists() and str(sp).endswith(".mp3")
-            }
-            versions_out.append({
-                "id": v.get("id"),
-                "label": v.get("label"),
-                "provider": v.get("provider"),
-                "audio_url": v_audio_url,
-                "vocal_audio_url": v_vocal_url,
-                "stems": v_stem_urls,
-            })
-
-        result = {
+        # Build Phase 1 result
+        phase1_result = {
             "job_id": job_id,
             "midi_url": f"/api/download/{job_id}/{output_filename}",
             "audio_url": audio_url,
-            "vocal_audio_url": vocal_audio_url,
-            "stems": stem_urls,
+            "vocal_audio_url": None,
+            "stems": {},
             "preview_url": None,
             "provider": provider_used,
             "genre": genre,
@@ -289,13 +241,38 @@ def _run_generate(
             "time_signature": analysis.get("time_signature", "4/4"),
             "tracks": analysis.get("tracks", []),
             "prompt": prompt,
-            "versions": versions_out,
+            "versions": [],
         }
 
-        update_job(job_id, {"status": "complete", "progress": 100, "result": result})
+        update_job(job_id, {"status": "audio_ready", "progress": 60, "result": phase1_result})
+        print(f"[generate] job={job_id} Phase 1 complete → audio_ready")
+
+        # ── PHASE 2: Stem separation ──────────────────────────────────────────
+        stem_urls: dict = {}
+
+        if generated_audio_path and Path(generated_audio_path).exists():
+            update_job(job_id, {"status": "separating_stems", "progress": 70})
+            try:
+                from pipelines.separator import separate_stems
+                stems_dict = separate_stems(generated_audio_path, str(job_dir))
+
+                for stem_name, stem_path in stems_dict.items():
+                    sp = Path(stem_path)
+                    if sp.exists() and str(stem_path).endswith(".mp3"):
+                        stem_urls[stem_name] = f"/api/download/{job_id}/{sp.name}"
+
+                # Persist newly created stem files
+                _persist_files(job_dir, store_dir)
+                print(f"[generate] job={job_id} Phase 2 complete: {list(stem_urls.keys())} stems")
+            except Exception as e:
+                print(f"[generate] Phase 2 (Demucs) failed job={job_id}: {e} — continuing without stems")
+
+        final_result = {**phase1_result, "stems": stem_urls}
+        update_job(job_id, {"status": "complete", "progress": 100, "result": final_result})
 
     except Exception as e:
         print(f"[generate] unexpected error job={job_id}: {e}")
+        import traceback; traceback.print_exc()
         update_job(job_id, {"status": "error", "message": "An unexpected error occurred. Please try again."})
     finally:
         db.close()
@@ -315,7 +292,6 @@ async def cancel_generation(
 
 
 def parse_prompt(prompt: str) -> dict:
-    """Extract genre/tempo/key from a natural language prompt. Used by frontend-facing parse endpoint too."""
     result: dict = {"genre": None, "tempo": None, "key": None}
 
     bpm_match = re.search(r"\b(\d{2,3})\s*(?:bpm)\b", prompt, re.IGNORECASE)

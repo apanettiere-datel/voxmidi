@@ -61,6 +61,8 @@ def _generation_to_dict(g: Generation) -> dict:
     prompt = g.prompt or ""
     if prompt == "file_upload":
         prompt = "Uploaded audio"
+    elif prompt == "voice_recording":
+        prompt = "Voice recording"
 
     return {
         "id": g.id,
@@ -79,6 +81,7 @@ def _generation_to_dict(g: Generation) -> dict:
         "stems": stem_audio_urls,
         "replicate_cost": g.replicate_cost or 0.0,
         "is_favorite": getattr(g, "is_favorite", False) or False,
+        "is_shared": getattr(g, "is_shared", False) or False,
     }
 
 
@@ -175,6 +178,23 @@ async def delete_generation(
             shutil.rmtree(job_dir, ignore_errors=True)
 
     return {"status": "deleted"}
+
+
+@router.post("/library/{gen_id}/share")
+async def share_generation(
+    gen_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    gen = db.query(Generation).filter(
+        Generation.id == gen_id,
+        Generation.user_id == current_user.id,
+    ).first()
+    if not gen:
+        raise HTTPException(status_code=404, detail="Generation not found")
+    gen.is_shared = True
+    db.commit()
+    return {"is_shared": True, "share_url": f"/share/{gen_id}"}
 
 
 @router.get("/shared/{gen_id}")
