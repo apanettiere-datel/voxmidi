@@ -64,8 +64,9 @@ def _minimax_cover_api_call(
     job_dir: Path,
     out_filename: str = "minimax_audio.mp3",
 ) -> str:
-    """Call MiniMax music-2-cover API with a reference vocal/audio recording."""
-    import httpx, base64, binascii
+    """Call MiniMax music-2-cover API with a reference vocal/audio recording.
+    Falls back to music-2.6 (refer_voice) if cover model is unavailable."""
+    import httpx, base64, binascii, json as _json
 
     api_key = os.environ.get('MINIMAX_API_KEY', '')
     if not api_key:
@@ -73,40 +74,59 @@ def _minimax_cover_api_call(
 
     audio_b64 = base64.b64encode(Path(audio_path).read_bytes()).decode()
 
-    payload: dict = {
-        "model": "music-2-cover",
-        "prompt": style_desc,
-        "audio_base64": audio_b64,
-        "audio_setting": {
-            "sample_rate": 44100,
-            "bitrate": 256000,
-            "format": "mp3",
+    # Try music-2-cover first, fall back to music-2.6 with refer_voice
+    models_to_try = [
+        {
+            "model": "music-2-cover",
+            "prompt": style_desc,
+            "audio_base64": audio_b64,
+            "audio_setting": {"sample_rate": 44100, "bitrate": 256000, "format": "mp3"},
         },
-    }
+        {
+            "model": "music-2.6",
+            "prompt": style_desc,
+            "refer_voice": audio_b64,
+            "audio_setting": {"sample_rate": 44100, "bitrate": 256000, "format": "mp3"},
+        },
+    ]
     if lyrics and lyrics.strip():
-        payload["lyrics"] = lyrics.strip()
+        for m in models_to_try:
+            m["lyrics"] = lyrics.strip()
+    else:
+        for m in models_to_try:
+            m["is_instrumental"] = True
 
-    print(f"[midi_generator] MiniMax music-2-cover: sending vocal reference ({len(audio_b64)} b64 chars)")
-    import json as _json
-    log_payload = {k: (f"<b64 {len(v)} chars>" if k == 'audio_base64' else v) for k, v in payload.items()}
-    print(f"[midi_generator] MiniMax cover request: {_json.dumps(log_payload)}")
+    last_err = None
+    for payload in models_to_try:
+        log_payload = {k: (f"<b64 {len(v)} chars>" if k in ('audio_base64', 'refer_voice') and isinstance(v, str) else v) for k, v in payload.items()}
+        print(f"[midi_generator] MiniMax {payload['model']}: trying cover/refer_voice mode")
+        print(f"[midi_generator] MiniMax request: {_json.dumps(log_payload)}")
+        try:
+            resp = httpx.post(
+                "https://api.minimax.io/v1/music_generation",
+                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                json=payload,
+                timeout=180.0,
+            )
+            resp.raise_for_status()
+            resp_json = resp.json()
+            print(f"[midi_generator] MiniMax response keys: {list(resp_json.keys()) if resp_json else 'null'}")
+            data = resp_json.get("data") if resp_json else None
+            audio_hex = data.get("audio", "") if isinstance(data, dict) else ""
+            if audio_hex:
+                audio_bytes = binascii.unhexlify(audio_hex)
+                audio_file = job_dir / out_filename
+                audio_file.write_bytes(audio_bytes)
+                print(f"[midi_generator] MiniMax {payload['model']}: saved {len(audio_bytes)} bytes -> {out_filename}")
+                return str(audio_file)
+            else:
+                print(f"[midi_generator] MiniMax {payload['model']}: no audio in response: {resp_json}")
+                last_err = RuntimeError(f"No audio data in response: {resp_json}")
+        except Exception as e:
+            print(f"[midi_generator] MiniMax {payload['model']} failed: {e}")
+            last_err = e
 
-    resp = httpx.post(
-        "https://api.minimax.io/v1/music_generation",
-        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-        json=payload,
-        timeout=180.0,
-    )
-    resp.raise_for_status()
-    resp_json = resp.json()
-    audio_hex = resp_json.get("data", {}).get("audio", "") if resp_json else ""
-    if not audio_hex:
-        raise RuntimeError(f"MiniMax cover returned no audio: {resp_json}")
-    audio_bytes = binascii.unhexlify(audio_hex)
-    audio_file = job_dir / out_filename
-    audio_file.write_bytes(audio_bytes)
-    print(f"[midi_generator] MiniMax cover: saved {len(audio_bytes)} bytes -> {out_filename}")
-    return str(audio_file)
+    raise last_err or RuntimeError("All cover models failed")
 
 
 def _trim_lyrics_for_duration(lyrics: str, duration: int) -> tuple:
