@@ -1,7 +1,8 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 
-import { startGenerateMidi, startExtractSource, getJobStatus, saveToLibrary } from '@/lib/api'
+import { startGenerateMidi, startExtractSource } from '@/lib/api'
 import { useAuthFetch } from '@/lib/authFetch'
+import { useJobs, JobsNotificationBar } from '@/lib/JobsContext'
 import AudioRecorder from '@/components/voxmidi/AudioRecorder'
 import ResultPanel from '@/components/voxmidi/ResultPanel'
 import PianoPanel from '@/components/voxmidi/PianoPanel'
@@ -51,16 +52,16 @@ const GENRE_DEFAULTS = {
 }
 
 const STEPS = [
-  { key: 'queued', label: 'Waiting in queue...', icon: '⏳' },
-  { key: 'processing', label: 'Starting...', icon: '⚙️' },
-  { key: 'generating_audio', label: 'Generating audio...', icon: '🎵' },
-  { key: 'downloading', label: 'Downloading audio...', icon: '⬇️' },
-  { key: 'separating_stems', label: 'Separating stems...', icon: '🔄' },
-  { key: 'transcribing', label: 'Transcribing to MIDI...', icon: '📝' },
-  { key: 'complete', label: 'Done!', icon: '✅' },
+  { key: 'queued',           label: 'Waiting in queue...', icon: '⏳' },
+  { key: 'processing',       label: 'Starting...',          icon: '⚙️' },
+  { key: 'generating_audio', label: 'Generating audio...',  icon: '🎵' },
+  { key: 'downloading',      label: 'Downloading audio...', icon: '⬇️' },
+  { key: 'separating_stems', label: 'Separating stems...',  icon: '🔄' },
+  { key: 'transcribing',     label: 'Creating MIDI...',     icon: '📝' },
+  { key: 'complete',         label: 'Done!',                icon: '✅' },
 ]
 
-// ─── Prompt parser (client-side mirror of backend) ────────────────────────────
+// ─── Prompt parser ────────────────────────────────────────────────────────────
 
 function parsePrompt(text) {
   const result = { genre: null, tempo: null, key: null }
@@ -90,10 +91,7 @@ function parsePrompt(text) {
   ]
   const lower = text.toLowerCase()
   for (const [id, kws] of genreMap) {
-    if (kws.some((kw) => lower.includes(kw))) {
-      result.genre = id
-      break
-    }
+    if (kws.some((kw) => lower.includes(kw))) { result.genre = id; break }
   }
   return result
 }
@@ -117,7 +115,7 @@ function ActionButton({ active, onClick, icon, label }) {
   )
 }
 
-function ProgressArea({ status, error }) {
+function ProgressArea({ status, error, onCancel }) {
   const step = STEPS.find((s) => s.key === status?.status) || STEPS[1]
   const progress = status?.progress ?? 0
 
@@ -134,16 +132,31 @@ function ProgressArea({ status, error }) {
   return (
     <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-6 space-y-4">
       {status?.status === 'queued' ? (
-        <div className="text-center space-y-1">
+        <div className="text-center space-y-2">
           <p className="text-2xl">⏳</p>
           <p className="font-medium text-zinc-900 dark:text-white">{status.message || 'Queued...'}</p>
           <p className="text-sm text-zinc-500">Your job will start as soon as a slot opens up.</p>
+          {onCancel && (
+            <button onClick={onCancel} className="text-xs text-red-500 hover:underline mt-1">
+              Cancel
+            </button>
+          )}
         </div>
       ) : (
         <div className="space-y-3">
-          <div className="flex items-center gap-3">
-            <span className="text-2xl animate-pulse">{step.icon}</span>
-            <p className="font-medium text-zinc-900 dark:text-white">{step.label}</p>
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <span className="text-2xl animate-pulse">{step.icon}</span>
+              <p className="font-medium text-zinc-900 dark:text-white">{step.label}</p>
+            </div>
+            {onCancel && (
+              <button
+                onClick={onCancel}
+                className="text-xs text-zinc-400 hover:text-red-500 border border-zinc-200 dark:border-zinc-700 rounded-lg px-2.5 py-1 transition"
+              >
+                Cancel ✕
+              </button>
+            )}
           </div>
           <div className="w-full bg-zinc-100 dark:bg-zinc-800 rounded-full h-2">
             <div
@@ -151,18 +164,19 @@ function ProgressArea({ status, error }) {
               style={{ width: `${progress}%` }}
             />
           </div>
-          <div className="flex gap-6">
+          <div className="flex flex-wrap gap-4">
             {STEPS.filter((s) => s.key !== 'queued').map((s) => {
-              const done = STEPS.findIndex((x) => x.key === status?.status) >
-                STEPS.findIndex((x) => x.key === s.key)
+              const stepIdx = STEPS.findIndex((x) => x.key === status?.status)
+              const sIdx    = STEPS.findIndex((x) => x.key === s.key)
+              const done    = stepIdx > sIdx
               const current = s.key === status?.status
               return (
                 <span
                   key={s.key}
                   className={`text-xs ${
-                    done ? 'text-indigo-600 dark:text-indigo-400 font-medium' :
-                    current ? 'text-zinc-900 dark:text-white font-semibold' :
-                    'text-zinc-400 dark:text-zinc-600'
+                    done    ? 'text-indigo-600 dark:text-indigo-400 font-medium'
+                  : current ? 'text-zinc-900 dark:text-white font-semibold'
+                  :           'text-zinc-400 dark:text-zinc-600'
                   }`}
                 >
                   {s.icon} {s.label.replace('...', '')}
@@ -178,47 +192,37 @@ function ProgressArea({ status, error }) {
 
 function ShortcutModal({ onClose }) {
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm px-4"
-      onClick={onClose}
-    >
-      <div
-        className="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-700 p-6 max-w-md w-full shadow-xl"
-        onClick={(e) => e.stopPropagation()}
-      >
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm px-4" onClick={onClose}>
+      <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-700 p-6 max-w-md w-full shadow-xl" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-base font-semibold text-zinc-900 dark:text-white">⌨️ Piano Keyboard Shortcuts</h3>
           <button onClick={onClose} className="text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 text-xl leading-none">×</button>
         </div>
         <div className="space-y-4 text-sm text-zinc-700 dark:text-zinc-300">
           <div>
-            <p className="font-medium text-zinc-500 dark:text-zinc-400 text-xs uppercase tracking-wide mb-1">White Keys (bottom row)</p>
+            <p className="font-medium text-zinc-500 dark:text-zinc-400 text-xs uppercase tracking-wide mb-1">White Keys</p>
             <div className="font-mono text-xs bg-zinc-50 dark:bg-zinc-800 rounded-lg p-3 grid grid-cols-2 gap-1">
               <span>A → C3</span><span>S → D3</span>
               <span>D → E3</span><span>F → F3</span>
               <span>G → G3</span><span>H → A3</span>
               <span>J → B3</span><span>K → C4</span>
-              <span>L → D4</span><span>; → E4</span>
             </div>
           </div>
           <div>
-            <p className="font-medium text-zinc-500 dark:text-zinc-400 text-xs uppercase tracking-wide mb-1">Black Keys (top row)</p>
+            <p className="font-medium text-zinc-500 dark:text-zinc-400 text-xs uppercase tracking-wide mb-1">Black Keys</p>
             <div className="font-mono text-xs bg-zinc-50 dark:bg-zinc-800 rounded-lg p-3 grid grid-cols-2 gap-1">
               <span>W → C#3</span><span>E → D#3</span>
               <span>T → F#3</span><span>Y → G#3</span>
-              <span>U → A#3</span><span>O → C#4</span>
-              <span>P → D#4</span>
+              <span>U → A#3</span>
             </div>
           </div>
           <div>
             <p className="font-medium text-zinc-500 dark:text-zinc-400 text-xs uppercase tracking-wide mb-1">Controls</p>
             <div className="font-mono text-xs bg-zinc-50 dark:bg-zinc-800 rounded-lg p-3 space-y-1">
-              <div><span className="inline-block bg-zinc-200 dark:bg-zinc-700 rounded px-1">Space</span> → Play / Stop recording</div>
+              <div><span className="inline-block bg-zinc-200 dark:bg-zinc-700 rounded px-1">Space</span> → Play / Stop</div>
               <div><span className="inline-block bg-zinc-200 dark:bg-zinc-700 rounded px-1">Backspace</span> → Delete last note</div>
-              <div><span className="inline-block bg-zinc-200 dark:bg-zinc-700 rounded px-1">Esc</span> → Re-focus piano</div>
             </div>
           </div>
-          <p className="text-xs text-zinc-400">Shortcuts only work when the piano panel is open and no text field is focused.</p>
         </div>
       </div>
     </div>
@@ -229,6 +233,7 @@ function ShortcutModal({ onClose }) {
 
 export default function CreatePage() {
   const authFetch = useAuthFetch()
+  const { jobs, startJob, removeJob, cancelJob } = useJobs()
 
   // Core inputs
   const [prompt, setPrompt] = useState('')
@@ -249,15 +254,13 @@ export default function CreatePage() {
   const [chordProgression, setChordProgression] = useState([])
   const [melodyBlob, setMelodyBlob] = useState(null)
 
-  // Advanced settings (auto-filled from prompt, user-editable)
+  // Advanced settings
   const [genre, setGenre] = useState('pop')
   const [tempo, setTempo] = useState(120)
   const [musicalKey, setMusicalKey] = useState('Am')
-  const [trackToggles] = useState({ melody: true, bass: true, chords: true, drums: true })
 
-  // Generation state
-  const [jobId, setJobId] = useState(null)
-  const [jobStatus, setJobStatus] = useState(null)
+  // Generation state — wired to global context
+  const [currentJobId, setCurrentJobId] = useState(null)
   const [isGenerating, setIsGenerating] = useState(false)
   const [error, setError] = useState(null)
   const [result, setResult] = useState(null)
@@ -270,10 +273,17 @@ export default function CreatePage() {
   const fileInputRef = useRef(null)
   const tapTimesRef = useRef([])
   const tapResetRef = useRef(null)
-  const pollRef = useRef(null)
 
-  // Load URL from Sources page or remix data
+  // ── Load from sessionStorage on mount ────────────────────────────────────
   useEffect(() => {
+    // Pending result from notification bar "View →" click
+    const pending = sessionStorage.getItem('voxmidi_pending_result')
+    if (pending) {
+      try { setResult(JSON.parse(pending)) } catch {}
+      sessionStorage.removeItem('voxmidi_pending_result')
+    }
+
+    // Source URL passed from Sources page
     const url = sessionStorage.getItem('voxmidi_load_source')
     if (url) {
       setSourceUrl(url)
@@ -281,6 +291,7 @@ export default function CreatePage() {
       sessionStorage.removeItem('voxmidi_load_source')
     }
 
+    // Remix data
     const remixRaw = sessionStorage.getItem('voxmidi_remix')
     if (remixRaw) {
       try {
@@ -297,7 +308,28 @@ export default function CreatePage() {
     setPromptHistory(getPromptHistory())
   }, [])
 
-  // Auto-parse prompt → fill advanced settings (only when advanced is not manually open)
+  // ── Watch global job state for this page's active job ────────────────────
+  const currentJob = currentJobId ? jobs[currentJobId] : null
+
+  useEffect(() => {
+    if (!currentJob) return
+    if (currentJob.status === 'complete') {
+      setResult(currentJob.result)
+      setIsGenerating(false)
+      setCurrentJobId(null)
+      removeJob(currentJobId)
+    } else if (currentJob.status === 'error') {
+      setError(currentJob.error || 'Generation failed. Please try again.')
+      setIsGenerating(false)
+      setCurrentJobId(null)
+    } else if (currentJob.status === 'cancelled') {
+      setError('Generation cancelled.')
+      setIsGenerating(false)
+      setCurrentJobId(null)
+    }
+  }, [currentJob?.status]) // eslint-disable-line
+
+  // ── Auto-parse prompt ────────────────────────────────────────────────────
   useEffect(() => {
     if (!prompt.trim() || showAdvanced) return
     const parsed = parsePrompt(prompt)
@@ -309,42 +341,7 @@ export default function CreatePage() {
     }
     if (parsed.tempo) setTempo(parsed.tempo)
     if (parsed.key) setMusicalKey(parsed.key)
-  }, [prompt])
-
-  // Poll job status
-  const stopPolling = useCallback(() => {
-    if (pollRef.current) {
-      clearInterval(pollRef.current)
-      pollRef.current = null
-    }
-  }, [])
-
-  useEffect(() => {
-    if (!jobId) return
-    pollRef.current = setInterval(async () => {
-      try {
-        const status = await getJobStatus(jobId, authFetch)
-        if (!status) return
-        setJobStatus(status)
-        if (status.status === 'complete') {
-          stopPolling()
-          setJobId(null)
-          setIsGenerating(false)
-          setResult(status.result)
-          saveToLibrary(status.result, { genre, tempo, key: musicalKey })
-        } else if (status.status === 'error') {
-          stopPolling()
-          setJobId(null)
-          setIsGenerating(false)
-          setError(status.message || 'Generation failed. Please try again.')
-          setJobStatus(null)
-        }
-      } catch (e) {
-        console.error('Poll error:', e)
-      }
-    }, 3000)
-    return stopPolling
-  }, [jobId])
+  }, [prompt]) // eslint-disable-line
 
   async function handleGenerateLyrics() {
     setGeneratingLyrics(true)
@@ -366,15 +363,10 @@ export default function CreatePage() {
   function handleTapTempo() {
     const now = Date.now()
     tapTimesRef.current = [...tapTimesRef.current.filter((t) => now - t < 3000), now]
-
-    // Visual pulse
     setTapPulse(true)
     setTimeout(() => setTapPulse(false), 120)
-
-    // Auto-reset after 3s of no tapping
     clearTimeout(tapResetRef.current)
     tapResetRef.current = setTimeout(() => { tapTimesRef.current = [] }, 3000)
-
     if (tapTimesRef.current.length >= 2) {
       const intervals = tapTimesRef.current.slice(1).map((t, i) => t - tapTimesRef.current[i])
       const avg = intervals.reduce((a, b) => a + b, 0) / intervals.length
@@ -382,10 +374,18 @@ export default function CreatePage() {
     }
   }
 
+  async function handleCancel() {
+    if (currentJobId) {
+      await cancelJob(currentJobId)
+      setIsGenerating(false)
+      setCurrentJobId(null)
+      setError('Generation cancelled.')
+    }
+  }
+
   async function handleGenerate() {
     setError(null)
     setResult(null)
-    setJobStatus(null)
     setIsGenerating(true)
 
     if (prompt.trim()) {
@@ -400,11 +400,8 @@ export default function CreatePage() {
 
       if (isSourceMode) {
         const formData = new FormData()
-        if (sourceFile) {
-          formData.append('file', sourceFile, sourceFile.name)
-        } else {
-          formData.append('url', sourceUrl)
-        }
+        if (sourceFile) formData.append('file', sourceFile, sourceFile.name)
+        else formData.append('url', sourceUrl)
         formData.append('genre', genre)
         formData.append('tempo', String(tempo))
         formData.append('key', musicalKey)
@@ -424,44 +421,49 @@ export default function CreatePage() {
         formData.append('genre', genre)
         formData.append('tempo', String(tempo))
         formData.append('key', musicalKey)
-        if (showLyrics && lyrics.trim()) {
-          formData.append('lyrics', lyrics)
-        }
-        if (chordProgression.length > 0) {
-          formData.append('chord_progression', JSON.stringify(chordProgression))
-        }
-        if (melodyBlob) {
-          formData.append('piano_melody', melodyBlob, 'piano_melody.wav')
-        }
+        if (showLyrics && lyrics.trim()) formData.append('lyrics', lyrics)
+        if (chordProgression.length > 0) formData.append('chord_progression', JSON.stringify(chordProgression))
+        if (melodyBlob) formData.append('piano_melody', melodyBlob, 'piano_melody.wav')
         jobData = await startGenerateMidi(formData, authFetch)
       }
 
-      setJobId(jobData.job_id)
-      setJobStatus({ status: jobData.status || 'processing', progress: 0 })
+      const jobId = jobData.job_id
+      setCurrentJobId(jobId)
+
+      // Register with global context so notification bar works when navigating away
+      startJob(jobId, {
+        label: `${genre} · ${tempo} BPM${prompt ? ` — "${prompt.slice(0, 40)}"` : ''}`,
+        genre,
+        tempo,
+        key: musicalKey,
+      })
     } catch (err) {
       setError(err.message)
       setIsGenerating(false)
     }
   }
 
-  const hasPrompt = prompt.trim().length > 0
+  const hasPrompt   = prompt.trim().length > 0
   const isReferenceMode = sourceFile && sourceMode === 'reference'
-  const hasSource = !!(sourceFile || (sourceUrl && !sourceUrl.startsWith('file://')))
+  const hasSource   = !!(sourceFile || (sourceUrl && !sourceUrl.startsWith('file://')))
   const canGenerate = !isGenerating && (hasPrompt || !!audioBlob || hasSource || (showLyrics && lyrics.trim()))
 
   const generateLabel = () => {
     if (isGenerating) return 'Generating...'
-    if (showLyrics && lyrics.trim()) return 'Generate Song with Vocals'
-    if (isReferenceMode) return 'Generate MIDI from Reference'
-    if (hasSource) return 'Extract & Convert to MIDI'
-    if (audioBlob) return 'Generate MIDI from Recording'
-    return 'Generate MIDI'
+    if (showLyrics && lyrics.trim()) return '🎤 Generate Song with Vocals'
+    if (isReferenceMode) return '🎵 Generate from Melody Reference'
+    if (hasSource) return '🎼 Extract & Convert to MIDI'
+    if (audioBlob) return '🎵 Generate from Your Melody'
+    return '✨ Generate Music'
   }
+
+  // Derive job status for ProgressArea from global context
+  const jobStatus = currentJob ? { status: currentJob.status, progress: currentJob.progress, message: currentJob.error } : null
 
   return (
     <div className="max-w-2xl mx-auto px-4 py-8 space-y-5">
 
-      {/* Prompt — hero input */}
+      {/* Prompt */}
       <div className="relative">
         <textarea
           value={prompt}
@@ -472,17 +474,12 @@ export default function CreatePage() {
           placeholder="Describe the music you want... e.g., Tech house like John Summit, 126 BPM, groovy bassline, festival energy"
           className="w-full rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-4 py-3 text-base text-zinc-900 dark:text-white placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none shadow-sm"
         />
-        {/* Recent prompts dropdown */}
         {showHistory && promptHistory.length > 0 && (
           <div className="absolute left-0 right-0 top-full mt-1 z-20 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 shadow-lg overflow-hidden">
             <p className="px-3 py-2 text-xs text-zinc-400 dark:text-zinc-500 border-b border-zinc-100 dark:border-zinc-800">Recent prompts</p>
             {promptHistory.map((h, i) => (
-              <button
-                key={i}
-                type="button"
-                onMouseDown={() => { setPrompt(h); setShowHistory(false) }}
-                className="w-full text-left px-3 py-2 text-sm text-zinc-700 dark:text-zinc-300 hover:bg-indigo-50 dark:hover:bg-indigo-950/20 hover:text-indigo-700 dark:hover:text-indigo-300 truncate transition"
-              >
+              <button key={i} type="button" onMouseDown={() => { setPrompt(h); setShowHistory(false) }}
+                className="w-full text-left px-3 py-2 text-sm text-zinc-700 dark:text-zinc-300 hover:bg-indigo-50 dark:hover:bg-indigo-950/20 hover:text-indigo-700 dark:hover:text-indigo-300 truncate transition">
                 {h}
               </button>
             ))}
@@ -503,13 +500,13 @@ export default function CreatePage() {
           active={showRecorder}
           onClick={() => setShowRecorder((v) => !v)}
           icon="🎤"
-          label={audioBlob ? 'Voice recorded ✓' : 'Record Voice'}
+          label={audioBlob ? 'Melody recorded ✓' : 'Hum a Melody'}
         />
         <ActionButton
           active={showSource}
           onClick={() => setShowSource((v) => !v)}
           icon="🔗"
-          label={sourceFile ? sourceFile.name : sourceUrl ? 'URL set ✓' : 'Audio Source'}
+          label={sourceFile ? sourceFile.name.slice(0, 20) : sourceUrl ? 'URL set ✓' : 'Audio Source'}
         />
         <ActionButton
           active={showLyrics}
@@ -525,12 +522,17 @@ export default function CreatePage() {
         />
       </div>
 
-      {/* Voice recorder panel */}
+      {/* Voice / melody recorder panel */}
       {showRecorder && (
-        <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-5">
-          <p className="text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-4">
-            Hum a melody, beatbox, or whistle — we'll transcribe it
-          </p>
+        <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-5 space-y-3">
+          <div className="rounded-lg bg-indigo-50 dark:bg-indigo-950/30 border border-indigo-100 dark:border-indigo-900 px-4 py-3 text-sm text-indigo-800 dark:text-indigo-200">
+            <p className="font-medium">🎵 Hum, whistle, or beatbox a melody</p>
+            <p className="mt-1 text-xs text-indigo-600 dark:text-indigo-300">
+              The AI will build a full arrangement around it.
+              <br/>
+              <span className="italic opacity-75">This is for melody input — use "Add Lyrics" to sing words.</span>
+            </p>
+          </div>
           <AudioRecorder onRecordingComplete={setAudioBlob} />
         </div>
       )}
@@ -538,10 +540,10 @@ export default function CreatePage() {
       {/* Audio source panel */}
       {showSource && (
         <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-5 space-y-4">
-          {/* File upload — prominent */}
+          {/* File upload */}
           <div>
             <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-2">
-              Upload an audio file <span className="font-normal text-zinc-400">(recommended — MP3, WAV, FLAC)</span>
+              Upload an audio file <span className="font-normal text-zinc-400">(MP3, WAV, FLAC)</span>
             </label>
             <div
               onClick={() => fileInputRef.current?.click()}
@@ -561,11 +563,8 @@ export default function CreatePage() {
                 <div className="space-y-1">
                   <p className="text-sm font-medium text-indigo-600 dark:text-indigo-400">🎵 {sourceFile.name}</p>
                   <p className="text-xs text-zinc-400">{(sourceFile.size / 1048576).toFixed(1)} MB</p>
-                  <button
-                    type="button"
-                    onClick={(e) => { e.stopPropagation(); setSourceFile(null) }}
-                    className="text-xs text-zinc-400 hover:text-red-500 underline"
-                  >Remove</button>
+                  <button type="button" onClick={(e) => { e.stopPropagation(); setSourceFile(null) }}
+                    className="text-xs text-zinc-400 hover:text-red-500 underline">Remove</button>
                 </div>
               ) : (
                 <>
@@ -574,47 +573,33 @@ export default function CreatePage() {
                 </>
               )}
             </div>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="audio/*"
-              className="hidden"
-              onChange={(e) => {
-                const f = e.target.files?.[0]
-                if (f) { setSourceFile(f); setSourceUrl('') }
-              }}
-            />
+            <input ref={fileInputRef} type="file" accept="audio/*" className="hidden"
+              onChange={(e) => { const f = e.target.files?.[0]; if (f) { setSourceFile(f); setSourceUrl('') } }} />
 
             {/* Mode toggle — only when a file is selected */}
             {sourceFile && (
               <div className="mt-3 flex gap-2">
-                <button
-                  type="button"
-                  onClick={() => setSourceMode('extract')}
+                <button type="button" onClick={() => setSourceMode('extract')}
                   className={`flex-1 rounded-lg px-3 py-2 text-xs font-medium border transition ${
                     sourceMode === 'extract'
                       ? 'bg-indigo-600 text-white border-indigo-600'
                       : 'bg-white dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 border-zinc-200 dark:border-zinc-700 hover:border-indigo-400'
-                  }`}
-                >
+                  }`}>
                   🎼 Extract Stems → MIDI
                 </button>
-                <button
-                  type="button"
-                  onClick={() => setSourceMode('reference')}
+                <button type="button" onClick={() => setSourceMode('reference')}
                   className={`flex-1 rounded-lg px-3 py-2 text-xs font-medium border transition ${
                     sourceMode === 'reference'
                       ? 'bg-indigo-600 text-white border-indigo-600'
                       : 'bg-white dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 border-zinc-200 dark:border-zinc-700 hover:border-indigo-400'
-                  }`}
-                >
+                  }`}>
                   🎵 Use as Melody Reference
                 </button>
               </div>
             )}
             {sourceFile && sourceMode === 'reference' && (
               <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-1.5">
-                MusicGen will condition on your audio's melody and generate a new track.
+                MusicGen conditions on your audio's melody and generates a new track. Add a text prompt above to describe the style.
               </p>
             )}
           </div>
@@ -625,9 +610,7 @@ export default function CreatePage() {
               Or paste a YouTube URL{' '}
               <span className="font-normal text-zinc-400">(may be blocked by YouTube)</span>
             </label>
-            <input
-              type="url"
-              value={sourceUrl}
+            <input type="url" value={sourceUrl}
               onChange={(e) => { setSourceUrl(e.target.value); setSourceFile(null) }}
               placeholder="https://www.youtube.com/watch?v=..."
               className="w-full rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-3 py-2 text-sm text-zinc-900 dark:text-white placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
@@ -644,18 +627,12 @@ export default function CreatePage() {
               Lyrics
               <span className="ml-2 text-xs text-indigo-500 font-normal">enables vocal generation via MiniMax</span>
             </label>
-            <button
-              onClick={handleGenerateLyrics}
-              disabled={generatingLyrics}
-              className="text-xs px-3 py-1.5 rounded-lg bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-700 disabled:opacity-50 transition font-medium"
-            >
+            <button onClick={handleGenerateLyrics} disabled={generatingLyrics}
+              className="text-xs px-3 py-1.5 rounded-lg bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-700 disabled:opacity-50 transition font-medium">
               {generatingLyrics ? 'Generating...' : '✨ Write lyrics for me'}
             </button>
           </div>
-          <textarea
-            value={lyrics}
-            onChange={(e) => setLyrics(e.target.value)}
-            rows={8}
+          <textarea value={lyrics} onChange={(e) => setLyrics(e.target.value)} rows={8}
             placeholder={`[Verse]\nYour verse here...\n\n[Chorus]\nYour chorus here...`}
             className="w-full rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-3 py-2 text-sm font-mono text-zinc-900 dark:text-white placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none"
           />
@@ -664,19 +641,13 @@ export default function CreatePage() {
 
       {/* Piano / chords panel */}
       {showPiano && (
-        <PianoPanel
-          onChordProgressionChange={setChordProgression}
-          onMelodyBlobChange={setMelodyBlob}
-        />
+        <PianoPanel onChordProgressionChange={setChordProgression} onMelodyBlobChange={setMelodyBlob} />
       )}
 
       {/* Advanced settings */}
       <div>
-        <button
-          type="button"
-          onClick={() => setShowAdvanced((v) => !v)}
-          className="text-sm text-zinc-400 dark:text-zinc-500 hover:text-zinc-600 dark:hover:text-zinc-300 transition flex items-center gap-1"
-        >
+        <button type="button" onClick={() => setShowAdvanced((v) => !v)}
+          className="text-sm text-zinc-400 dark:text-zinc-500 hover:text-zinc-600 dark:hover:text-zinc-300 transition flex items-center gap-1">
           <span>⚙️</span>
           <span>{showAdvanced ? 'Hide' : 'Advanced settings'}</span>
           <span className="text-xs">{showAdvanced ? '▲' : '▼'}</span>
@@ -689,20 +660,11 @@ export default function CreatePage() {
               <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-2">Genre</label>
               <div className="flex flex-wrap gap-2">
                 {GENRES.map((g) => (
-                  <button
-                    key={g.id}
-                    type="button"
-                    onClick={() => {
-                      setGenre(g.id)
-                      const d = GENRE_DEFAULTS[g.id]
-                      if (d) { setTempo(d.tempo); setMusicalKey(d.key) }
-                    }}
+                  <button key={g.id} type="button"
+                    onClick={() => { setGenre(g.id); const d = GENRE_DEFAULTS[g.id]; if (d) { setTempo(d.tempo); setMusicalKey(d.key) } }}
                     className={`rounded-full px-3 py-1 text-sm font-medium transition ${
-                      genre === g.id
-                        ? 'bg-indigo-600 text-white'
-                        : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-700'
-                    }`}
-                  >
+                      genre === g.id ? 'bg-indigo-600 text-white' : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-700'
+                    }`}>
                     {g.label}
                   </button>
                 ))}
@@ -716,90 +678,52 @@ export default function CreatePage() {
                   <label className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Tempo</label>
                   <div className="flex items-center gap-2">
                     <span className="text-sm font-mono text-zinc-900 dark:text-white w-14 text-right">{tempo} BPM</span>
-                    <button
-                      type="button"
-                      onClick={handleTapTempo}
-                      onKeyDown={(e) => { if (e.code === 'Space') { e.preventDefault(); handleTapTempo() } }}
+                    <button type="button" onClick={handleTapTempo}
                       className={`text-xs px-2 py-1 rounded transition font-medium select-none ${
-                        tapPulse
-                          ? 'bg-indigo-600 text-white scale-95'
-                          : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-700'
-                      }`}
-                    >
+                        tapPulse ? 'bg-indigo-600 text-white scale-95' : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-700'
+                      }`}>
                       {tapTimesRef.current.length >= 2 ? `${tempo}` : 'TAP'}
                     </button>
                   </div>
                 </div>
-                <input
-                  type="range"
-                  min={60}
-                  max={200}
-                  value={tempo}
-                  onChange={(e) => setTempo(Number(e.target.value))}
-                  className="w-full accent-indigo-600"
-                />
+                <input type="range" min={60} max={200} value={tempo}
+                  onChange={(e) => setTempo(Number(e.target.value))} className="w-full accent-indigo-600" />
                 <div className="flex justify-between text-xs text-zinc-400 mt-1"><span>60</span><span>200</span></div>
               </div>
-
               <div>
                 <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-2">Key</label>
-                <select
-                  value={musicalKey}
-                  onChange={(e) => setMusicalKey(e.target.value)}
-                  className="w-full rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-3 py-2 text-sm text-zinc-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                >
+                <select value={musicalKey} onChange={(e) => setMusicalKey(e.target.value)}
+                  className="w-full rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-3 py-2 text-sm text-zinc-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500">
                   {KEYS.map((k) => <option key={k} value={k}>{k}</option>)}
                 </select>
               </div>
-            </div>
-
-            {/* Track toggles */}
-            <div>
-              <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-2">Tracks</label>
-              <div className="flex flex-wrap gap-3">
-                {['Melody', 'Bass', 'Chords', 'Drums'].map((t) => (
-                  <span
-                    key={t}
-                    className="rounded-full px-3 py-1 text-sm font-medium bg-indigo-100 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300"
-                  >
-                    ✓ {t}
-                  </span>
-                ))}
-              </div>
-              <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-2">All tracks are always generated for maximum flexibility in your DAW.</p>
             </div>
           </div>
         )}
       </div>
 
       {/* Generate button */}
-      <button
-        type="button"
-        onClick={handleGenerate}
-        disabled={!canGenerate}
-        className="w-full rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:bg-zinc-200 dark:disabled:bg-zinc-800 disabled:text-zinc-400 dark:disabled:text-zinc-600 disabled:cursor-not-allowed text-white font-semibold py-4 text-base transition-colors shadow-sm"
-      >
+      <button type="button" onClick={handleGenerate} disabled={!canGenerate}
+        className="w-full rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:bg-zinc-200 dark:disabled:bg-zinc-800 disabled:text-zinc-400 dark:disabled:text-zinc-600 disabled:cursor-not-allowed text-white font-semibold py-4 text-base transition-colors shadow-sm">
         {generateLabel()}
       </button>
 
-      {/* Progress / error */}
-      <ProgressArea status={jobStatus} error={error} />
+      {/* Progress */}
+      {isGenerating && <ProgressArea status={jobStatus} error={null} onCancel={handleCancel} />}
+      {!isGenerating && error && <ProgressArea status={null} error={error} />}
 
       {/* Results */}
       {result && (
         <ResultPanel
           result={result}
-          onSaveToLibrary={() => saveToLibrary(result, { genre, tempo: result.tempo || tempo, key: result.key || musicalKey })}
+          onSaveToLibrary={() => {}}
         />
       )}
 
-      {/* Keyboard shortcuts help button (fixed bottom-right, only when piano panel open) */}
+      {/* Keyboard shortcuts help (when piano open) */}
       {showPiano && (
-        <button
-          onClick={() => setShowShortcuts(true)}
-          title="Keyboard shortcuts"
-          className="fixed bottom-6 right-6 z-40 w-10 h-10 rounded-full bg-zinc-800 dark:bg-zinc-700 text-white shadow-lg hover:bg-zinc-700 dark:hover:bg-zinc-600 flex items-center justify-center text-lg transition"
-        >
+        <button onClick={() => setShowShortcuts(true)} title="Keyboard shortcuts"
+          className="fixed bottom-6 right-6 z-40 w-10 h-10 rounded-full bg-zinc-800 dark:bg-zinc-700 text-white shadow-lg hover:bg-zinc-700 dark:hover:bg-zinc-600 flex items-center justify-center text-lg transition">
           ⌨️
         </button>
       )}

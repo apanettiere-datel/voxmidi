@@ -70,6 +70,22 @@ def _wrap(job_id: str, fn: Callable) -> Callable:
     return wrapper
 
 
+def cancel_job(job_id: str) -> bool:
+    """Mark job as cancelled; remove from queue if not yet started. Returns True if cancelled."""
+    with _lock:
+        if job_id not in _jobs:
+            return False
+        if _jobs[job_id].get("status") in ("complete", "error", "cancelled"):
+            return False
+        # Remove from pending queue if it's there (not yet started)
+        new_queue = deque(item for item in _queue if item[0] != job_id)
+        removed_from_queue = len(new_queue) < len(_queue)
+        _queue.clear()
+        _queue.extend(new_queue)
+        _jobs[job_id]["status"] = "cancelled"
+        return True
+
+
 def _on_job_done() -> None:
     global _running
     next_job = None

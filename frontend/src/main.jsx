@@ -4,6 +4,7 @@ import { BrowserRouter } from 'react-router-dom'
 import App from './App'
 import AuthProvider from './components/voxmidi/AuthProvider'
 import { AuthFetchProvider } from './lib/authFetch.jsx'
+import { JobsProvider } from './lib/JobsContext.jsx'
 import './app.css'
 
 ReactDOM.createRoot(document.getElementById('root')).render(
@@ -11,7 +12,9 @@ ReactDOM.createRoot(document.getElementById('root')).render(
     <BrowserRouter>
       <AuthProvider>
         <AuthFetchProvider>
-          <App />
+          <JobsProvider>
+            <App />
+          </JobsProvider>
         </AuthFetchProvider>
       </AuthProvider>
     </BrowserRouter>

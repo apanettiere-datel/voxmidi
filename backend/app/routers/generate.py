@@ -13,7 +13,7 @@ from pipelines.post_processor import post_process_midi
 from pipelines.midi_analyzer import analyze_midi
 from database import get_db, SessionLocal, User, Generation
 from middleware.auth import get_current_user
-from .jobs import set_job, update_job, try_start, queue_position
+from .jobs import set_job, update_job, try_start, queue_position, cancel_job, get_job
 
 router = APIRouter()
 UPLOAD_DIR = Path("/tmp/voxmidi")
@@ -124,10 +124,11 @@ def _run_generate(
         has_replicate = bool(os.environ.get("REPLICATE_API_TOKEN"))
         has_minimax = bool(os.environ.get("MINIMAX_API_KEY"))
         use_api = provider == "api" or (provider == "auto" and (has_replicate or has_minimax))
+        # Initial guess — updated below after we see which files were actually produced
         provider_used = "mock"
         if use_api and provider != "mock":
-            if lyrics.strip() and has_minimax:
-                provider_used = "minimax"
+            if has_minimax:
+                provider_used = "minimax"   # MiniMax preferred for everything
             elif has_replicate:
                 provider_used = "musicgen"
 
@@ -138,7 +139,7 @@ def _run_generate(
         stems_dict: dict = {}
 
         try:
-            output_midi_path, vocal_audio_path, stems_dict, versions_list = generate_from_prompt(
+            result_tuple = generate_from_prompt(
                 prompt=full_prompt,
                 output_path=output_midi_path,
                 genre=genre,
@@ -149,14 +150,28 @@ def _run_generate(
                 chord_progression=chord_list if chord_list else None,
                 piano_melody_path=piano_melody_path,
             )
+            # Defensively handle 3-tuple (old code path) or 4-tuple
+            if len(result_tuple) == 4:
+                output_midi_path, vocal_audio_path, stems_dict, versions_list = result_tuple
+            elif len(result_tuple) == 3:
+                output_midi_path, vocal_audio_path, stems_dict = result_tuple
+                versions_list = []
+            else:
+                raise ValueError(f"generate_from_prompt returned {len(result_tuple)} values, expected 3 or 4")
         except Exception as e:
             err_str = str(e).lower()
-            if any(w in err_str for w in ("replicate", "rate limit", "timeout", "model", "api")):
+            if any(w in err_str for w in ("replicate", "rate limit", "timeout", "model", "api", "minimax")):
                 msg = "Music generation service is temporarily busy. Please try again in a minute."
             else:
                 msg = "Generation failed. Please try again."
             print(f"[generate] error job={job_id}: {e}")
+            import traceback; traceback.print_exc()
             update_job(job_id, {"status": "error", "message": msg})
+            return
+
+        # Check if job was cancelled while generating
+        from .jobs import get_job as _get_job
+        if _get_job(job_id) and _get_job(job_id).get("status") == "cancelled":
             return
 
         update_job(job_id, {"status": "separating_stems", "progress": 50})
@@ -176,12 +191,14 @@ def _run_generate(
         except Exception:
             analysis = {"tempo": tempo, "duration": 0, "time_signature": "4/4", "key": key, "tracks": []}
 
-        # Find main generated audio (musicgen_audio.mp3 or minimax_audio.mp3)
+        # Find main generated audio and determine actual provider from output files
         generated_audio_path: Optional[str] = None
         for name in ("musicgen_audio.mp3", "minimax_audio.mp3"):
             p = job_dir / name
             if p.exists():
                 generated_audio_path = str(p)
+                if provider_used == "mock":  # only override if not already set
+                    provider_used = "musicgen" if "musicgen" in name else "minimax"
                 break
         # Fallback: any MP3 not named vocal_track
         if not generated_audio_path:
@@ -282,6 +299,19 @@ def _run_generate(
         update_job(job_id, {"status": "error", "message": "An unexpected error occurred. Please try again."})
     finally:
         db.close()
+
+
+@router.post("/cancel/{job_id}")
+async def cancel_generation(
+    job_id: str,
+    current_user: User = Depends(get_current_user),
+):
+    """Cancel a running or queued generation job."""
+    job = get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    cancelled = cancel_job(job_id)
+    return {"cancelled": cancelled, "job_id": job_id}
 
 
 def parse_prompt(prompt: str) -> dict:
