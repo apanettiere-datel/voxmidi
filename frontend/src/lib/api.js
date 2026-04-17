@@ -1,9 +1,11 @@
 const API_BASE = '/api'
 
 // ─── Core API calls ───────────────────────────────────────────────────────────
+// All functions accept an optional fetchFn (defaults to window.fetch).
+// Pass authFetch from useAuthFetch() to include Clerk auth headers.
 
-export async function generateMidi(formData) {
-  const res = await fetch(`${API_BASE}/generate`, { method: 'POST', body: formData })
+export async function generateMidi(formData, fetchFn = fetch) {
+  const res = await fetchFn(`${API_BASE}/generate`, { method: 'POST', body: formData })
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }))
     throw new Error(err.detail || `Generation failed: ${res.status}`)
@@ -11,10 +13,10 @@ export async function generateMidi(formData) {
   return res.json()
 }
 
-export async function transcribeAudio(audioBlob) {
+export async function transcribeAudio(audioBlob, fetchFn = fetch) {
   const formData = new FormData()
   formData.append('audio', audioBlob, 'recording.webm')
-  const res = await fetch(`${API_BASE}/transcribe`, { method: 'POST', body: formData })
+  const res = await fetchFn(`${API_BASE}/transcribe`, { method: 'POST', body: formData })
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }))
     throw new Error(err.detail || `Transcription failed: ${res.status}`)
@@ -22,8 +24,8 @@ export async function transcribeAudio(audioBlob) {
   return res.json()
 }
 
-export async function extractSource(url, startTime = null, endTime = null, genre = 'edm', tempo = 128, key = 'Am') {
-  const res = await fetch(`${API_BASE}/source`, {
+export async function extractSource(url, startTime = null, endTime = null, genre = 'edm', tempo = 128, key = 'Am', fetchFn = fetch) {
+  const res = await fetchFn(`${API_BASE}/source`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ url, start_time: startTime, end_time: endTime, genre, tempo, key }),
@@ -35,8 +37,8 @@ export async function extractSource(url, startTime = null, endTime = null, genre
   return res.json()
 }
 
-export async function transformStyle(sourceJobId, stylePrompt, keepTracks, generateTracks, tempo = 128, key = 'Am') {
-  const res = await fetch(`${API_BASE}/transform`, {
+export async function transformStyle(sourceJobId, stylePrompt, keepTracks, generateTracks, tempo = 128, key = 'Am', fetchFn = fetch) {
+  const res = await fetchFn(`${API_BASE}/transform`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -55,8 +57,8 @@ export async function transformStyle(sourceJobId, stylePrompt, keepTracks, gener
   return res.json()
 }
 
-export async function getPresets() {
-  const res = await fetch(`${API_BASE}/presets`)
+export async function getPresets(fetchFn = fetch) {
+  const res = await fetchFn(`${API_BASE}/presets`)
   if (!res.ok) throw new Error(`Presets failed: ${res.status}`)
   return res.json()
 }

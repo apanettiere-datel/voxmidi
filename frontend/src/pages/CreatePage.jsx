@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 
 import { generateMidi, extractSource, transformStyle, saveToLibrary } from '@/lib/api'
+import { useAuthFetch } from '@/lib/authFetch'
 import AudioRecorder from '@/components/voxmidi/AudioRecorder'
 import SourceInput from '@/components/voxmidi/SourceInput'
 import ResultPanel from '@/components/voxmidi/ResultPanel'
@@ -29,7 +30,17 @@ const GENRES = [
 
 const KEYS = ['C', 'Cm', 'C#', 'C#m', 'D', 'Dm', 'Eb', 'Ebm', 'E', 'Em', 'F', 'Fm', 'F#', 'F#m', 'G', 'Gm', 'Ab', 'Abm', 'A', 'Am', 'Bb', 'Bbm', 'B', 'Bm']
 
+const LYRICS_PLACEHOLDER = `[Verse]
+Your verse lyrics here...
+
+[Chorus]
+Your chorus here...
+
+[Bridge]
+Optional bridge...`
+
 export default function CreatePage() {
+  const authFetch = useAuthFetch()
   const [audioBlob, setAudioBlob] = useState(null)
   const [sourceUrl, setSourceUrl] = useState('')
   const [prompt, setPrompt] = useState('')
@@ -37,6 +48,9 @@ export default function CreatePage() {
   const [tempo, setTempo] = useState(128)
   const [musicalKey, setMusicalKey] = useState('Am')
   const [trackToggles, setTrackToggles] = useState({ melody: true, bass: true, chords: true, drums: true })
+  const [showLyrics, setShowLyrics] = useState(false)
+  const [lyrics, setLyrics] = useState('')
+  const [generatingLyrics, setGeneratingLyrics] = useState(false)
   const [isProcessing, setIsProcessing] = useState(false)
   const [processingStep, setProcessingStep] = useState('')
   const [result, setResult] = useState(null)
@@ -54,7 +68,7 @@ export default function CreatePage() {
     }
   }, [])
 
-  const canGenerate = !!audioBlob || (sourceUrl && !sourceUrl.startsWith('file://')) || prompt.trim().length > 0 || sourceUrl.startsWith('file://')
+  const canGenerate = !!audioBlob || (sourceUrl && !sourceUrl.startsWith('file://')) || prompt.trim().length > 0 || (showLyrics && lyrics.trim().length > 0) || sourceUrl.startsWith('file://')
 
   function handleTapTempo() {
     const now = Date.now()
@@ -71,6 +85,8 @@ export default function CreatePage() {
     const hasVoice = !!audioBlob
     const hasSource = !!sourceUrl
     const hasPrompt = prompt.trim().length > 0
+    const hasLyrics = showLyrics && lyrics.trim().length > 0
+    if (hasLyrics) return hasVoice ? 'Generate Song with Vocals + Melody' : 'Generate Song with Vocals'
     if (hasVoice && hasSource && hasPrompt) return 'Generate MIDI from voice + source + prompt'
     if (hasVoice && hasPrompt) return 'Generate MIDI from voice + prompt'
     if (hasSource && hasPrompt) return 'Generate MIDI from source + prompt'
@@ -79,6 +95,23 @@ export default function CreatePage() {
     if (hasSource) return 'Generate MIDI from source'
     if (hasPrompt) return 'Generate MIDI from prompt'
     return 'Generate MIDI'
+  }
+
+  async function handleGenerateLyrics() {
+    setGeneratingLyrics(true)
+    try {
+      const formData = new FormData()
+      formData.append('theme', prompt || genre)
+      formData.append('genre', genre)
+      const res = await authFetch('/api/generate-lyrics', { method: 'POST', body: formData })
+      if (!res.ok) throw new Error(`Lyrics generation failed: ${res.status}`)
+      const data = await res.json()
+      setLyrics(data.lyrics || '')
+    } catch (err) {
+      console.error('Lyrics generation failed:', err)
+    } finally {
+      setGeneratingLyrics(false)
+    }
   }
 
   async function handleGenerate() {
@@ -91,7 +124,7 @@ export default function CreatePage() {
       // Source URL mode
       if (sourceUrl && !sourceUrl.startsWith('file://')) {
         setProcessingStep('Extracting stems')
-        const data = await extractSource(sourceUrl, null, null, genre, tempo, musicalKey)
+        const data = await extractSource(sourceUrl, null, null, genre, tempo, musicalKey, authFetch)
         setSourceResult(data)
         setResult({
           job_id: data.job_id,
@@ -105,8 +138,16 @@ export default function CreatePage() {
         return
       }
 
-      // Voice / text / file mode
-      setProcessingStep(audioBlob ? 'Transcribing audio' : 'Generating MIDI')
+      // Voice / text / lyrics mode
+      const hasLyrics = showLyrics && lyrics.trim().length > 0
+      if (hasLyrics) {
+        setProcessingStep('Generating song with vocals (MiniMax Music)')
+      } else if (audioBlob) {
+        setProcessingStep('Generating MIDI from your melody (MusicGen)')
+      } else {
+        setProcessingStep('Generating MIDI')
+      }
+
       const formData = new FormData()
       if (audioBlob) {
         formData.append('audio', audioBlob, 'recording.webm')
@@ -118,10 +159,13 @@ export default function CreatePage() {
       formData.append('genre', genre)
       formData.append('tempo', String(tempo))
       formData.append('key', musicalKey)
+      if (hasLyrics) {
+        formData.append('lyrics', lyrics)
+      }
 
-      const data = await generateMidi(formData)
+      const data = await generateMidi(formData, authFetch)
       setResult(data)
-      saveToLibrary(data, { genre, tempo, key: musicalKey })
+      saveToLibrary(data, { genre, tempo: data.tempo || tempo, key: data.key || musicalKey })
     } catch (err) {
       setError(err.message)
     } finally {
@@ -144,6 +188,7 @@ export default function CreatePage() {
         stemNames.filter(n => n !== 'vocals'),
         tempo,
         musicalKey,
+        authFetch,
       )
       setResult(data)
       saveToLibrary(data, { genre, tempo, key: musicalKey })
@@ -193,7 +238,6 @@ export default function CreatePage() {
 
         {/* Tempo + Key row */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-          {/* Tempo */}
           <div>
             <div className="flex items-center justify-between mb-2">
               <label className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Tempo</label>
@@ -207,7 +251,6 @@ export default function CreatePage() {
             <div className="flex justify-between text-xs text-zinc-400 mt-1"><span>60</span><span>200</span></div>
           </div>
 
-          {/* Key */}
           <Field>
             <Label>Key</Label>
             <Select value={musicalKey} onChange={e => setMusicalKey(e.target.value)}>
@@ -216,16 +259,20 @@ export default function CreatePage() {
           </Field>
         </div>
 
-        {/* Track toggles */}
+        {/* Track toggles + Lyrics toggle */}
         <div>
           <label className="text-sm font-medium text-zinc-700 dark:text-zinc-300 mb-3 block">Generate tracks</label>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
             {Object.entries(trackToggles).map(([name, enabled]) => (
               <SwitchField key={name}>
                 <Label className="capitalize">{name}</Label>
                 <Switch checked={enabled} onChange={v => setTrackToggles(t => ({...t, [name]: v}))} color="indigo" />
               </SwitchField>
             ))}
+            <SwitchField>
+              <Label>Lyrics</Label>
+              <Switch checked={showLyrics} onChange={setShowLyrics} color="indigo" />
+            </SwitchField>
           </div>
         </div>
 
@@ -239,6 +286,37 @@ export default function CreatePage() {
             placeholder="Describe the vibe... e.g., euphoric EDM drop with arpeggiated synths and sidechain bass"
           />
         </Field>
+
+        {/* Lyrics panel */}
+        {showLyrics && (
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <label className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
+                Lyrics
+                <span className="ml-2 text-xs text-indigo-600 dark:text-indigo-400 font-normal">
+                  (enables vocal generation via MiniMax Music)
+                </span>
+              </label>
+              <button
+                onClick={handleGenerateLyrics}
+                disabled={generatingLyrics}
+                className="text-xs px-3 py-1.5 rounded-lg bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-700 disabled:opacity-50 transition font-medium"
+              >
+                {generatingLyrics ? 'Generating...' : '✨ Generate lyrics for me'}
+              </button>
+            </div>
+            <Textarea
+              value={lyrics}
+              onChange={e => setLyrics(e.target.value)}
+              rows={10}
+              placeholder={LYRICS_PLACEHOLDER}
+              className="font-mono text-sm"
+            />
+            <p className="text-xs text-zinc-400 dark:text-zinc-500">
+              Use [Verse], [Chorus], [Bridge] section tags. The vocal audio will be included with your MIDI download.
+            </p>
+          </div>
+        )}
       </div>
 
       {/* Generate Button */}
@@ -247,12 +325,21 @@ export default function CreatePage() {
       </Button>
 
       {/* Error */}
-      {error && <div className="rounded-lg bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900 p-4 text-sm text-red-700 dark:text-red-400">{error}</div>}
+      {error && (
+        <div className="rounded-lg bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900 p-4 text-sm text-red-700 dark:text-red-400">
+          {error}
+        </div>
+      )}
 
       {/* Results */}
-      {result && <ResultPanel result={result} onSaveToLibrary={() => saveToLibrary(result, {genre, tempo: result.tempo || tempo, key: result.key || musicalKey})} />}
+      {result && (
+        <ResultPanel
+          result={result}
+          onSaveToLibrary={() => saveToLibrary(result, { genre, tempo: result.tempo || tempo, key: result.key || musicalKey })}
+        />
+      )}
 
-      {/* Source transform panel - appears after source extraction */}
+      {/* Source transform panel */}
       {sourceResult && !result && (
         <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-6 space-y-4">
           <h3 className="font-semibold text-zinc-900 dark:text-white">Transform extracted stems</h3>

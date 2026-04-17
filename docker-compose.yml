@@ -14,32 +14,11 @@ services:
 
   backend:
     build: ./backend
+    env_file: ./backend/.env
     volumes:
-      - model_cache:/root/.cache
       - upload_tmp:/tmp/voxmidi
     environment:
-      - VLLM_URL=http://vllm:8000
       - PYTHONUNBUFFERED=1
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
-    restart: unless-stopped
-
-  vllm:
-    build: ./vllm
-    volumes:
-      - model_cache:/root/.cache
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
     restart: unless-stopped
 
   frontend:
@@ -49,5 +28,4 @@ services:
 
 volumes:
   frontend_build:
-  model_cache:
   upload_tmp:

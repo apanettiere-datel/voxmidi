@@ -1,7 +1,14 @@
 import os
 from pathlib import Path
 from dotenv import load_dotenv
-load_dotenv(Path(__file__).parent.parent / '.env')
+
+# Load .env for local development.
+# In Docker, env vars are injected via docker-compose env_file — dotenv is a no-op there
+# because the .env file path resolves to /.env (doesn't exist inside container).
+# Use override=False so any env vars already set by Docker take precedence.
+_env_file = Path(__file__).parent.parent / '.env'
+if _env_file.exists():
+    load_dotenv(_env_file, override=False)
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -9,6 +16,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from database import init_db
 from routers import transcribe, generate, source, transform, preview
 from routers import user as user_router
+from routers import lyrics as lyrics_router
 
 UPLOAD_DIR = Path("/tmp/voxmidi")
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
@@ -37,6 +45,7 @@ app.include_router(source.router, prefix="/api")
 app.include_router(transform.router, prefix="/api")
 app.include_router(preview.router, prefix="/api")
 app.include_router(user_router.router, prefix="/api")
+app.include_router(lyrics_router.router, prefix="/api")
 
 
 @app.get("/api/health")

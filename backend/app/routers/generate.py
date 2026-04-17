@@ -1,10 +1,10 @@
+import os
 import uuid
 from pathlib import Path
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Depends
 from typing import Optional
 from sqlalchemy.orm import Session
 
-from pipelines.transcriber import transcribe_audio
 from pipelines.midi_generator import generate_from_prompt
 from pipelines.post_processor import post_process_midi
 from pipelines.midi_analyzer import analyze_midi
@@ -24,47 +24,72 @@ async def generate(
     tempo: int = Form(128),
     key: str = Form("Am"),
     mode: str = Form("text"),
+    lyrics: str = Form(""),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Main generation endpoint. Handles voice, source, and text-only modes."""
+    """Generate MIDI from text prompt, voice recording, or lyrics.
+
+    Routing:
+    - lyrics provided + MINIMAX_API_KEY → MiniMax Music (vocal track)
+    - audio provided + REPLICATE_API_TOKEN → MusicGen Melody
+    - text only + REPLICATE_API_TOKEN → MusicGen
+    - no API keys → mock generator (Demo Mode)
+    """
     if current_user.usage_count >= current_user.usage_limit:
-        raise HTTPException(status_code=429, detail=f"Monthly limit of {current_user.usage_limit} reached")
+        raise HTTPException(
+            status_code=429,
+            detail=f"Monthly limit of {current_user.usage_limit} reached",
+        )
 
     job_id = str(uuid.uuid4())[:8]
     job_dir = UPLOAD_DIR / job_id
     job_dir.mkdir(parents=True, exist_ok=True)
 
-    melody_midi_path = None
+    # Determine provider mode for response metadata
+    provider = os.environ.get('MIDI_GEN_PROVIDER', 'auto')
+    has_replicate = bool(os.environ.get('REPLICATE_API_TOKEN'))
+    has_minimax = bool(os.environ.get('MINIMAX_API_KEY'))
+    use_api = provider == 'api' or (provider == 'auto' and (has_replicate or has_minimax))
+    provider_used = 'mock'
+    if use_api and provider != 'mock':
+        if lyrics.strip() and has_minimax:
+            provider_used = 'minimax'
+        elif has_replicate:
+            provider_used = 'musicgen'
 
-    # Step 1: Handle audio input (voice mode)
-    if mode == "voice" and audio:
-        audio_path = job_dir / "input.wav"
+    # Save raw audio if provided (voice recording or hummed melody)
+    raw_audio_path: Optional[str] = None
+    if audio:
+        suffix = Path(audio.filename or 'input.webm').suffix or '.webm'
+        saved_audio = job_dir / f"input{suffix}"
         content = await audio.read()
-        audio_path.write_bytes(content)
-        melody_midi_path = transcribe_audio(str(audio_path), str(job_dir))
+        saved_audio.write_bytes(content)
+        raw_audio_path = str(saved_audio)
 
-    # Step 2: Build prompt for MIDI generator
-    full_prompt = build_prompt(genre, tempo, key, prompt)
+    # Build generation prompt
+    full_prompt = _build_prompt(genre, tempo, key, prompt)
 
-    # Step 3: Generate MIDI
+    # Generate MIDI
     output_midi_path = str(job_dir / "output.mid")
+    vocal_audio_path: Optional[str] = None
+
+    print(f"[generate] job={job_id} provider={provider_used} genre={genre} tempo={tempo} key={key}")
+
     try:
-        generate_from_prompt(
+        output_midi_path, vocal_audio_path = generate_from_prompt(
             prompt=full_prompt,
             output_path=output_midi_path,
-            conditioning_midi=melody_midi_path,
             genre=genre,
             tempo=tempo,
             key=key,
+            lyrics=lyrics,
+            audio_path=raw_audio_path,
         )
     except Exception as e:
-        if melody_midi_path:
-            output_midi_path = melody_midi_path
-        else:
-            raise HTTPException(status_code=500, detail=f"Generation failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Generation failed: {e}")
 
-    # Step 4: Post-process
+    # Post-process
     try:
         final_path = post_process_midi(output_midi_path, str(job_dir / "final.mid"), tempo=tempo, key=key)
         output_midi_path = final_path
@@ -73,13 +98,13 @@ async def generate(
 
     output_filename = Path(output_midi_path).name
 
-    # Step 5: Analyze
+    # Analyze
     try:
         analysis = analyze_midi(output_midi_path)
     except Exception:
         analysis = {"tempo": tempo, "duration": 0, "time_signature": "4/4", "key": key, "tracks": []}
 
-    # Record generation + increment usage
+    # Record generation
     gen = Generation(
         id=job_id,
         user_id=current_user.id,
@@ -98,10 +123,18 @@ async def generate(
     current_user.usage_count += 1
     db.commit()
 
+    # Build vocal audio URL if we have a vocal stem
+    vocal_audio_url: Optional[str] = None
+    if vocal_audio_path and Path(vocal_audio_path).exists():
+        vocal_filename = Path(vocal_audio_path).name
+        vocal_audio_url = f"/api/download/{job_id}/{vocal_filename}"
+
     return {
         "job_id": job_id,
         "midi_url": f"/api/download/{job_id}/{output_filename}",
+        "vocal_audio_url": vocal_audio_url,
         "preview_url": None,
+        "provider": provider_used,
         "genre": genre,
         "tempo": analysis.get("tempo") or tempo,
         "key": analysis.get("key") or key,
@@ -111,7 +144,7 @@ async def generate(
     }
 
 
-def build_prompt(genre: str, tempo: int, key: str, user_prompt: str) -> str:
+def _build_prompt(genre: str, tempo: int, key: str, user_prompt: str) -> str:
     parts = [f"A {genre.replace('-', ' ').title()} track", f"at {tempo} BPM", f"in the key of {key}"]
     if user_prompt.strip():
         parts.append(f"with {user_prompt.strip()}")
