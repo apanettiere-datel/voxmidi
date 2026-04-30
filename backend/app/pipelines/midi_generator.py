@@ -60,6 +60,7 @@ def _minimax_api_call(
     lyrics: str,
     job_dir: Path,
     out_filename: str = "minimax_audio.mp3",
+    voice_audio_path: Optional[str] = None,
 ) -> str:
     """Call MiniMax music API, save to out_filename, return path. Retries once on failure."""
     import httpx
@@ -70,8 +71,11 @@ def _minimax_api_call(
     if not api_key:
         raise RuntimeError("MINIMAX_API_KEY not set")
 
+    use_cover = bool(voice_audio_path and Path(voice_audio_path).exists())
+    model = "music-cover" if use_cover else "music-2.6"
+
     payload: dict = {
-        "model": "music-2.6",
+        "model": model,
         "prompt": style_desc,
         "audio_setting": {
             "sample_rate": 44100,
@@ -79,13 +83,20 @@ def _minimax_api_call(
             "format": "mp3",
         },
     }
+
+    if use_cover:
+        import base64
+        audio_bytes = Path(voice_audio_path).read_bytes()
+        payload["audio_base64"] = base64.b64encode(audio_bytes).decode("utf-8")
+        print(f"[midi_generator] Voice reference: {len(audio_bytes)} bytes from {Path(voice_audio_path).name}")
+
     if lyrics and lyrics.strip():
         payload["lyrics"] = lyrics.strip()
     else:
         payload["is_instrumental"] = True
 
-    mode_label = 'vocal' if lyrics and lyrics.strip() else 'instrumental'
-    print(f"[midi_generator] MiniMax music-2.6: generating {mode_label}...")
+    mode_label = 'cover' if use_cover else ('vocal' if lyrics and lyrics.strip() else 'instrumental')
+    print(f"[midi_generator] MiniMax {model}: generating {mode_label}...")
     log_payload = {k: (v[:80] + '...' if isinstance(v, str) and len(v) > 80 else v) for k, v in payload.items()}
     print(f"[midi_generator] MiniMax request: {_json.dumps(log_payload)}")
 
@@ -325,9 +336,11 @@ def generate_from_prompt(
 
     # ── Step 5: Call MiniMax ─────────────────────────────────────────────────
     try:
-        route = "vocal" if has_lyrics else ("voice+instrumental" if has_voice else "text-only")
-        print(f"[midi_generator] Route: {route} - using music-2.6")
-        audio_out = _minimax_api_call(style_desc, lyrics=effective_lyrics, job_dir=job_dir)
+        voice_path = kwargs.get("voice_audio_path")
+        route = "cover" if voice_path else ("vocal" if has_lyrics else ("voice+instrumental" if has_voice else "text-only"))
+        model_name = "music-cover" if voice_path else "music-2.6"
+        print(f"[midi_generator] Route: {route} - using {model_name}")
+        audio_out = _minimax_api_call(style_desc, lyrics=effective_lyrics, job_dir=job_dir, voice_audio_path=voice_path)
     except Exception as e:
         print(f"[midi_generator] MiniMax failed: {e}")
         raise

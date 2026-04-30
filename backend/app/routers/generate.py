@@ -25,11 +25,12 @@ MIDI_STORE = Path("/app/data/midi")
 async def generate(
     audio: Optional[UploadFile] = File(None),
     piano_melody: Optional[UploadFile] = File(None),
+    voice_audio: Optional[UploadFile] = File(None),
     source_url: Optional[str] = Form(None),
     prompt: str = Form(""),
-    genre: str = Form("pop"),
-    tempo: int = Form(120),
-    key: str = Form("Am"),
+    genre: str = Form(""),
+    tempo: int = Form(0),
+    key: str = Form(""),
     mode: str = Form("text"),
     lyrics: str = Form(""),
     chord_progression: str = Form(""),
@@ -58,6 +59,10 @@ async def generate(
     if piano_melody:
         piano_melody_content = await piano_melody.read()
 
+    voice_audio_content: Optional[bytes] = None
+    if voice_audio:
+        voice_audio_content = await voice_audio.read()
+
     current_user.usage_count += 1
     db.commit()
 
@@ -67,7 +72,7 @@ async def generate(
         job_id, audio_content, audio_suffix, piano_melody_content,
         source_url, prompt, genre, tempo, key, mode, lyrics,
         chord_progression, current_user.id, is_advanced_dirty,
-        vocal_mode,
+        vocal_mode, voice_audio_content,
     )
     started = try_start(job_id, _run_generate, args)
 
@@ -113,6 +118,7 @@ def _run_generate(
     user_id: str,
     advanced_dirty: bool = False,
     vocal_mode: str = "hum",
+    voice_audio_content: Optional[bytes] = None,
 ) -> None:
     db = SessionLocal()
     store_dir = MIDI_STORE / job_id
@@ -133,6 +139,12 @@ def _run_generate(
             piano_saved = job_dir / "piano_melody.wav"
             piano_saved.write_bytes(piano_melody_content)
             piano_melody_path = str(piano_saved)
+
+        voice_audio_path: Optional[str] = None
+        if voice_audio_content:
+            voice_saved = job_dir / "voice_reference.webm"
+            voice_saved.write_bytes(voice_audio_content)
+            voice_audio_path = str(voice_saved)
 
         chord_list: list = []
         if chord_progression.strip():
@@ -166,6 +178,7 @@ def _run_generate(
                 chord_progression=chord_list if chord_list else None,
                 piano_melody_path=piano_melody_path,
                 mode=mode,
+                voice_audio_path=voice_audio_path,
             )
             output_midi_path = midi_path
         except Exception as e:
@@ -624,7 +637,13 @@ def parse_prompt(prompt: str) -> dict:
 
 
 def _build_prompt(genre: str, tempo: int, key: str, user_prompt: str) -> str:
-    parts = [f"A {genre.replace('-', ' ').title()} track", f"at {tempo} BPM", f"in the key of {key}"]
+    parts = []
+    if genre:
+        parts.append(f"A {genre.replace('-', ' ').title()} track")
+    if tempo:
+        parts.append(f"at {tempo} BPM")
+    if key:
+        parts.append(f"in the key of {key}")
     if user_prompt.strip():
-        parts.append(f"with {user_prompt.strip()}")
-    return ", ".join(parts) + "."
+        parts.append(user_prompt.strip() if not parts else f"with {user_prompt.strip()}")
+    return ", ".join(parts) + "." if parts else user_prompt

@@ -3,6 +3,7 @@ import { startGenerateMidi, enhancePrompt, aiGenerateLyrics } from '@/lib/api'
 import { useAuthFetch } from '@/lib/authFetch'
 import { useJobs } from '@/lib/JobsContext'
 import ResultPanel from '@/components/voxmidi/ResultPanel'
+import AudioRecorder from '@/components/voxmidi/AudioRecorder'
 
 const GENRES = [
   { id: 'pop', label: 'Pop' },
@@ -60,12 +61,18 @@ export default function GeneratePage() {
   const [generatingLyrics, setGeneratingLyrics] = useState(false)
   const [instrumental, setInstrumental] = useState(false)
 
-  // Settings
-  const [genre, setGenre] = useState('pop')
+  // Voice reference
+  const [voiceBlob, setVoiceBlob] = useState(null)
+  const [showVoiceRecorder, setShowVoiceRecorder] = useState(false)
+
+  // Settings — genre is null until user explicitly picks one
+  const [genre, setGenre] = useState(null)
   const [customGenreText, setCustomGenreText] = useState('')
   const [tempo, setTempo] = useState(120)
   const [musicalKey, setMusicalKey] = useState('Am')
   const [showFineTune, setShowFineTune] = useState(false)
+  const [tempoTouched, setTempoTouched] = useState(false)
+  const [keyTouched, setKeyTouched] = useState(false)
 
   // Generation
   const [currentJobId, setCurrentJobId] = useState(null)
@@ -86,8 +93,8 @@ export default function GeneratePage() {
         const remix = JSON.parse(remixRaw)
         if (remix.prompt) setRoughPrompt(remix.prompt)
         if (remix.genre) setGenre(remix.genre)
-        if (remix.tempo) setTempo(remix.tempo)
-        if (remix.key) setMusicalKey(remix.key)
+        if (remix.tempo) { setTempo(remix.tempo); setTempoTouched(true) }
+        if (remix.key) { setMusicalKey(remix.key); setKeyTouched(true) }
         setShowFineTune(true)
       } catch {}
       sessionStorage.removeItem('voxmidi_remix')
@@ -114,12 +121,23 @@ export default function GeneratePage() {
     }
   }, [currentJob?.status])
 
+  function handleGenreClick(g) {
+    if (genre === g.id) {
+      setGenre(null)
+      return
+    }
+    setGenre(g.id)
+    const d = GENRE_DEFAULTS[g.id]
+    if (d && !tempoTouched) setTempo(d.tempo)
+    if (d && !keyTouched) setMusicalKey(d.key)
+  }
+
   async function handleEnhance() {
     if (!roughPrompt.trim()) return
     setEnhancing(true)
     setError(null)
     try {
-      const effectiveGenre = genre === 'custom' ? (customGenreText.trim() || '') : genre
+      const effectiveGenre = genre === 'custom' ? (customGenreText.trim() || '') : (genre || '')
       const data = await enhancePrompt(roughPrompt, effectiveGenre, authFetch)
       setEnhancedPrompt(data.enhanced_prompt)
       setUseEnhanced(true)
@@ -134,7 +152,7 @@ export default function GeneratePage() {
     setGeneratingLyrics(true)
     setError(null)
     try {
-      const effectiveGenre = genre === 'custom' ? (customGenreText.trim() || 'pop') : genre
+      const effectiveGenre = genre === 'custom' ? (customGenreText.trim() || '') : (genre || '')
       const data = await aiGenerateLyrics(lyricsTheme, effectiveGenre, '', authFetch)
       setLyrics(data.lyrics || '')
     } catch (err) {
@@ -149,25 +167,26 @@ export default function GeneratePage() {
     setResult(null)
     setIsGenerating(true)
 
-    const effectiveGenre = genre === 'custom' ? (customGenreText.trim() || 'pop') : genre
+    const effectiveGenre = genre === 'custom' ? (customGenreText.trim() || '') : (genre || '')
     const finalPrompt = useEnhanced && enhancedPrompt ? enhancedPrompt : roughPrompt
 
     try {
       const formData = new FormData()
       formData.append('mode', 'text')
       formData.append('prompt', finalPrompt)
-      formData.append('genre', effectiveGenre)
-      formData.append('tempo', String(tempo))
-      formData.append('key', musicalKey)
-      formData.append('advanced_dirty', 'true')
+      if (effectiveGenre) formData.append('genre', effectiveGenre)
+      if (tempoTouched) formData.append('tempo', String(tempo))
+      if (keyTouched) formData.append('key', musicalKey)
+      formData.append('advanced_dirty', effectiveGenre || tempoTouched || keyTouched ? 'true' : 'false')
       if (!instrumental && lyrics.trim()) formData.append('lyrics', lyrics)
+      if (voiceBlob) formData.append('voice_audio', voiceBlob, 'voice_reference.webm')
 
       const jobData = await startGenerateMidi(formData, authFetch)
       const jobId = jobData.job_id
       setCurrentJobId(jobId)
 
       startJob(jobId, {
-        label: `${effectiveGenre} · ${tempo} BPM${finalPrompt ? ` - "${finalPrompt.slice(0, 40)}"` : ''}`,
+        label: `${effectiveGenre || 'auto'} · ${tempoTouched ? tempo + ' BPM' : 'auto'}${finalPrompt ? ` - "${finalPrompt.slice(0, 40)}"` : ''}`,
         genre: effectiveGenre,
         tempo,
         key: musicalKey,
@@ -314,26 +333,80 @@ export default function GeneratePage() {
         )}
       </section>
 
-      {/* Step 3: Generate */}
+      {/* Step 3: Voice reference (optional) */}
+      {!instrumental && lyrics.trim() && (
+        <section className="space-y-3">
+          <div className="flex items-center gap-2">
+            <span className="flex items-center justify-center w-6 h-6 rounded-full bg-indigo-600 text-white text-xs font-bold">3</span>
+            <h2 className="text-sm font-semibold text-zinc-800 dark:text-zinc-200">Voice reference</h2>
+            <span className="text-xs text-zinc-400 dark:text-zinc-500 ml-1">optional</span>
+          </div>
+
+          {!showVoiceRecorder ? (
+            <button
+              type="button"
+              onClick={() => setShowVoiceRecorder(true)}
+              className="w-full rounded-xl border-2 border-dashed border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-6 text-center hover:border-indigo-400 dark:hover:border-indigo-600 transition group"
+            >
+              <div className="text-3xl mb-2">🎤</div>
+              <p className="text-sm font-medium text-zinc-700 dark:text-zinc-300 group-hover:text-indigo-600 dark:group-hover:text-indigo-400">
+                Sing or speak to set the vocal style
+              </p>
+              <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-1">
+                Record a short sample — AI will match this vocal style in the generated song
+              </p>
+            </button>
+          ) : (
+            <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-5 space-y-3">
+              <div className="flex items-center justify-between">
+                <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                  Sing a few lines so the AI can match your vocal style
+                </p>
+                {voiceBlob && (
+                  <button
+                    onClick={() => { setVoiceBlob(null); setShowVoiceRecorder(false) }}
+                    className="text-xs text-zinc-400 hover:text-red-500 transition"
+                  >
+                    Remove
+                  </button>
+                )}
+              </div>
+              <AudioRecorder onRecordingComplete={setVoiceBlob} />
+              {voiceBlob && (
+                <p className="text-xs text-green-600 dark:text-green-400 font-medium">
+                  Voice reference recorded — will be used for vocal style
+                </p>
+              )}
+            </div>
+          )}
+        </section>
+      )}
+
+      {/* Step 4: Generate */}
       <section className="space-y-3">
         <div className="flex items-center gap-2">
-          <span className="flex items-center justify-center w-6 h-6 rounded-full bg-indigo-600 text-white text-xs font-bold">3</span>
+          <span className="flex items-center justify-center w-6 h-6 rounded-full bg-indigo-600 text-white text-xs font-bold">
+            {!instrumental && lyrics.trim() ? '4' : '3'}
+          </span>
           <h2 className="text-sm font-semibold text-zinc-800 dark:text-zinc-200">Generate</h2>
         </div>
 
         {/* Genre selector */}
         <div>
-          <label className="block text-xs font-medium text-zinc-500 dark:text-zinc-400 mb-2">Genre</label>
+          <div className="flex items-center justify-between mb-2">
+            <label className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Genre</label>
+            {!genre && (
+              <span className="text-xs text-zinc-400 dark:text-zinc-500">
+                Auto-detected from your prompt
+              </span>
+            )}
+          </div>
           <div className="flex flex-wrap gap-1.5">
             {GENRES.map((g) => (
               <button
                 key={g.id}
                 type="button"
-                onClick={() => {
-                  setGenre(g.id)
-                  const d = GENRE_DEFAULTS[g.id]
-                  if (d) { setTempo(d.tempo); setMusicalKey(d.key) }
-                }}
+                onClick={() => handleGenreClick(g)}
                 className={`rounded-full px-3 py-1 text-sm font-medium transition ${
                   genre === g.id
                     ? 'bg-indigo-600 text-white'
@@ -369,27 +442,42 @@ export default function GeneratePage() {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <div className="flex items-center justify-between mb-1">
-                <label className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Tempo</label>
+                <label className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
+                  Tempo {!tempoTouched && <span className="text-zinc-300 dark:text-zinc-600">(auto)</span>}
+                </label>
                 <span className="text-xs font-mono text-zinc-900 dark:text-white">{tempo} BPM</span>
               </div>
               <input
                 type="range" min={60} max={200} value={tempo}
-                onChange={(e) => setTempo(Number(e.target.value))}
+                onChange={(e) => { setTempo(Number(e.target.value)); setTempoTouched(true) }}
                 className="w-full accent-indigo-600"
               />
               <div className="flex justify-between text-xs text-zinc-400 mt-0.5">
-                <span>60</span><span>200</span>
+                <span>60</span>
+                {tempoTouched && (
+                  <button onClick={() => setTempoTouched(false)} className="text-indigo-500 hover:text-indigo-400">
+                    Reset to auto
+                  </button>
+                )}
+                <span>200</span>
               </div>
             </div>
             <div>
-              <label className="block text-xs font-medium text-zinc-500 dark:text-zinc-400 mb-1">Key</label>
+              <label className="block text-xs font-medium text-zinc-500 dark:text-zinc-400 mb-1">
+                Key {!keyTouched && <span className="text-zinc-300 dark:text-zinc-600">(auto)</span>}
+              </label>
               <select
                 value={musicalKey}
-                onChange={(e) => setMusicalKey(e.target.value)}
+                onChange={(e) => { setMusicalKey(e.target.value); setKeyTouched(true) }}
                 className="w-full rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-3 py-2 text-sm text-zinc-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
               >
                 {KEYS.map((k) => <option key={k} value={k}>{k}</option>)}
               </select>
+              {keyTouched && (
+                <button onClick={() => setKeyTouched(false)} className="text-xs text-indigo-500 hover:text-indigo-400 mt-1">
+                  Reset to auto
+                </button>
+              )}
             </div>
           </div>
         )}
@@ -406,7 +494,9 @@ export default function GeneratePage() {
             : instrumental
               ? 'Generate Instrumental'
               : lyrics.trim()
-                ? 'Generate Song with Vocals'
+                ? voiceBlob
+                  ? 'Generate Song with Your Voice'
+                  : 'Generate Song with Vocals'
                 : 'Generate Song'
           }
         </button>
