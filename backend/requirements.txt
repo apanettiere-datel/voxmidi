@@ -33,7 +33,7 @@ openai>=1.30.0
 # MIDI generation (Anticipatory Music Transformer)
 torch>=2.0.0
 transformers>=4.30.0
-anticipation>=0.1.0
+git+https://github.com/jthickstun/anticipation.git
 
 # Utilities
 pydantic>=2.8.0
