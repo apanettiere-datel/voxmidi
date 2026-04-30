@@ -1,54 +1,138 @@
-"""Multi-track MIDI generation using GPT-4o for note-level composition.
+"""Hybrid MIDI generation: GPT-4o-mini for creative decisions, algorithmic code for note generation.
 
-Generates production-quality multi-instrument MIDI files from:
-  1. Text descriptions (GPT extracts parameters + composes note data)
-  2. Melody input (generates accompaniment around a given melody)
-  3. Reference audio (Demucs stems → Basic Pitch transcription → combined MIDI)
+Pipeline:
+  1. GPT-4o-mini extracts musical parameters (tempo, key, instruments) from the user's prompt
+  2. GPT-4o-mini generates a composition plan (chord progression, patterns, structure)
+  3. Deterministic code expands the plan into MIDI notes — always in-key, on-grid, valid
+  4. Reference audio path: Demucs stems → Basic Pitch transcription → combined MIDI
 """
 
 import os
 import json
+import random
 from pathlib import Path
-from typing import Optional, Dict, List
+from typing import Optional, Dict, List, Tuple
 
 import pretty_midi
 
 
-# Scale intervals (semitones from root) for quantizing notes to key
+# ─── Music theory constants ────────────────────────────────────────────────────
+
 SCALE_INTERVALS = {
     "major": [0, 2, 4, 5, 7, 9, 11],
     "minor": [0, 2, 3, 5, 7, 8, 10],
     "dorian": [0, 2, 3, 5, 7, 9, 10],
     "mixolydian": [0, 2, 4, 5, 7, 9, 10],
-    "pentatonic_major": [0, 2, 4, 7, 9],
-    "pentatonic_minor": [0, 3, 5, 7, 10],
     "blues": [0, 3, 5, 6, 7, 10],
 }
 
-NOTE_TO_MIDI = {"C": 0, "D": 2, "E": 4, "F": 5, "G": 7, "A": 9, "B": 11}
+NOTE_TO_SEMITONE = {
+    "C": 0, "C#": 1, "Db": 1, "D": 2, "D#": 3, "Eb": 3,
+    "E": 4, "F": 5, "F#": 6, "Gb": 6, "G": 7, "G#": 8,
+    "Ab": 8, "A": 9, "A#": 10, "Bb": 10, "B": 11,
+}
+
+CHORD_INTERVALS = {
+    "maj": [0, 4, 7],
+    "min": [0, 3, 7],
+    "7": [0, 4, 7, 10],
+    "maj7": [0, 4, 7, 11],
+    "min7": [0, 3, 7, 10],
+    "dim": [0, 3, 6],
+    "aug": [0, 4, 8],
+    "sus2": [0, 2, 7],
+    "sus4": [0, 5, 7],
+}
+
+GM_PROGRAMS = {
+    "drums": 0, "bass": 33, "piano": 0, "guitar": 25,
+    "strings": 48, "synth": 81, "pad": 89, "organ": 19,
+}
+
+# GM drum map
+KICK = 36
+SNARE = 38
+CLAP = 39
+CLOSED_HAT = 42
+OPEN_HAT = 46
+CRASH = 49
+RIDE = 51
+SIDESTICK = 37
+TOM_LOW = 45
+TOM_MID = 47
+TOM_HI = 48
+SHAKER = 70
 
 
-def _parse_key(key_str: str):
-    """Parse key string like 'Am', 'F#m', 'Bb' into (root_midi, scale_type)."""
+# ─── Chord and scale helpers ───────────────────────────────────────────────────
+
+def _parse_key(key_str: str) -> Tuple[int, str]:
     key_str = key_str.strip()
     if not key_str:
-        return 9, "minor"  # default Am
+        return 9, "minor"
 
-    is_minor = key_str.endswith("m")
-    root_str = key_str.rstrip("m").strip()
+    is_minor = key_str.endswith("m") and not key_str.endswith("dim") and not key_str.endswith("aug")
+    root_str = key_str.rstrip("m").strip() if is_minor else key_str.strip()
 
-    root = NOTE_TO_MIDI.get(root_str[0].upper(), 9)
-    if len(root_str) > 1:
-        if root_str[1] == "#":
-            root = (root + 1) % 12
-        elif root_str[1] == "b":
-            root = (root - 1) % 12
+    root = NOTE_TO_SEMITONE.get(root_str, NOTE_TO_SEMITONE.get(root_str[0], 9))
 
     return root, "minor" if is_minor else "major"
 
 
-def _get_scale_pitches(root: int, scale_type: str):
-    """Return set of all valid MIDI pitches (0-127) for the given scale."""
+def _parse_chord(chord_str: str) -> Tuple[int, List[int]]:
+    """Parse a chord symbol like 'Am', 'F#m7', 'Csus4' into (root_semitone, intervals)."""
+    chord_str = chord_str.strip()
+    if not chord_str:
+        return 0, CHORD_INTERVALS["maj"]
+
+    # Extract root note (1 or 2 chars)
+    if len(chord_str) > 1 and chord_str[1] in ('#', 'b'):
+        root_str = chord_str[:2]
+        quality_str = chord_str[2:]
+    else:
+        root_str = chord_str[0]
+        quality_str = chord_str[1:]
+
+    root = NOTE_TO_SEMITONE.get(root_str, 0)
+
+    if quality_str in ("m", "min"):
+        intervals = CHORD_INTERVALS["min"]
+    elif quality_str in ("m7", "min7"):
+        intervals = CHORD_INTERVALS["min7"]
+    elif quality_str in ("7", "dom7"):
+        intervals = CHORD_INTERVALS["7"]
+    elif quality_str in ("maj7", "M7"):
+        intervals = CHORD_INTERVALS["maj7"]
+    elif quality_str == "dim":
+        intervals = CHORD_INTERVALS["dim"]
+    elif quality_str == "aug":
+        intervals = CHORD_INTERVALS["aug"]
+    elif quality_str == "sus2":
+        intervals = CHORD_INTERVALS["sus2"]
+    elif quality_str == "sus4":
+        intervals = CHORD_INTERVALS["sus4"]
+    elif quality_str == "" or quality_str in ("maj", "M"):
+        intervals = CHORD_INTERVALS["maj"]
+    else:
+        intervals = CHORD_INTERVALS["min"] if "m" in quality_str.lower() else CHORD_INTERVALS["maj"]
+
+    return root, intervals
+
+
+def _chord_pitches(root: int, intervals: List[int], octave: int = 4) -> List[int]:
+    """Get MIDI pitches for a chord at a given octave."""
+    base = octave * 12 + root
+    return [base + i for i in intervals if 0 <= base + i <= 127]
+
+
+def _get_scale_degrees(root: int, scale_type: str, octave: int = 4) -> List[int]:
+    """Get MIDI pitches for one octave of a scale."""
+    intervals = SCALE_INTERVALS.get(scale_type, SCALE_INTERVALS["minor"])
+    base = octave * 12 + root
+    return [base + i for i in intervals if 0 <= base + i <= 127]
+
+
+def _get_scale_pitches_set(root: int, scale_type: str) -> set:
     intervals = SCALE_INTERVALS.get(scale_type, SCALE_INTERVALS["minor"])
     pitches = set()
     for octave_base in range(0, 128, 12):
@@ -60,7 +144,6 @@ def _get_scale_pitches(root: int, scale_type: str):
 
 
 def _snap_to_scale(pitch: int, valid_pitches: set) -> int:
-    """Snap a pitch to the nearest note in the scale."""
     if pitch in valid_pitches:
         return pitch
     for offset in range(1, 7):
@@ -71,17 +154,343 @@ def _snap_to_scale(pitch: int, valid_pitches: set) -> int:
     return pitch
 
 
-def _quantize_time(t: float, grid: float) -> float:
-    """Snap a time value to the nearest grid position."""
-    return round(t / grid) * grid
+# ─── Drum pattern library ──────────────────────────────────────────────────────
+# Each pattern is a list of (beat_offset_in_16ths, pitch, velocity) for one bar of 4/4
+
+def _drum_pattern_four_on_floor() -> List[Tuple[int, int, int]]:
+    hits = []
+    for i in range(4):
+        hits.append((i * 4, KICK, 100))
+    hits.append((4, SNARE, 95))
+    hits.append((12, SNARE, 95))
+    for i in range(8):
+        hits.append((i * 2, CLOSED_HAT, 70 + random.randint(-5, 5)))
+    return hits
 
 
-def _scale_name_for_prompt(root: int, scale_type: str) -> str:
-    """Get the scale notes as note names for the GPT prompt."""
-    names = ["C", "C#", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "B"]
-    intervals = SCALE_INTERVALS.get(scale_type, SCALE_INTERVALS["minor"])
-    return ", ".join(names[(root + i) % 12] for i in intervals)
+def _drum_pattern_trap() -> List[Tuple[int, int, int]]:
+    hits = [
+        (0, KICK, 110),
+        (6, KICK, 95),
+        (10, KICK, 100),
+        (8, SNARE, 100),
+        (0, CLOSED_HAT, 65),
+    ]
+    # Rapid hi-hats
+    for i in range(16):
+        hits.append((i, CLOSED_HAT, 55 + random.randint(-5, 10)))
+    # Hat rolls on beat 4
+    hits.append((14, OPEN_HAT, 75))
+    return hits
 
+
+def _drum_pattern_rock() -> List[Tuple[int, int, int]]:
+    hits = [
+        (0, KICK, 105), (8, KICK, 100),
+        (4, SNARE, 100), (12, SNARE, 100),
+        (0, CRASH, 80),
+    ]
+    for i in range(8):
+        hits.append((i * 2, CLOSED_HAT, 70 + random.randint(-5, 5)))
+    return hits
+
+
+def _drum_pattern_lofi() -> List[Tuple[int, int, int]]:
+    hits = [
+        (0, KICK, 80), (7, KICK, 70),
+        (4, SIDESTICK, 65), (12, SIDESTICK, 60),
+    ]
+    for i in range(0, 16, 2):
+        hits.append((i, CLOSED_HAT, 45 + random.randint(-5, 5)))
+    return hits
+
+
+def _drum_pattern_jazz() -> List[Tuple[int, int, int]]:
+    hits = [
+        (0, RIDE, 75), (3, RIDE, 55), (4, RIDE, 70),
+        (6, RIDE, 50), (8, RIDE, 75), (11, RIDE, 55),
+        (12, RIDE, 70), (14, RIDE, 50),
+        (0, KICK, 60), (10, KICK, 55),
+    ]
+    return hits
+
+
+def _drum_pattern_edm() -> List[Tuple[int, int, int]]:
+    hits = []
+    for i in range(4):
+        hits.append((i * 4, KICK, 115))
+    hits.append((4, CLAP, 95))
+    hits.append((12, CLAP, 95))
+    for i in range(8):
+        v = 80 if i % 2 == 0 else 60
+        hits.append((i * 2, CLOSED_HAT, v + random.randint(-3, 3)))
+    hits.append((7, OPEN_HAT, 70))
+    hits.append((15, OPEN_HAT, 70))
+    return hits
+
+
+def _drum_pattern_house() -> List[Tuple[int, int, int]]:
+    hits = []
+    for i in range(4):
+        hits.append((i * 4, KICK, 110))
+    hits.append((4, CLAP, 90))
+    hits.append((12, CLAP, 90))
+    for i in range(16):
+        if i % 2 == 0:
+            hits.append((i, CLOSED_HAT, 65 + random.randint(-5, 5)))
+        else:
+            hits.append((i, OPEN_HAT, 50 + random.randint(-3, 3)))
+    return hits
+
+
+DRUM_PATTERNS = {
+    "four-on-floor": _drum_pattern_four_on_floor,
+    "trap": _drum_pattern_trap,
+    "rock": _drum_pattern_rock,
+    "lo-fi": _drum_pattern_lofi,
+    "jazz": _drum_pattern_jazz,
+    "edm": _drum_pattern_edm,
+    "house": _drum_pattern_house,
+    "pop": _drum_pattern_four_on_floor,
+    "synthwave": _drum_pattern_edm,
+    "ambient": _drum_pattern_lofi,
+}
+
+
+# ─── Instrument pattern generators ─────────────────────────────────────────────
+
+def _gen_drums(pattern_name: str, num_bars: int, beat_dur: float) -> List[Dict]:
+    """Generate drum notes for num_bars using the named pattern."""
+    pattern_fn = DRUM_PATTERNS.get(pattern_name, _drum_pattern_four_on_floor)
+    sixteenth = beat_dur / 4
+    notes = []
+
+    for bar in range(num_bars):
+        bar_start = bar * 4 * beat_dur
+        pattern = pattern_fn()
+        for pos_16th, pitch, velocity in pattern:
+            t = bar_start + pos_16th * sixteenth
+            vel = max(1, min(127, velocity + random.randint(-3, 3)))
+            notes.append({"pitch": pitch, "start": t, "end": t + 0.05, "velocity": vel})
+
+    return notes
+
+
+def _gen_bass(chords_per_bar: List[str], num_bars: int, beat_dur: float, style: str) -> List[Dict]:
+    """Generate bass notes following chord roots."""
+    notes = []
+    octave = 2
+
+    for bar in range(num_bars):
+        chord_str = chords_per_bar[bar % len(chords_per_bar)]
+        root, intervals = _parse_chord(chord_str)
+        root_pitch = octave * 12 + root
+        bar_start = bar * 4 * beat_dur
+
+        if style == "whole-note":
+            notes.append({"pitch": root_pitch, "start": bar_start, "end": bar_start + 4 * beat_dur * 0.9, "velocity": 85})
+        elif style == "half-note":
+            notes.append({"pitch": root_pitch, "start": bar_start, "end": bar_start + 2 * beat_dur * 0.9, "velocity": 85})
+            notes.append({"pitch": root_pitch, "start": bar_start + 2 * beat_dur, "end": bar_start + 4 * beat_dur * 0.9, "velocity": 80})
+        elif style == "eighth-note":
+            for i in range(8):
+                t = bar_start + i * beat_dur / 2
+                p = root_pitch if i % 2 == 0 else root_pitch + 12
+                vel = 85 if i % 2 == 0 else 70
+                notes.append({"pitch": p, "start": t, "end": t + beat_dur / 2 * 0.8, "velocity": vel + random.randint(-3, 3)})
+        elif style == "syncopated":
+            offsets = [0, 1.5, 3, 3.5]
+            for off in offsets:
+                t = bar_start + off * beat_dur
+                notes.append({"pitch": root_pitch, "start": t, "end": t + beat_dur * 0.7, "velocity": 85 + random.randint(-5, 5)})
+        elif style == "octave":
+            notes.append({"pitch": root_pitch, "start": bar_start, "end": bar_start + beat_dur * 0.9, "velocity": 90})
+            notes.append({"pitch": root_pitch + 12, "start": bar_start + beat_dur, "end": bar_start + 2 * beat_dur * 0.9, "velocity": 80})
+            notes.append({"pitch": root_pitch, "start": bar_start + 2 * beat_dur, "end": bar_start + 3 * beat_dur * 0.9, "velocity": 85})
+            notes.append({"pitch": root_pitch + 12, "start": bar_start + 3 * beat_dur, "end": bar_start + 4 * beat_dur * 0.9, "velocity": 75})
+        else:
+            notes.append({"pitch": root_pitch, "start": bar_start, "end": bar_start + 4 * beat_dur * 0.9, "velocity": 85})
+
+    return notes
+
+
+def _gen_piano(chords_per_bar: List[str], num_bars: int, beat_dur: float, style: str) -> List[Dict]:
+    """Generate piano/chord notes."""
+    notes = []
+    octave = 4
+
+    for bar in range(num_bars):
+        chord_str = chords_per_bar[bar % len(chords_per_bar)]
+        root, intervals = _parse_chord(chord_str)
+        pitches = _chord_pitches(root, intervals, octave)
+        bar_start = bar * 4 * beat_dur
+
+        if style == "block":
+            for beat in range(4):
+                t = bar_start + beat * beat_dur
+                vel = 85 if beat == 0 else 70
+                for p in pitches:
+                    notes.append({"pitch": p, "start": t, "end": t + beat_dur * 0.85, "velocity": vel + random.randint(-3, 3)})
+        elif style == "arpeggiated":
+            arp_pitches = pitches + [p + 12 for p in pitches[:1]]
+            step = beat_dur / 2
+            for i, p in enumerate(arp_pitches):
+                t = bar_start + i * step
+                if t >= bar_start + 4 * beat_dur:
+                    break
+                notes.append({"pitch": p, "start": t, "end": t + step * 0.8, "velocity": 75 + random.randint(-5, 5)})
+            # Repeat pattern for second half of bar
+            half = 4 * beat_dur / 2
+            for i, p in enumerate(arp_pitches):
+                t = bar_start + half + i * step
+                if t >= bar_start + 4 * beat_dur:
+                    break
+                notes.append({"pitch": p, "start": t, "end": t + step * 0.8, "velocity": 70 + random.randint(-5, 5)})
+        elif style == "stabs":
+            offsets = [0, 0.5, 2]
+            for off in offsets:
+                t = bar_start + off * beat_dur
+                for p in pitches:
+                    notes.append({"pitch": p, "start": t, "end": t + beat_dur * 0.3, "velocity": 90 + random.randint(-5, 5)})
+        elif style == "sustained":
+            for p in pitches:
+                notes.append({"pitch": p, "start": bar_start, "end": bar_start + 4 * beat_dur * 0.95, "velocity": 65 + random.randint(-3, 3)})
+        else:
+            for beat in [0, 2]:
+                t = bar_start + beat * beat_dur
+                for p in pitches:
+                    notes.append({"pitch": p, "start": t, "end": t + 2 * beat_dur * 0.9, "velocity": 75 + random.randint(-3, 3)})
+
+    return notes
+
+
+def _gen_strings(chords_per_bar: List[str], num_bars: int, beat_dur: float) -> List[Dict]:
+    """Generate sustained string/pad notes following chord progression."""
+    notes = []
+    octave = 4
+    for bar in range(num_bars):
+        chord_str = chords_per_bar[bar % len(chords_per_bar)]
+        root, intervals = _parse_chord(chord_str)
+        pitches = _chord_pitches(root, intervals, octave)
+        bar_start = bar * 4 * beat_dur
+        for p in pitches:
+            notes.append({"pitch": p, "start": bar_start, "end": bar_start + 4 * beat_dur * 0.98, "velocity": 55 + random.randint(-3, 3)})
+    return notes
+
+
+def _gen_melody(chords_per_bar: List[str], num_bars: int, beat_dur: float,
+                root: int, scale_type: str, density: str) -> List[Dict]:
+    """Generate a simple melody using scale degrees and chord tones."""
+    notes = []
+    scale = _get_scale_degrees(root, scale_type, octave=5)
+    if not scale:
+        return notes
+
+    pos = len(scale) // 2
+    sixteenth = beat_dur / 4
+
+    notes_per_bar = {"sparse": 4, "medium": 6, "dense": 8}.get(density, 6)
+
+    for bar in range(num_bars):
+        chord_str = chords_per_bar[bar % len(chords_per_bar)]
+        chord_root, chord_intervals = _parse_chord(chord_str)
+        chord_tones = set((chord_root + i) % 12 for i in chord_intervals)
+        bar_start = bar * 4 * beat_dur
+
+        # Generate rhythmic positions for this bar
+        positions = sorted(random.sample(range(16), min(notes_per_bar, 16)))
+
+        for i, slot in enumerate(positions):
+            t = bar_start + slot * sixteenth
+
+            # On strong beats (0, 4, 8, 12), prefer chord tones
+            if slot % 4 == 0:
+                candidates = [p for p in scale if p % 12 in chord_tones]
+                if candidates:
+                    closest = min(candidates, key=lambda p: abs(p - scale[pos]))
+                    pos = scale.index(closest) if closest in scale else pos
+            else:
+                # Step motion: move up or down by 1-2 scale degrees
+                step = random.choice([-2, -1, -1, 1, 1, 2])
+                pos = max(0, min(len(scale) - 1, pos + step))
+
+            pitch = scale[pos]
+            dur = sixteenth * random.choice([2, 3, 4])
+            vel = 80 if slot % 4 == 0 else 65
+            notes.append({
+                "pitch": pitch,
+                "start": t,
+                "end": min(t + dur, bar_start + 4 * beat_dur),
+                "velocity": vel + random.randint(-5, 5),
+            })
+
+    return notes
+
+
+def _gen_guitar(chords_per_bar: List[str], num_bars: int, beat_dur: float, style: str) -> List[Dict]:
+    """Generate guitar notes — strum or arpeggiated."""
+    notes = []
+    octave = 3
+
+    for bar in range(num_bars):
+        chord_str = chords_per_bar[bar % len(chords_per_bar)]
+        root, intervals = _parse_chord(chord_str)
+        pitches = _chord_pitches(root, intervals, octave) + _chord_pitches(root, intervals, octave + 1)[:2]
+        bar_start = bar * 4 * beat_dur
+
+        if style == "strummed":
+            for beat in range(4):
+                t = bar_start + beat * beat_dur
+                for j, p in enumerate(pitches):
+                    notes.append({
+                        "pitch": p,
+                        "start": t + j * 0.01,
+                        "end": t + beat_dur * 0.85,
+                        "velocity": (85 if beat == 0 else 70) + random.randint(-5, 5),
+                    })
+        else:
+            step = beat_dur / 2
+            pattern = list(range(len(pitches))) + list(range(len(pitches) - 2, 0, -1))
+            for i in range(8):
+                idx = pattern[i % len(pattern)]
+                t = bar_start + i * step
+                notes.append({
+                    "pitch": pitches[idx % len(pitches)],
+                    "start": t,
+                    "end": t + step * 0.8,
+                    "velocity": 70 + random.randint(-5, 5),
+                })
+
+    return notes
+
+
+def _gen_synth(chords_per_bar: List[str], num_bars: int, beat_dur: float,
+               root: int, scale_type: str) -> List[Dict]:
+    """Generate synth lead — arpeggiated chord tones."""
+    notes = []
+    sixteenth = beat_dur / 4
+
+    for bar in range(num_bars):
+        chord_str = chords_per_bar[bar % len(chords_per_bar)]
+        chord_root, intervals = _parse_chord(chord_str)
+        pitches = _chord_pitches(chord_root, intervals, 5)
+        bar_start = bar * 4 * beat_dur
+
+        arp = pitches + [p + 12 for p in pitches[:1]]
+        for i in range(16):
+            p = arp[i % len(arp)]
+            t = bar_start + i * sixteenth
+            notes.append({
+                "pitch": p,
+                "start": t,
+                "end": t + sixteenth * 0.7,
+                "velocity": 70 + random.randint(-5, 8),
+            })
+
+    return notes
+
+
+# ─── OpenAI helpers ─────────────────────────────────────────────────────────────
 
 def _get_openai_client():
     api_key = os.environ.get("OPENAI_API_KEY", "")
@@ -91,11 +500,11 @@ def _get_openai_client():
     return OpenAI(api_key=api_key)
 
 
-def _parse_prompt_with_gpt(raw_prompt: str, genre: str = "") -> Dict:
-    """Use GPT-4o-mini to extract structured musical parameters from a text prompt."""
+def _get_composition_plan(prompt: str, genre: str = "") -> Dict:
+    """Ask GPT-4o-mini for a small composition plan — chords, patterns, structure."""
     api_key = os.environ.get("OPENAI_API_KEY", "")
     if not api_key:
-        return _default_params(genre)
+        return _default_plan(genre)
 
     from openai import OpenAI
     client = OpenAI(api_key=api_key)
@@ -106,29 +515,37 @@ def _parse_prompt_with_gpt(raw_prompt: str, genre: str = "") -> Dict:
             {
                 "role": "system",
                 "content": (
-                    "You are a music theory expert. Extract structured musical parameters "
-                    "from the user's description. Return ONLY valid JSON with these fields:\n"
-                    '{\n'
+                    "You are a music producer. Given a description, output a composition plan as JSON.\n"
+                    "Return ONLY valid JSON with these exact fields:\n"
+                    "{\n"
                     '  "tempo": <int 60-200>,\n'
-                    '  "key": "<root note like C, Dm, F#m, Bb>",\n'
-                    '  "time_signature": "<like 4/4 or 3/4>",\n'
-                    '  "duration_seconds": <int 15-30>,\n'
+                    '  "key": "<root note, e.g. C, Am, F#m, Bb>",\n'
+                    '  "time_signature": "4/4",\n'
+                    '  "bars": <int 4-16>,\n'
+                    '  "chord_progression": ["Am", "F", "C", "G"],\n'
+                    '  "drum_pattern": "<one of: four-on-floor, trap, rock, lo-fi, jazz, edm, house>",\n'
+                    '  "bass_style": "<one of: whole-note, half-note, eighth-note, syncopated, octave>",\n'
+                    '  "piano_style": "<one of: block, arpeggiated, stabs, sustained>",\n'
+                    '  "instruments": ["drums", "bass", "piano"],\n'
                     '  "density": "<sparse|medium|dense>",\n'
-                    '  "instruments": ["drums", "bass", "piano", "strings", "synth", "guitar"],\n'
-                    '  "mood": "<one or two words>",\n'
-                    '  "top_p": <float 0.8-0.99 — lower for more predictable, higher for more creative>\n'
-                    "}\n"
-                    "Choose instruments and parameters that fit the described genre and mood. "
-                    "Output ONLY the JSON, nothing else."
+                    '  "mood": "<one or two words>"\n'
+                    "}\n\n"
+                    "CHORD RULES:\n"
+                    "- Use standard chord symbols: C, Am, F#m, Bb, Dm7, G7, etc.\n"
+                    "- Progression should be 4-8 chords that repeat across the bars\n"
+                    "- Use genre-appropriate progressions (e.g., i-iv-VII-III for lo-fi, I-V-vi-IV for pop)\n"
+                    "- Instruments can include: drums, bass, piano, guitar, strings, synth, melody\n"
+                    "- Choose patterns that fit the genre and mood\n"
+                    "Output ONLY the JSON."
                 ),
             },
             {
                 "role": "user",
-                "content": f"Genre: {genre}\nDescription: {raw_prompt}" if genre else raw_prompt,
+                "content": f"Genre: {genre}\nDescription: {prompt}" if genre else prompt,
             },
         ],
-        max_tokens=300,
-        temperature=0.3,
+        max_tokens=400,
+        temperature=0.7,
     )
 
     text = resp.choices[0].message.content.strip()
@@ -139,243 +556,172 @@ def _parse_prompt_with_gpt(raw_prompt: str, genre: str = "") -> Dict:
         text = text.strip()
 
     try:
-        params = json.loads(text)
+        plan = json.loads(text)
     except json.JSONDecodeError:
-        print(f"[midi-gen] GPT returned invalid JSON: {text}")
-        params = _default_params(genre)
+        print(f"[midi-gen] GPT plan parse failed, using defaults: {text[:200]}")
+        plan = _default_plan(genre)
 
-    return params
+    return plan
 
 
-def _default_params(genre: str = "") -> Dict:
-    defaults = {
-        "pop": {"tempo": 120, "key": "C", "density": "medium", "top_p": 0.95},
-        "trap": {"tempo": 140, "key": "Fm", "density": "medium", "top_p": 0.92},
-        "edm": {"tempo": 128, "key": "Am", "density": "dense", "top_p": 0.90},
-        "lo-fi-hip-hop": {"tempo": 85, "key": "Cm", "density": "sparse", "top_p": 0.95},
-        "house": {"tempo": 124, "key": "Gm", "density": "medium", "top_p": 0.93},
-        "jazz": {"tempo": 110, "key": "Dm", "density": "medium", "top_p": 0.97},
-        "rock": {"tempo": 130, "key": "Em", "density": "dense", "top_p": 0.92},
+def _default_plan(genre: str = "") -> Dict:
+    plans = {
+        "pop": {
+            "tempo": 120, "key": "C", "bars": 8,
+            "chord_progression": ["C", "G", "Am", "F"],
+            "drum_pattern": "four-on-floor", "bass_style": "eighth-note",
+            "piano_style": "block", "instruments": ["drums", "bass", "piano"],
+            "density": "medium", "mood": "upbeat",
+        },
+        "trap": {
+            "tempo": 140, "key": "Fm", "bars": 8,
+            "chord_progression": ["Fm", "Db", "Ab", "Eb"],
+            "drum_pattern": "trap", "bass_style": "syncopated",
+            "piano_style": "stabs", "instruments": ["drums", "bass", "piano", "synth"],
+            "density": "medium", "mood": "dark",
+        },
+        "edm": {
+            "tempo": 128, "key": "Am", "bars": 8,
+            "chord_progression": ["Am", "F", "C", "G"],
+            "drum_pattern": "edm", "bass_style": "eighth-note",
+            "piano_style": "arpeggiated", "instruments": ["drums", "bass", "synth"],
+            "density": "dense", "mood": "energetic",
+        },
+        "lo-fi": {
+            "tempo": 85, "key": "Cm", "bars": 8,
+            "chord_progression": ["Cm", "Ab", "Eb", "Bb"],
+            "drum_pattern": "lo-fi", "bass_style": "half-note",
+            "piano_style": "arpeggiated", "instruments": ["drums", "bass", "piano"],
+            "density": "sparse", "mood": "chill",
+        },
+        "house": {
+            "tempo": 124, "key": "Gm", "bars": 8,
+            "chord_progression": ["Gm", "Cm", "Eb", "D"],
+            "drum_pattern": "house", "bass_style": "eighth-note",
+            "piano_style": "stabs", "instruments": ["drums", "bass", "piano"],
+            "density": "medium", "mood": "groovy",
+        },
+        "jazz": {
+            "tempo": 110, "key": "Dm", "bars": 8,
+            "chord_progression": ["Dm7", "G7", "Cmaj7", "Am7"],
+            "drum_pattern": "jazz", "bass_style": "half-note",
+            "piano_style": "block", "instruments": ["drums", "bass", "piano"],
+            "density": "medium", "mood": "smooth",
+        },
+        "rock": {
+            "tempo": 130, "key": "Em", "bars": 8,
+            "chord_progression": ["Em", "C", "G", "D"],
+            "drum_pattern": "rock", "bass_style": "eighth-note",
+            "piano_style": "block", "instruments": ["drums", "bass", "guitar"],
+            "density": "dense", "mood": "powerful",
+        },
+        "synthwave": {
+            "tempo": 118, "key": "Am", "bars": 8,
+            "chord_progression": ["Am", "F", "C", "Em"],
+            "drum_pattern": "edm", "bass_style": "octave",
+            "piano_style": "arpeggiated", "instruments": ["drums", "bass", "synth", "pad"],
+            "density": "medium", "mood": "nostalgic",
+        },
+        "ambient": {
+            "tempo": 70, "key": "Cm", "bars": 8,
+            "chord_progression": ["Cm", "Ab", "Fm", "G"],
+            "drum_pattern": "lo-fi", "bass_style": "whole-note",
+            "piano_style": "sustained", "instruments": ["piano", "strings"],
+            "density": "sparse", "mood": "ethereal",
+        },
     }
-    base = defaults.get(genre, {"tempo": 120, "key": "Am", "density": "medium", "top_p": 0.95})
-    return {
-        "tempo": base["tempo"],
-        "key": base["key"],
-        "time_signature": "4/4",
-        "duration_seconds": 30,
-        "density": base["density"],
-        "instruments": ["drums", "bass", "piano"],
-        "mood": "neutral",
-        "top_p": base["top_p"],
-    }
+    return plans.get(genre, plans["pop"]).copy()
 
 
-def _compose_tracks_with_gpt(params: Dict, melody_notes: Optional[List[Dict]] = None) -> List[Dict]:
-    """Use GPT-4o to compose multi-track MIDI note data as structured JSON."""
-    client = _get_openai_client()
+# ─── Main composition pipeline ─────────────────────────────────────────────────
 
-    tempo = params.get("tempo", 120)
-    key = params.get("key", "Am")
-    duration = params.get("duration_seconds", 30)
-    density = params.get("density", "medium")
-    instruments = params.get("instruments", ["drums", "bass", "piano"])
-    mood = params.get("mood", "neutral")
-    time_sig = params.get("time_signature", "4/4")
-
-    duration = min(duration, 30)
-    beat_dur = 60.0 / tempo
-    num_beats = int(duration / beat_dur)
-    num_bars = max(4, min(8, num_beats // 4))
+def _build_midi_from_plan(plan: Dict, resolution: int = 480,
+                          melody_notes: Optional[List[Dict]] = None) -> pretty_midi.PrettyMIDI:
+    """Convert a composition plan into a PrettyMIDI object."""
+    tempo = plan.get("tempo", 120)
+    key = plan.get("key", "Am")
+    bars = plan.get("bars", 8)
+    chords = plan.get("chord_progression", ["Am", "F", "C", "G"])
+    instruments = plan.get("instruments", ["drums", "bass", "piano"])
+    density = plan.get("density", "medium")
+    drum_pattern = plan.get("drum_pattern", "four-on-floor")
+    bass_style = plan.get("bass_style", "eighth-note")
+    piano_style = plan.get("piano_style", "block")
+    time_sig = plan.get("time_signature", "4/4")
 
     root_midi, scale_type = _parse_key(key)
-    scale_notes_str = _scale_name_for_prompt(root_midi, scale_type)
+    beat_dur = 60.0 / tempo
 
-    melody_context = ""
-    if melody_notes:
-        melody_summary = json.dumps(melody_notes[:64], separators=(',', ':'))
-        melody_context = (
-            f"\n\nIMPORTANT: A melody has been provided. Generate ACCOMPANIMENT tracks that complement it. "
-            f"Do NOT generate a melody track. The melody notes (first 64): {melody_summary}\n"
-            f"Match the harmonic content and rhythm of the melody."
-        )
-
-    system_prompt = f"""You are a professional music producer composing MIDI for GarageBand / Logic Pro / FL Studio. Generate multi-track MIDI note data as JSON.
-
-KEY AND SCALE (CRITICAL — every melodic/harmonic note MUST be from this scale):
-- Key: {key} ({scale_type})
-- Scale notes: {scale_notes_str}
-- ONLY use pitches from this scale for bass, piano, melody, strings, guitar, synth, pad tracks
-- Drums are exempt from scale rules
-
-TIMING (CRITICAL — notes must land on the beat grid):
-- Tempo: {tempo} BPM → one beat = {beat_dur:.4f} seconds
-- Quantize all note start times to 16th-note grid: multiples of {beat_dur/4:.4f}s
-- Note durations should also align to 16th/8th/quarter boundaries
-- {num_bars} bars, {time_sig} time
-
-CHORD PROGRESSION:
-- Use a proper {scale_type} chord progression (e.g., i-iv-v-i for minor, I-IV-V-I for major)
-- Write out the chord progression you'll use as a comment in each track name if helpful
-- Bass follows chord roots. Piano/guitar voice the full chords.
-
-PER-INSTRUMENT RULES:
-- Drums: GM drum map (kick=36, snare=38, closed-hat=42, open-hat=46, crash=49, ride=51, clap=39). Short durations (0.05-0.1s).
-- Bass: chord root notes, octave 2-3 (MIDI 36-59), program=33
-- Piano: chord voicings, octave 3-5 (MIDI 48-83), program=0
-- Guitar: arpeggiated or strummed chords, program=25
-- Strings/Pads: sustained chord tones, program=48/89
-- Synth: lead line or arpeggio, program=81
-- Melody: scale notes only, octave 4-5, singing range
-
-VELOCITY AND FEEL:
-- Downbeats: 90-110, upbeats: 70-90, ghost notes: 50-65
-- Vary velocity within 10-15 range per note type for human feel
-- Density: {density}
-- Mood: {mood}
-
-Return ONLY valid JSON array of tracks:
-[
-  {{
-    "name": "Drums",
-    "instrument": "drums",
-    "is_drum": true,
-    "program": 0,
-    "notes": [{{"pitch": 36, "start": 0.0, "end": 0.1, "velocity": 100}}, ...]
-  }},
-  {{
-    "name": "Bass",
-    "instrument": "bass",
-    "is_drum": false,
-    "program": 33,
-    "notes": [...]
-  }}
-]
-
-Times are in seconds. GM program numbers: drums=0, bass=33, piano=0, guitar=25, strings=48, synth=81, pad=89, organ=19
-
-Generate ALL notes for ALL {num_bars} bars. No shorthand or "repeat" placeholders.{melody_context}"""
-
-    user_content = f"Generate a {duration}-second {mood} track in {key} at {tempo} BPM, {time_sig} time. Instruments: {', '.join(instruments)}. Density: {density}."
-
-    print(f"[midi-gen] Requesting GPT-4o composition: {num_bars} bars, {instruments}...")
-    resp = client.chat.completions.create(
-        model="gpt-4o",
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_content},
-        ],
-        max_tokens=16000,
-        temperature=params.get("top_p", 0.95),
-    )
-
-    finish = resp.choices[0].finish_reason
-    text = resp.choices[0].message.content.strip()
-    print(f"[midi-gen] GPT response: {len(text)} chars, finish_reason={finish}")
-    if text.startswith("```"):
-        text = text.split("\n", 1)[1] if "\n" in text else text[3:]
-        if text.endswith("```"):
-            text = text[:-3]
-        text = text.strip()
-
-    try:
-        tracks = json.loads(text)
-    except json.JSONDecodeError:
-        print(f"[midi-gen] GPT returned invalid JSON, attempting repair...")
-        start = text.find('[')
-        if start >= 0:
-            fragment = text[start:]
-            # Try to repair truncated JSON by closing open brackets
-            for repair in [fragment, fragment + "]}", fragment + "]}]", fragment + "}]"]:
-                try:
-                    tracks = json.loads(repair)
-                    print(f"[midi-gen] JSON repair successful")
-                    break
-                except json.JSONDecodeError:
-                    continue
-            else:
-                # Last resort: find the last complete track object
-                end = fragment.rfind('}]')
-                if end > 0:
-                    try:
-                        tracks = json.loads(fragment[:end + 2] + ']')
-                        print(f"[midi-gen] Extracted partial tracks")
-                    except json.JSONDecodeError:
-                        print(f"[midi-gen] Could not parse GPT output (len={len(text)})")
-                        raise ValueError("GPT-4o returned invalid JSON for MIDI composition")
-                else:
-                    raise ValueError("GPT-4o returned no parseable track data")
-        else:
-            raise ValueError("GPT-4o returned no parseable track data")
-
-    if isinstance(tracks, list):
-        tracks = [t for t in tracks if isinstance(t, dict) and t.get("notes")]
-    print(f"[midi-gen] GPT generated {len(tracks)} tracks")
-    return tracks
-
-
-def _tracks_to_midi(
-    tracks: List[Dict],
-    tempo: float,
-    time_sig: str = "4/4",
-    key: str = "Am",
-    resolution: int = 480,
-    quantize: bool = True,
-) -> pretty_midi.PrettyMIDI:
-    """Convert GPT-generated track data to a PrettyMIDI object with post-processing."""
     pm = pretty_midi.PrettyMIDI(initial_tempo=tempo, resolution=resolution)
 
     ts_parts = time_sig.split('/')
     numerator = int(ts_parts[0]) if len(ts_parts) == 2 else 4
     denominator = int(ts_parts[1]) if len(ts_parts) == 2 else 4
-    ts = pretty_midi.TimeSignature(numerator, denominator, 0.0)
-    pm.time_signature_changes.append(ts)
+    pm.time_signature_changes.append(pretty_midi.TimeSignature(numerator, denominator, 0.0))
 
-    root_midi, scale_type = _parse_key(key)
-    valid_pitches = _get_scale_pitches(root_midi, scale_type)
-    beat_dur = 60.0 / tempo
-    sixteenth = beat_dur / 4
+    # Expand chord progression to per-bar
+    chords_per_bar = []
+    for i in range(bars):
+        chords_per_bar.append(chords[i % len(chords)])
 
-    for track in tracks:
-        is_drum = track.get("is_drum", False)
-        program = track.get("program", 0)
-        name = track.get("name", "Track")
+    print(f"[midi-gen] Building: {bars} bars, {tempo} BPM, key={key}, chords={chords}, instruments={instruments}")
 
-        inst = pretty_midi.Instrument(
-            program=program if not is_drum else 0,
-            is_drum=is_drum,
-            name=name,
-        )
+    # Generate each instrument
+    for inst_name in instruments:
+        if inst_name == "drums":
+            notes = _gen_drums(drum_pattern, bars, beat_dur)
+            inst = pretty_midi.Instrument(program=0, is_drum=True, name="Drums")
+        elif inst_name == "bass":
+            notes = _gen_bass(chords_per_bar, bars, beat_dur, bass_style)
+            inst = pretty_midi.Instrument(program=GM_PROGRAMS["bass"], is_drum=False, name="Bass")
+        elif inst_name == "piano":
+            notes = _gen_piano(chords_per_bar, bars, beat_dur, piano_style)
+            inst = pretty_midi.Instrument(program=GM_PROGRAMS["piano"], is_drum=False, name="Piano")
+        elif inst_name == "guitar":
+            gstyle = "strummed" if density == "dense" else "arpeggiated"
+            notes = _gen_guitar(chords_per_bar, bars, beat_dur, gstyle)
+            inst = pretty_midi.Instrument(program=GM_PROGRAMS["guitar"], is_drum=False, name="Guitar")
+        elif inst_name in ("strings", "pad"):
+            notes = _gen_strings(chords_per_bar, bars, beat_dur)
+            prog = GM_PROGRAMS.get(inst_name, GM_PROGRAMS["strings"])
+            inst = pretty_midi.Instrument(program=prog, is_drum=False, name=inst_name.capitalize())
+        elif inst_name == "synth":
+            notes = _gen_synth(chords_per_bar, bars, beat_dur, root_midi, scale_type)
+            inst = pretty_midi.Instrument(program=GM_PROGRAMS["synth"], is_drum=False, name="Synth")
+        elif inst_name == "melody":
+            if melody_notes:
+                continue
+            notes = _gen_melody(chords_per_bar, bars, beat_dur, root_midi, scale_type, density)
+            inst = pretty_midi.Instrument(program=73, is_drum=False, name="Melody")
+        else:
+            continue
 
-        for note in track.get("notes", []):
-            pitch = int(note.get("pitch", 60))
-            start = float(note.get("start", 0))
-            end = float(note.get("end", start + 0.1))
-            velocity = int(note.get("velocity", 80))
-
-            pitch = max(0, min(127, pitch))
-            velocity = max(1, min(127, velocity))
-
-            if not is_drum:
-                pitch = _snap_to_scale(pitch, valid_pitches)
-
-            if quantize:
-                start = _quantize_time(start, sixteenth)
-                dur = end - start
-                dur = max(_quantize_time(dur, sixteenth), sixteenth)
-                end = start + dur
-
+        for n in notes:
+            pitch = max(0, min(127, int(n["pitch"])))
+            velocity = max(1, min(127, int(n["velocity"])))
+            start = max(0.0, float(n["start"]))
+            end = float(n["end"])
             if end <= start:
-                end = start + sixteenth
-
-            inst.notes.append(pretty_midi.Note(
-                velocity=velocity,
-                pitch=pitch,
-                start=start,
-                end=end,
-            ))
+                end = start + beat_dur / 4
+            inst.notes.append(pretty_midi.Note(velocity=velocity, pitch=pitch, start=start, end=end))
 
         if inst.notes:
             pm.instruments.append(inst)
+
+    # Add provided melody if present
+    if melody_notes:
+        valid_pitches = _get_scale_pitches_set(root_midi, scale_type)
+        melody_inst = pretty_midi.Instrument(program=73, is_drum=False, name="Melody")
+        for n in melody_notes:
+            pitch = _snap_to_scale(int(n["pitch"]), valid_pitches)
+            melody_inst.notes.append(pretty_midi.Note(
+                velocity=int(n.get("velocity", 80)),
+                pitch=pitch,
+                start=float(n["start"]),
+                end=float(n["end"]),
+            ))
+        if melody_inst.notes:
+            pm.instruments.insert(0, melody_inst)
 
     return pm
 
@@ -387,20 +733,13 @@ def generate_midi(
     melody_midi_path: Optional[str] = None,
     resolution: int = 480,
 ) -> str:
-    """
-    Generate a multi-track MIDI file using GPT-4o for composition.
-
-    If melody_midi_path is provided, generates accompaniment around that melody.
-    Otherwise generates from scratch based on the prompt.
-
-    Returns path to the generated MIDI file.
-    """
+    """Generate a multi-track MIDI file: GPT plans, code composes."""
     job_path = Path(job_dir)
     job_path.mkdir(parents=True, exist_ok=True)
 
-    print(f"[midi-gen] Parsing prompt: {prompt[:80]}...")
-    params = _parse_prompt_with_gpt(prompt, genre)
-    print(f"[midi-gen] Parameters: {json.dumps(params, indent=2)}")
+    print(f"[midi-gen] Getting composition plan for: {prompt[:80]}...")
+    plan = _get_composition_plan(prompt, genre)
+    print(f"[midi-gen] Plan: {json.dumps(plan, indent=2)}")
 
     melody_notes = None
     if melody_midi_path and Path(melody_midi_path).exists():
@@ -414,21 +753,7 @@ def generate_midi(
                 ]
                 break
 
-    tracks_data = _compose_tracks_with_gpt(params, melody_notes)
-
-    tempo = params.get("tempo", 120)
-    key = params.get("key", "Am")
-    time_sig = params.get("time_signature", "4/4")
-    pm = _tracks_to_midi(tracks_data, tempo, time_sig, key=key, resolution=resolution)
-
-    if melody_notes and melody_midi_path:
-        melody_pm = pretty_midi.PrettyMIDI(melody_midi_path)
-        for inst in melody_pm.instruments:
-            if not inst.is_drum and inst.notes:
-                melody_inst = pretty_midi.Instrument(program=73, is_drum=False, name="Melody")
-                melody_inst.notes = inst.notes
-                pm.instruments.insert(0, melody_inst)
-                break
+    pm = _build_midi_from_plan(plan, resolution=resolution, melody_notes=melody_notes)
 
     output_path = job_path / "workshop_output.mid"
     pm.write(str(output_path))
@@ -436,6 +761,8 @@ def generate_midi(
 
     return str(output_path)
 
+
+# ─── Reference audio → MIDI (unchanged) ────────────────────────────────────────
 
 def reference_to_midi(
     audio_path: str,
@@ -474,12 +801,8 @@ def reference_to_midi(
 
     combined = pretty_midi.PrettyMIDI(initial_tempo=120)
 
-    GM_PROGRAMS = {
-        "vocals": 52,
-        "bass": 33,
-        "other": 0,
-        "guitar": 25,
-        "piano": 0,
+    REF_PROGRAMS = {
+        "vocals": 52, "bass": 33, "other": 0, "guitar": 25, "piano": 0,
     }
 
     for stem_name, midi_path in stem_midis.items():
@@ -487,7 +810,7 @@ def reference_to_midi(
             pm = pretty_midi.PrettyMIDI(midi_path)
             for inst in pm.instruments:
                 new_inst = pretty_midi.Instrument(
-                    program=GM_PROGRAMS.get(stem_name, 0),
+                    program=REF_PROGRAMS.get(stem_name, 0),
                     is_drum=False,
                     name=stem_name.capitalize(),
                 )
