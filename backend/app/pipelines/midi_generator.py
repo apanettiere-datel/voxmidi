@@ -245,6 +245,13 @@ def generate_from_prompt(
     Returns (midi_path, vocal_audio_path, generated_audio_path).
     Stem separation is handled on-demand by the caller.
     """
+    if not tempo:
+        tempo = 120
+    if not key:
+        key = 'Am'
+    if not genre:
+        genre = 'pop'
+
     has_minimax = bool(os.environ.get('MINIMAX_API_KEY'))
     provider = os.environ.get('MIDI_GEN_PROVIDER', 'auto')
     use_api = provider == 'api' or (provider == 'auto' and has_minimax)
