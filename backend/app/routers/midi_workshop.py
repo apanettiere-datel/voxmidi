@@ -72,16 +72,19 @@ async def workshop_generate(
             tracks.append({
                 "name": inst.name or ("Drums" if inst.is_drum else f"Track {len(tracks)+1}"),
                 "notes": len(inst.notes),
-                "is_drum": inst.is_drum,
-                "program": inst.program,
+                "is_drum": bool(inst.is_drum),
+                "program": int(inst.program),
             })
+
+        tempo_changes = pm.get_tempo_changes()[1]
+        detected_tempo = float(tempo_changes[0]) if len(tempo_changes) > 0 else 120.0
 
         return {
             "job_id": job_id,
             "midi_url": f"/api/workshop/download/{job_id}/workshop_output.mid",
             "tracks": tracks,
-            "duration": pm.get_end_time(),
-            "tempo": pm.get_tempo_changes()[1][0] if len(pm.get_tempo_changes()[1]) > 0 else 120,
+            "duration": float(pm.get_end_time()),
+            "tempo": detected_tempo,
         }
 
     except Exception as e:
@@ -121,15 +124,15 @@ async def workshop_reference(
             tracks.append({
                 "name": inst.name or f"Track {len(tracks)+1}",
                 "notes": len(inst.notes),
-                "is_drum": inst.is_drum,
-                "program": inst.program,
+                "is_drum": bool(inst.is_drum),
+                "program": int(inst.program),
             })
 
         return {
             "job_id": job_id,
             "midi_url": f"/api/workshop/download/{job_id}/reference_output.mid",
             "tracks": tracks,
-            "duration": pm.get_end_time(),
+            "duration": float(pm.get_end_time()),
         }
 
     except Exception as e:

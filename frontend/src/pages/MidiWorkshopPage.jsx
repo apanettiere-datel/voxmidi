@@ -91,7 +91,7 @@ export default function MidiWorkshopPage() {
 
   // AI Generate state
   const [genPrompt, setGenPrompt] = useState('')
-  const [genGenre, setGenGenre] = useState('pop')
+  const [genGenre, setGenGenre] = useState('')
   const [generating, setGenerating] = useState(false)
   const [genResult, setGenResult] = useState(null)
   const [genError, setGenError] = useState(null)
@@ -107,7 +107,7 @@ export default function MidiWorkshopPage() {
   // Hum + Accompany state
   const [humBlob, setHumBlob] = useState(null)
   const [humPrompt, setHumPrompt] = useState('')
-  const [humGenre, setHumGenre] = useState('pop')
+  const [humGenre, setHumGenre] = useState('')
   const [humGenerating, setHumGenerating] = useState(false)
   const [humResult, setHumResult] = useState(null)
   const [humError, setHumError] = useState(null)
@@ -277,10 +277,13 @@ export default function MidiWorkshopPage() {
           />
 
           <div>
-            <label className="block text-xs font-medium text-zinc-500 dark:text-zinc-400 mb-2">Genre</label>
+            <div className="flex items-center justify-between mb-2">
+              <label className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Genre</label>
+              {!genGenre && <span className="text-xs text-zinc-400 dark:text-zinc-500">Auto from prompt</span>}
+            </div>
             <div className="flex flex-wrap gap-1.5">
               {GENRES.map((g) => (
-                <button key={g.id} type="button" onClick={() => setGenGenre(g.id)}
+                <button key={g.id} type="button" onClick={() => setGenGenre(genGenre === g.id ? '' : g.id)}
                   className={`rounded-full px-3 py-1 text-xs font-medium transition ${
                     genGenre === g.id ? 'bg-indigo-600 text-white' : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-700'
                   }`}>
@@ -414,7 +417,7 @@ export default function MidiWorkshopPage() {
 
               <div className="flex flex-wrap gap-1.5">
                 {GENRES.map((g) => (
-                  <button key={g.id} type="button" onClick={() => setHumGenre(g.id)}
+                  <button key={g.id} type="button" onClick={() => setHumGenre(humGenre === g.id ? '' : g.id)}
                     className={`rounded-full px-2.5 py-0.5 text-xs font-medium transition ${
                       humGenre === g.id ? 'bg-indigo-600 text-white' : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-700'
                     }`}>
