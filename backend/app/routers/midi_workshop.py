@@ -24,6 +24,7 @@ def _new_job_dir():
 async def workshop_generate(
     prompt: str = Form(""),
     genre: str = Form(""),
+    resolution: int = Form(480),
     melody_audio: UploadFile = File(None),
 ):
     """
@@ -53,6 +54,7 @@ async def workshop_generate(
     # Generate MIDI
     try:
         loop = asyncio.get_event_loop()
+        midi_resolution = max(120, min(960, resolution))
         midi_path = await loop.run_in_executor(
             None,
             functools.partial(
@@ -61,6 +63,7 @@ async def workshop_generate(
                 genre=genre,
                 job_dir=str(job_dir),
                 melody_midi_path=melody_midi_path,
+                resolution=midi_resolution,
             ),
         )
 

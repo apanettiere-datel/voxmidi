@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react'
-import { transcribeAudio, downloadMidiClientSide, workshopGenerate, workshopReference } from '@/lib/api'
+import { transcribeAudio, downloadMidiClientSide, workshopGenerate, workshopReference, enhancePrompt, getSettings } from '@/lib/api'
 import { useAuthFetch } from '@/lib/authFetch'
 import AudioRecorder from '@/components/voxmidi/AudioRecorder'
 import PianoPanel from '@/components/voxmidi/PianoPanel'
@@ -92,6 +92,9 @@ export default function MidiWorkshopPage() {
   // AI Generate state
   const [genPrompt, setGenPrompt] = useState('')
   const [genGenre, setGenGenre] = useState('')
+  const [enhancedPrompt, setEnhancedPrompt] = useState('')
+  const [enhancing, setEnhancing] = useState(false)
+  const [useEnhanced, setUseEnhanced] = useState(false)
   const [generating, setGenerating] = useState(false)
   const [genResult, setGenResult] = useState(null)
   const [genError, setGenError] = useState(null)
@@ -125,13 +128,30 @@ export default function MidiWorkshopPage() {
 
   // ─── AI Generate ─────────────────────────────────────────────────────────
 
-  async function handleGenerate() {
+  async function handleEnhanceGen() {
     if (!genPrompt.trim()) return
+    setEnhancing(true)
+    setGenError(null)
+    try {
+      const data = await enhancePrompt(genPrompt, genGenre, authFetch)
+      setEnhancedPrompt(data.enhanced_prompt)
+      setUseEnhanced(true)
+    } catch (err) {
+      setGenError(err.message)
+    } finally {
+      setEnhancing(false)
+    }
+  }
+
+  async function handleGenerate() {
+    const prompt = useEnhanced && enhancedPrompt ? enhancedPrompt : genPrompt
+    if (!prompt.trim()) return
     setGenerating(true)
     setGenError(null)
     setGenResult(null)
     try {
-      const data = await workshopGenerate(genPrompt, genGenre, null, authFetch)
+      const settings = getSettings()
+      const data = await workshopGenerate(prompt, genGenre, null, authFetch, parseInt(settings.midiResolution) || 480)
       setGenResult(data)
     } catch (err) {
       setGenError(err.message)
@@ -173,11 +193,13 @@ export default function MidiWorkshopPage() {
     setHumError(null)
     setHumResult(null)
     try {
+      const settings = getSettings()
       const data = await workshopGenerate(
         humPrompt || 'Generate accompaniment for this melody',
         humGenre,
         humBlob,
         authFetch,
+        parseInt(settings.midiResolution) || 480,
       )
       setHumResult(data)
     } catch (err) {
@@ -270,11 +292,54 @@ export default function MidiWorkshopPage() {
 
           <textarea
             value={genPrompt}
-            onChange={(e) => setGenPrompt(e.target.value)}
+            onChange={(e) => { setGenPrompt(e.target.value); if (useEnhanced) setUseEnhanced(false) }}
             rows={3}
             placeholder="e.g., Dark trap beat 140bpm, aggressive 808s, haunting melody, sparse hi-hats with rolls"
             className="w-full rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-4 py-3 text-sm text-zinc-900 dark:text-white placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none"
           />
+
+          <div className="flex items-center gap-3">
+            <button
+              onClick={handleEnhanceGen}
+              disabled={enhancing || !genPrompt.trim()}
+              className="rounded-lg bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800 text-indigo-700 dark:text-indigo-300 px-4 py-2 text-xs font-medium hover:bg-indigo-100 dark:hover:bg-indigo-900/60 disabled:opacity-50 disabled:cursor-not-allowed transition"
+            >
+              {enhancing ? 'Enhancing...' : 'Enhance with AI'}
+            </button>
+            <span className="text-xs text-zinc-400 dark:text-zinc-500">
+              AI adds musical detail to your description
+            </span>
+          </div>
+
+          {enhancedPrompt && (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-medium text-indigo-600 dark:text-indigo-400">
+                  Enhanced prompt {useEnhanced ? '(active)' : '(not used)'}
+                </label>
+                <button
+                  onClick={() => setUseEnhanced(!useEnhanced)}
+                  className={`text-xs px-2.5 py-1 rounded-lg border transition font-medium ${
+                    useEnhanced
+                      ? 'bg-indigo-600 text-white border-indigo-600'
+                      : 'bg-white dark:bg-zinc-900 text-zinc-500 border-zinc-200 dark:border-zinc-700 hover:border-indigo-400'
+                  }`}
+                >
+                  {useEnhanced ? 'Using enhanced' : 'Use enhanced'}
+                </button>
+              </div>
+              <textarea
+                value={enhancedPrompt}
+                onChange={(e) => setEnhancedPrompt(e.target.value)}
+                rows={3}
+                className={`w-full rounded-xl border px-4 py-3 text-xs text-zinc-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none transition ${
+                  useEnhanced
+                    ? 'border-indigo-300 dark:border-indigo-700 bg-indigo-50/50 dark:bg-indigo-950/20'
+                    : 'border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800/50 opacity-60'
+                }`}
+              />
+            </div>
+          )}
 
           <div>
             <div className="flex items-center justify-between mb-2">

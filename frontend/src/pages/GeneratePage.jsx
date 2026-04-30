@@ -334,7 +334,7 @@ export default function GeneratePage() {
       </section>
 
       {/* Step 3: Voice reference (optional) */}
-      {!instrumental && lyrics.trim() && (
+      {!instrumental && (
         <section className="space-y-3">
           <div className="flex items-center gap-2">
             <span className="flex items-center justify-center w-6 h-6 rounded-full bg-indigo-600 text-white text-xs font-bold">3</span>
@@ -350,17 +350,17 @@ export default function GeneratePage() {
             >
               <div className="text-3xl mb-2">🎤</div>
               <p className="text-sm font-medium text-zinc-700 dark:text-zinc-300 group-hover:text-indigo-600 dark:group-hover:text-indigo-400">
-                Sing or speak to set the vocal style
+                Sing or hum to set the vocal style
               </p>
               <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-1">
-                Record a short sample — AI will match this vocal style in the generated song
+                Record a sample — AI will match your voice and generate lyrics from what you sing
               </p>
             </button>
           ) : (
             <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-5 space-y-3">
               <div className="flex items-center justify-between">
                 <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                  Sing a few lines so the AI can match your vocal style
+                  Sing or hum — AI will use your voice style and can generate lyrics from your singing
                 </p>
                 {voiceBlob && (
                   <button
@@ -386,7 +386,7 @@ export default function GeneratePage() {
       <section className="space-y-3">
         <div className="flex items-center gap-2">
           <span className="flex items-center justify-center w-6 h-6 rounded-full bg-indigo-600 text-white text-xs font-bold">
-            {!instrumental && lyrics.trim() ? '4' : '3'}
+            {!instrumental ? '4' : '3'}
           </span>
           <h2 className="text-sm font-semibold text-zinc-800 dark:text-zinc-200">Generate</h2>
         </div>
@@ -493,11 +493,11 @@ export default function GeneratePage() {
             ? 'Generating...'
             : instrumental
               ? 'Generate Instrumental'
-              : lyrics.trim()
-                ? voiceBlob
-                  ? 'Generate Song with Your Voice'
-                  : 'Generate Song with Vocals'
-                : 'Generate Song'
+              : voiceBlob
+                ? 'Generate Song with Your Voice'
+                : lyrics.trim()
+                  ? 'Generate Song with Vocals'
+                  : 'Generate Song'
           }
         </button>
       </section>

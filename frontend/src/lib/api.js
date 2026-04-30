@@ -104,10 +104,11 @@ export async function aiGenerateLyrics(theme, genre, mood, fetchFn = fetch) {
 
 // ─── MIDI Workshop ──────────────────────────────────────────────────────────
 
-export async function workshopGenerate(prompt, genre, melodyBlob, fetchFn = fetch) {
+export async function workshopGenerate(prompt, genre, melodyBlob, fetchFn = fetch, resolution) {
   const formData = new FormData()
   formData.append('prompt', prompt)
   if (genre) formData.append('genre', genre)
+  if (resolution) formData.append('resolution', String(resolution))
   if (melodyBlob) formData.append('melody_audio', melodyBlob, 'melody.webm')
   const res = await fetchFn(`${API_BASE}/workshop/generate`, { method: 'POST', body: formData })
   if (!res.ok) {
