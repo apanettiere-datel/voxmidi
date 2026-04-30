@@ -112,7 +112,7 @@ def _parse_prompt_with_gpt(raw_prompt: str, genre: str = "") -> Dict:
                     '  "tempo": <int 60-200>,\n'
                     '  "key": "<root note like C, Dm, F#m, Bb>",\n'
                     '  "time_signature": "<like 4/4 or 3/4>",\n'
-                    '  "duration_seconds": <int 15-60>,\n'
+                    '  "duration_seconds": <int 15-30>,\n'
                     '  "density": "<sparse|medium|dense>",\n'
                     '  "instruments": ["drums", "bass", "piano", "strings", "synth", "guitar"],\n'
                     '  "mood": "<one or two words>",\n'
@@ -182,9 +182,10 @@ def _compose_tracks_with_gpt(params: Dict, melody_notes: Optional[List[Dict]] = 
     mood = params.get("mood", "neutral")
     time_sig = params.get("time_signature", "4/4")
 
+    duration = min(duration, 30)
     beat_dur = 60.0 / tempo
     num_beats = int(duration / beat_dur)
-    num_bars = max(4, num_beats // 4)
+    num_bars = max(4, min(8, num_beats // 4))
 
     root_midi, scale_type = _parse_key(key)
     scale_notes_str = _scale_name_for_prompt(root_midi, scale_type)
@@ -267,7 +268,9 @@ Generate ALL notes for ALL {num_bars} bars. No shorthand or "repeat" placeholder
         temperature=params.get("top_p", 0.95),
     )
 
+    finish = resp.choices[0].finish_reason
     text = resp.choices[0].message.content.strip()
+    print(f"[midi-gen] GPT response: {len(text)} chars, finish_reason={finish}")
     if text.startswith("```"):
         text = text.split("\n", 1)[1] if "\n" in text else text[3:]
         if text.endswith("```"):
@@ -277,18 +280,35 @@ Generate ALL notes for ALL {num_bars} bars. No shorthand or "repeat" placeholder
     try:
         tracks = json.loads(text)
     except json.JSONDecodeError:
-        print(f"[midi-gen] GPT returned invalid JSON, attempting to extract array...")
+        print(f"[midi-gen] GPT returned invalid JSON, attempting repair...")
         start = text.find('[')
-        end = text.rfind(']')
-        if start >= 0 and end > start:
-            try:
-                tracks = json.loads(text[start:end + 1])
-            except json.JSONDecodeError:
-                print(f"[midi-gen] Could not parse GPT output")
-                raise ValueError("GPT-4o returned invalid JSON for MIDI composition")
+        if start >= 0:
+            fragment = text[start:]
+            # Try to repair truncated JSON by closing open brackets
+            for repair in [fragment, fragment + "]}", fragment + "]}]", fragment + "}]"]:
+                try:
+                    tracks = json.loads(repair)
+                    print(f"[midi-gen] JSON repair successful")
+                    break
+                except json.JSONDecodeError:
+                    continue
+            else:
+                # Last resort: find the last complete track object
+                end = fragment.rfind('}]')
+                if end > 0:
+                    try:
+                        tracks = json.loads(fragment[:end + 2] + ']')
+                        print(f"[midi-gen] Extracted partial tracks")
+                    except json.JSONDecodeError:
+                        print(f"[midi-gen] Could not parse GPT output (len={len(text)})")
+                        raise ValueError("GPT-4o returned invalid JSON for MIDI composition")
+                else:
+                    raise ValueError("GPT-4o returned no parseable track data")
         else:
             raise ValueError("GPT-4o returned no parseable track data")
 
+    if isinstance(tracks, list):
+        tracks = [t for t in tracks if isinstance(t, dict) and t.get("notes")]
     print(f"[midi-gen] GPT generated {len(tracks)} tracks")
     return tracks
 

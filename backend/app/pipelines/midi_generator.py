@@ -86,9 +86,21 @@ def _minimax_api_call(
 
     if use_cover:
         import base64
-        audio_bytes = Path(voice_audio_path).read_bytes()
+        import subprocess
+        voice_path = Path(voice_audio_path)
+        # Convert to wav if not already mp3/wav/flac (MiniMax doesn't accept webm)
+        if voice_path.suffix.lower() not in ('.mp3', '.wav', '.flac'):
+            wav_path = voice_path.with_suffix('.wav')
+            subprocess.run(
+                ['ffmpeg', '-y', '-i', str(voice_path), '-ar', '44100', '-ac', '1', str(wav_path)],
+                capture_output=True, timeout=30,
+            )
+            if wav_path.exists():
+                voice_path = wav_path
+                print(f"[midi_generator] Converted voice to wav: {wav_path.name}")
+        audio_bytes = voice_path.read_bytes()
         payload["audio_base64"] = base64.b64encode(audio_bytes).decode("utf-8")
-        print(f"[midi_generator] Voice reference: {len(audio_bytes)} bytes from {Path(voice_audio_path).name}")
+        print(f"[midi_generator] Voice reference: {len(audio_bytes)} bytes from {voice_path.name}")
 
     if lyrics and lyrics.strip():
         payload["lyrics"] = lyrics.strip()
@@ -109,9 +121,22 @@ def _minimax_api_call(
         )
         resp.raise_for_status()
         resp_json = resp.json()
-        audio_hex = resp_json.get("data", {}).get("audio", "") if resp_json else ""
+        print(f"[midi_generator] MiniMax response keys: {list(resp_json.keys()) if resp_json else 'None'}")
+
+        base_resp = resp_json.get("base_resp", {}) if resp_json else {}
+        if base_resp.get("status_code", 0) != 0:
+            print(f"[midi_generator] MiniMax API error: {base_resp}")
+
+        data = resp_json.get("data") if resp_json else None
+        if isinstance(data, dict):
+            audio_hex = data.get("audio", "")
+        else:
+            print(f"[midi_generator] MiniMax full response: {_json.dumps(resp_json)[:500]}")
+            audio_hex = ""
+
         if not audio_hex:
-            raise RuntimeError(f"MiniMax returned no audio data: {resp_json}")
+            err_msg = base_resp.get("status_msg", "no audio data")
+            raise RuntimeError(f"MiniMax error: {err_msg}")
         audio_bytes = binascii.unhexlify(audio_hex)
         audio_file = job_dir / out_filename
         audio_file.write_bytes(audio_bytes)
