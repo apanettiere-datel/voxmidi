@@ -247,7 +247,7 @@ export default function ResultPanel({ result, onShare }) {
       tempo: result.tempo || 120,
       key: result.key || 'Am',
     }))
-    navigate('/')
+    navigate('/generate')
   }
 
   async function handleExtend(sourceJobId) {

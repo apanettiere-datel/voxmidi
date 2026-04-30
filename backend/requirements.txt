@@ -27,6 +27,14 @@ pyjwt[crypto]>=2.8.0
 cryptography>=42.0.0
 sqlalchemy>=2.0.0
 
+# OpenAI
+openai>=1.30.0
+
+# MIDI generation (Anticipatory Music Transformer)
+torch>=2.0.0
+transformers>=4.30.0
+anticipation>=0.1.0
+
 # Utilities
 pydantic>=2.8.0
 python-dotenv>=1.0.0

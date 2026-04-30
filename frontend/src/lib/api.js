@@ -75,6 +75,59 @@ export async function getPresets(fetchFn = fetch) {
   return res.json()
 }
 
+// ─── AI Assist (OpenAI) ──────────────────────────────────────────────────────
+
+export async function enhancePrompt(roughPrompt, genre, fetchFn = fetch) {
+  const formData = new FormData()
+  formData.append('rough_prompt', roughPrompt)
+  if (genre) formData.append('genre', genre)
+  const res = await fetchFn(`${API_BASE}/enhance-prompt`, { method: 'POST', body: formData })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }))
+    throw new Error(err.detail || 'Prompt enhancement failed')
+  }
+  return res.json()
+}
+
+export async function aiGenerateLyrics(theme, genre, mood, fetchFn = fetch) {
+  const formData = new FormData()
+  formData.append('theme', theme)
+  formData.append('genre', genre)
+  if (mood) formData.append('mood', mood)
+  const res = await fetchFn(`${API_BASE}/ai-generate-lyrics`, { method: 'POST', body: formData })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }))
+    throw new Error(err.detail || 'Lyrics generation failed')
+  }
+  return res.json()
+}
+
+// ─── MIDI Workshop ──────────────────────────────────────────────────────────
+
+export async function workshopGenerate(prompt, genre, melodyBlob, fetchFn = fetch) {
+  const formData = new FormData()
+  formData.append('prompt', prompt)
+  if (genre) formData.append('genre', genre)
+  if (melodyBlob) formData.append('melody_audio', melodyBlob, 'melody.webm')
+  const res = await fetchFn(`${API_BASE}/workshop/generate`, { method: 'POST', body: formData })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }))
+    throw new Error(err.detail || 'MIDI generation failed')
+  }
+  return res.json()
+}
+
+export async function workshopReference(audioFile, fetchFn = fetch) {
+  const formData = new FormData()
+  formData.append('audio', audioFile, audioFile.name || 'reference.mp3')
+  const res = await fetchFn(`${API_BASE}/workshop/reference`, { method: 'POST', body: formData })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }))
+    throw new Error(err.detail || 'Reference conversion failed')
+  }
+  return res.json()
+}
+
 // ─── Library (localStorage) ───────────────────────────────────────────────────
 
 const LIBRARY_KEY = 'voxmidi_library'

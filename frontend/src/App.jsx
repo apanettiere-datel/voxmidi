@@ -1,5 +1,5 @@
-import { Routes, Route, useLocation } from 'react-router-dom'
-import { MusicalNoteIcon, MicrophoneIcon, FolderIcon, Cog6ToothIcon } from '@heroicons/react/20/solid'
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
+import { MusicalNoteIcon, MicrophoneIcon, FolderIcon, Cog6ToothIcon, WrenchScrewdriverIcon } from '@heroicons/react/20/solid'
 import { SidebarLayout } from '@/components/catalyst/sidebar-layout'
 import { Sidebar, SidebarBody, SidebarFooter, SidebarHeader, SidebarItem, SidebarLabel, SidebarSection } from '@/components/catalyst/sidebar'
 import { Navbar, NavbarSpacer } from '@/components/catalyst/navbar'
@@ -7,7 +7,8 @@ import { SignedIn, SignedOut, RedirectToSignIn, UserButton, useUser, useClerk } 
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 
-import CreatePage from '@/pages/CreatePage'
+import GeneratePage from '@/pages/GeneratePage'
+import MidiWorkshopPage from '@/pages/MidiWorkshopPage'
 import LibraryPage from '@/pages/LibraryPage'
 import SettingsPage from '@/pages/SettingsPage'
 import SignInPage from '@/pages/SignInPage'
@@ -19,7 +20,8 @@ import { JobsNotificationBar } from '@/lib/JobsContext'
 const CLERK_KEY = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY
 
 const navigation = [
-  { name: 'Create', href: '/', icon: MicrophoneIcon },
+  { name: 'Song Generator', href: '/generate', icon: MusicalNoteIcon },
+  { name: 'MIDI Workshop', href: '/midi', icon: WrenchScrewdriverIcon },
   { name: 'Library', href: '/library', icon: FolderIcon },
   { name: 'Settings', href: '/settings', icon: Cog6ToothIcon },
 ]
@@ -97,10 +99,7 @@ function AppLayout({ children }) {
           <SidebarBody>
             <SidebarSection>
               {navigation.map((item) => {
-                const isCurrent =
-                  item.href === '/'
-                    ? location.pathname === '/'
-                    : location.pathname.startsWith(item.href)
+                const isCurrent = location.pathname.startsWith(item.href)
                 return (
                   <SidebarItem key={item.name} href={item.href} current={isCurrent}>
                     <item.icon data-slot="icon" />
@@ -124,7 +123,9 @@ function AppRoutes() {
   return (
     <AppLayout>
       <Routes>
-        <Route path="/" element={<CreatePage />} />
+        <Route path="/" element={<Navigate to="/generate" replace />} />
+        <Route path="/generate" element={<GeneratePage />} />
+        <Route path="/midi" element={<MidiWorkshopPage />} />
         <Route path="/library" element={<LibraryPage />} />
         <Route path="/settings" element={<SettingsPage />} />
       </Routes>

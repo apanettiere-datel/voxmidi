@@ -189,7 +189,7 @@ export function JobsNotificationBar({ activeJobId }) {
                   onClick={() => {
                     sessionStorage.setItem('voxmidi_pending_result', JSON.stringify(job.result))
                     removeJob(job.jobId)
-                    window.location.href = '/'
+                    window.location.href = '/generate'
                   }}
                   className="rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 text-xs font-semibold transition"
                 >

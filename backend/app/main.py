@@ -17,6 +17,8 @@ from database import init_db
 from routers import transcribe, generate, source, transform, preview, status as status_router
 from routers import user as user_router
 from routers import lyrics as lyrics_router
+from routers import ai_assist as ai_assist_router
+from routers import midi_workshop as midi_workshop_router
 
 UPLOAD_DIR = Path("/tmp/voxmidi")
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
@@ -47,6 +49,8 @@ app.include_router(transform.router, prefix="/api")
 app.include_router(preview.router, prefix="/api")
 app.include_router(user_router.router, prefix="/api")
 app.include_router(lyrics_router.router, prefix="/api")
+app.include_router(ai_assist_router.router, prefix="/api")
+app.include_router(midi_workshop_router.router, prefix="/api")
 
 
 @app.get("/api/health")
