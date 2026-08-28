@@ -1,0 +1,96 @@
+/* VoxMIDI palette — lifted verbatim from Tailwind v4 defaults as used in the app.
+   The app is built on zinc neutrals + indigo accent; the secondary hues below are
+   the exact ones the codebase reaches for (emerald = audio/export, amber = solo/
+   warning, red = record/destructive, purple = vocals, and the 8 track colors). */
+:root {
+  --zinc-50: #fafafa;
+  --zinc-100: #f4f4f5;
+  --zinc-200: #e4e4e7;
+  --zinc-300: #d4d4d8;
+  --zinc-400: #a1a1aa;
+  --zinc-500: #71717a;
+  --zinc-600: #52525b;
+  --zinc-700: #3f3f46;
+  --zinc-800: #27272a;
+  --zinc-900: #18181b;
+  --zinc-950: #09090b;
+  --white: #ffffff;
+
+  /* piano-roll lane fill — the one off-scale neutral in the codebase */
+  --lane-white-key: #1c1c20;
+
+  --indigo-50: #eef2ff;
+  --indigo-100: #e0e7ff;
+  --indigo-200: #c7d2fe;
+  --indigo-300: #a5b4fc;
+  --indigo-400: #818cf8;
+  --indigo-500: #6366f1;
+  --indigo-600: #4f46e5;
+  --indigo-700: #4338ca;
+  --indigo-800: #3730a3;
+  --indigo-900: #312e81;
+  --indigo-950: #1e1b4b;
+
+  --emerald-300: #6ee7b7;
+  --emerald-400: #34d399;
+  --emerald-500: #10b981;
+  --emerald-600: #059669;
+  --emerald-700: #047857;
+  --emerald-800: #065f46;
+  --emerald-900: #064e3b;
+  --emerald-950: #022c22;
+
+  --amber-300: #fcd34d;
+  --amber-400: #fbbf24;
+  --amber-500: #f59e0b;
+  --amber-600: #d97706;
+  --amber-700: #b45309;
+  --amber-800: #92400e;
+  --amber-950: #451a03;
+
+  --red-300: #fca5a5;
+  --red-400: #f87171;
+  --red-500: #ef4444;
+  --red-600: #dc2626;
+  --red-700: #b91c1c;
+  --red-800: #991b1b;
+  --red-900: #7f1d1d;
+  --red-950: #450a0a;
+
+  --purple-300: #d8b4fe;
+  --purple-400: #c084fc;
+  --purple-500: #a855f7;
+  --purple-600: #9333ea;
+  --purple-800: #6b21a8;
+  --purple-950: #3b0764;
+
+  --violet-500: #8b5cf6;
+  --rose-500: #f43f5e;
+  --cyan-500: #06b6d4;
+  --lime-500: #84cc16;
+  --pink-500: #ec4899;
+  --orange-500: #f97316;
+  --blue-500: #3b82f6;
+  --blue-800: #1e40af;
+  --blue-950: #172554;
+
+  /* Track/stem colors, in the order TrackMixer + PianoRoll assign them */
+  --track-1: #6366f1;
+  --track-2: #f43f5e;
+  --track-3: #10b981;
+  --track-4: #f59e0b;
+  --track-5: #8b5cf6;
+  --track-6: #06b6d4;
+  --track-7: #ec4899;
+  --track-8: #84cc16;
+
+  /* Note-body fills used by the piano roll canvas (70% alpha of the track color) */
+  --track-1-fill: rgba(99, 102, 241, 0.7);
+  --track-2-fill: rgba(244, 63, 94, 0.7);
+  --track-3-fill: rgba(16, 185, 129, 0.7);
+  --track-4-fill: rgba(245, 158, 11, 0.7);
+  --track-5-fill: rgba(139, 92, 246, 0.7);
+  --track-6-fill: rgba(6, 182, 212, 0.7);
+  --track-7-fill: rgba(236, 72, 153, 0.7);
+  --track-8-fill: rgba(132, 204, 22, 0.7);
+}

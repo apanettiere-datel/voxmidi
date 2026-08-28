@@ -1,0 +1,9 @@
+/* Rounding ladder. Panels and cards are rounded-xl; controls are rounded-lg;
+   chips/genre pills and status dots are fully round. */
+:root {
+  --radius-xs: 0.25rem;   /* rounded — M/S transport micro-buttons */
+  --radius-sm: 0.375rem;
+  --radius-md: 0.5rem;    /* rounded-lg — buttons, inputs, selects */
+  --radius-lg: 0.75rem;   /* rounded-xl — cards, panels, dialogs */
+  --radius-full: 9999px;  /* genre pills, filter tabs, transport circles */
+}

@@ -1,1 +1,55 @@
 @import "tailwindcss";
+@import "./design/tokens/colors.css";
+@import "./design/tokens/semantic.css";
+@import "./design/tokens/typography.css";
+@import "./design/tokens/spacing.css";
+@import "./design/tokens/radius.css";
+@import "./design/tokens/elevation.css";
+@import "./design/tokens/motion.css";
+@import "./design/tokens/breakpoints.css";
+
+/* Dark-first: the design system's :root IS the dark theme. Tailwind's dark:
+   variant keys off data-theme so existing Catalyst dark: classes activate
+   under <html data-theme="dark"> and a future light mode is just removing
+   the attribute plus the [data-theme="light"] token overrides. */
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+/* Bridge the design-system tokens into Tailwind utility namespaces.
+   `inline` makes utilities resolve the underlying var directly, so the
+   [data-theme="light"] overrides in semantic.css cascade correctly. */
+@theme inline {
+  --color-app: var(--bg-app);
+  --color-sidebar: var(--bg-sidebar);
+  --color-panel: var(--surface-panel);
+  --color-sunken: var(--surface-sunken);
+  --color-canvas: var(--surface-canvas);
+  --color-raised: var(--surface-raised);
+
+  --color-line-subtle: var(--border-subtle);
+  --color-line: var(--border-default);
+  --color-line-strong: var(--border-strong);
+
+  --color-body: var(--text-body);
+  --color-muted: var(--text-muted);
+  --color-faint: var(--text-faint);
+
+  --color-accent: var(--accent);
+  --color-accent-strong: var(--accent-strong);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-text: var(--accent-text);
+  --color-accent-surface: var(--accent-surface);
+
+  --color-record: var(--record);
+  --color-success: var(--success);
+  --color-solo: var(--solo);
+  --color-vocals: var(--vocals);
+
+  --color-track-1: var(--track-1);
+  --color-track-2: var(--track-2);
+  --color-track-3: var(--track-3);
+  --color-track-4: var(--track-4);
+  --color-track-5: var(--track-5);
+  --color-track-6: var(--track-6);
+  --color-track-7: var(--track-7);
+  --color-track-8: var(--track-8);
+}

@@ -1,0 +1,21 @@
+/* Motion is functional, never decorative. Default is Tailwind's `transition`
+   (150ms, ease-in-out) on color/border/opacity. Progress bars ease over 700ms.
+   Press states shrink to 95%. Waiting states pulse; nothing bounces. */
+:root {
+  --duration-fast: 100ms; /* @kind other */
+  --duration-base: 150ms; /* @kind other */
+  --duration-slow: 300ms; /* @kind other */
+  --duration-progress: 700ms; /* @kind other */
+
+  --ease-standard: cubic-bezier(0.4, 0, 0.2, 1); /* @kind other */
+  --ease-out: cubic-bezier(0, 0, 0.2, 1); /* @kind other */
+
+  --transition-control: color var(--duration-base) var(--ease-standard),
+    background-color var(--duration-base) var(--ease-standard),
+    border-color var(--duration-base) var(--ease-standard),
+    opacity var(--duration-base) var(--ease-standard);
+
+  --press-scale: 0.95; /* @kind other */
+}
+@keyframes vox-pulse { 0%, 100% { opacity: 1 } 50% { opacity: 0.5 } }
+@keyframes vox-spin { to { transform: rotate(360deg) } }

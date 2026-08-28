@@ -1,0 +1,95 @@
+/* Semantic aliases. VoxMIDI is DARK-FIRST: :root is the dark studio theme.
+   The shipping app also supports Tailwind's light mode — those values live in
+   the [data-theme="light"] scope below. Always reference the semantic name. */
+:root {
+  --bg-app: var(--zinc-950);          /* html background */
+  --bg-sidebar: var(--zinc-900);
+  --surface-panel: var(--zinc-900);   /* cards, panels, dialogs */
+  --surface-sunken: rgb(39 39 42 / 0.5);   /* zinc-800/50 — inset rows, tips */
+  --surface-canvas: var(--zinc-950);  /* piano roll / waveform / step-grid bed */
+  --surface-raised: var(--zinc-800);  /* micro-buttons, sliders, track chips */
+
+  --border-subtle: rgb(255 255 255 / 0.05);
+  --border-default: var(--zinc-800);
+  --border-strong: var(--zinc-700);
+  --border-dashed: var(--zinc-700);
+
+  --text-primary: var(--white);
+  --text-body: var(--zinc-300);
+  --text-muted: var(--zinc-400);
+  --text-faint: var(--zinc-500);
+  --text-disabled: var(--zinc-600);
+  --text-on-accent: var(--white);
+
+  --accent: var(--indigo-500);            /* interactive accent, dark surfaces */
+  --accent-strong: var(--indigo-600);     /* solid buttons, active pills */
+  --accent-hover: var(--indigo-700);
+  --accent-text: var(--indigo-400);
+  --accent-surface: rgb(30 27 75 / 0.4);  /* indigo-950/40 — soft accent fill */
+  --accent-border: var(--indigo-800);
+
+  --record: var(--red-600);               /* record / destructive */
+  --record-hover: var(--red-700);
+  --danger-text: var(--red-400);
+  --danger-surface: rgb(69 10 10 / 0.3);
+  --danger-border: var(--red-900);
+
+  --success: var(--emerald-600);          /* audio ready, export, MP3 */
+  --success-text: var(--emerald-400);
+  --success-surface: rgb(2 44 34 / 0.3);
+  --success-border: var(--emerald-800);
+
+  --solo: var(--amber-500);               /* solo, demo-mode, favorites */
+  --warning-text: var(--amber-400);
+  --warning-surface: rgb(69 26 3 / 0.2);
+  --warning-border: var(--amber-800);
+
+  --vocals: var(--purple-500);            /* vocal stem + MiniMax provider */
+  --vocals-text: var(--purple-400);
+
+  /* Canvas internals (piano roll, drum grid, waveform) */
+  --grid-line: var(--zinc-800);           /* beat line */
+  --grid-line-measure: var(--zinc-700);   /* bar line */
+  --grid-lane-black: var(--zinc-900);
+  --grid-lane-white: var(--lane-white-key);
+  --grid-label: var(--zinc-500);
+  --playhead: rgb(255 255 255 / 0.85);
+  --waveform: var(--indigo-500);
+}
+
+[data-theme="light"] {
+  --bg-app: var(--white);
+  --bg-sidebar: var(--zinc-100);
+  --surface-panel: var(--white);
+  --surface-sunken: var(--zinc-50);
+  --surface-canvas: var(--zinc-950);   /* canvases stay dark in both themes */
+  --surface-raised: var(--zinc-100);
+
+  --border-subtle: rgb(9 9 11 / 0.05);
+  --border-default: var(--zinc-200);
+  --border-strong: var(--zinc-300);
+  --border-dashed: var(--zinc-200);
+
+  --text-primary: var(--zinc-900);
+  --text-body: var(--zinc-700);
+  --text-muted: var(--zinc-500);
+  --text-faint: var(--zinc-400);
+  --text-disabled: var(--zinc-300);
+
+  --accent: var(--indigo-600);
+  --accent-text: var(--indigo-600);
+  --accent-surface: var(--indigo-50);
+  --accent-border: var(--indigo-200);
+
+  --danger-text: var(--red-700);
+  --danger-surface: #fef2f2;
+  --danger-border: var(--red-300);
+
+  --success-text: var(--emerald-700);
+  --success-surface: #ecfdf5;
+  --success-border: var(--emerald-300);
+
+  --warning-text: var(--amber-700);
+  --warning-surface: #fffbeb;
+  --warning-border: var(--amber-300);
+}

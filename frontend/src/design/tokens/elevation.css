@@ -1,0 +1,19 @@
+/* Shadows are deliberately shallow. In dark mode the app leans on hairline
+   borders (white/5–white/10) rather than shadow for separation; shadow is
+   reserved for buttons, floating transport controls and toasts. */
+:root {
+  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+  --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+  --shadow-xl: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1);
+
+  /* Catalyst's inner highlight on solid buttons */
+  --shadow-inner-highlight: inset 0 1px rgb(255 255 255 / 0.15);
+
+  /* Hairlines */
+  --hairline: 1px solid rgb(255 255 255 / 0.08); /* @kind other */
+  --hairline-strong: 1px solid rgb(255 255 255 / 0.14); /* @kind other */
+
+  /* Focus ring — indigo-500, 2px, matching focus:ring-2 focus:ring-indigo-500 */
+  --focus-ring: 0 0 0 2px var(--indigo-500);
+}

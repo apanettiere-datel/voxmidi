@@ -1,0 +1,13 @@
+/* Two breakpoints, matching Catalyst's own `lg` plus one below it.
+   Everything is desktop-first: the base rules ARE the desktop layout, and
+   media queries below adapt down. Desktop is the primary surface. */
+:root {
+  --bp-sm: 40rem;   /* @kind spacing */ /* 640px — phone landscape / small tablet */
+  --bp-lg: 64rem;   /* @kind spacing */ /* 1024px — the sidebar/drawer switch, same as Catalyst */
+
+  /* Touch sizing. Pointer-fine UI can be denser than this; anything a finger
+     hits must clear --touch-min. */
+  --touch-min: 2.75rem;      /* 44px */
+  --grid-step-touch: 2.75rem;
+  --thumb-zone: 5.5rem;      /* reserved height at the bottom of a phone screen */
+}
