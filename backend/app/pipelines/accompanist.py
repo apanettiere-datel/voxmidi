@@ -72,6 +72,92 @@ def _apply_envelope(buf: np.ndarray, attack_samples: int, release_samples: int) 
     return buf
 
 
+# ─── One-shot drum hit generators (shared with drums pipeline) ────────────────
+
+def _kick_oneshot(sr: int = SR, amp: float = 0.7) -> np.ndarray:
+    """Kick: low sine burst with pitch drop from 80 Hz to 30 Hz over 100ms."""
+    dur = 0.10
+    n = int(dur * sr)
+    freqs = np.linspace(80.0, 30.0, n, dtype=np.float64)
+    phase = np.cumsum(2.0 * np.pi * freqs / sr)
+    buf = (amp * np.sin(phase)).astype(np.float32)
+    _apply_envelope(buf, int(sr * 0.002), int(sr * 0.05))
+    return buf
+
+
+def _snare_oneshot(sr: int = SR, amp: float = 0.5) -> np.ndarray:
+    """Snare: bandpassed noise burst + small 200 Hz tone."""
+    dur = 0.08
+    n = int(dur * sr)
+    rng = np.random.default_rng(11)
+    noise = rng.standard_normal(n).astype(np.float32)
+    # Rough bandpass: first-order highpass via diff, then lowpass via short moving avg
+    noise = np.diff(noise, prepend=noise[:1]).astype(np.float32)
+    k = max(2, int(sr / 5000))
+    kernel = np.ones(k, dtype=np.float32) / k
+    noise = np.convolve(noise, kernel, mode='same').astype(np.float32)
+    peak = float(np.max(np.abs(noise)))
+    if peak > 0:
+        noise = noise / peak * amp * 0.85
+    t = np.linspace(0, dur, n, endpoint=False)
+    tone = (0.15 * np.sin(2.0 * np.pi * 200.0 * t)).astype(np.float32)
+    buf = noise + tone
+    _apply_envelope(buf, int(sr * 0.001), int(sr * 0.05))
+    return buf
+
+
+def _hat_oneshot(sr: int = SR, amp: float = 0.3) -> np.ndarray:
+    """Hi-hat: short highpassed noise burst (first-order diff for high-freq emphasis)."""
+    dur = 0.04
+    n = int(dur * sr)
+    rng = np.random.default_rng(22)
+    noise = rng.standard_normal(n).astype(np.float32)
+    noise = np.diff(noise, prepend=noise[:1]).astype(np.float32)
+    peak = float(np.max(np.abs(noise)))
+    if peak > 0:
+        noise = noise / peak * amp
+    _apply_envelope(noise, int(sr * 0.001), int(sr * 0.025))
+    return noise
+
+
+def _clap_oneshot(sr: int = SR, amp: float = 0.4) -> np.ndarray:
+    """Clap: 3 quick noise bursts ~8ms apart."""
+    burst_dur = 0.008
+    gap_dur = 0.008
+    burst_n = int(burst_dur * sr)
+    gap_n = int(gap_dur * sr)
+    total = burst_n * 3 + gap_n * 2
+    buf = np.zeros(total, dtype=np.float32)
+    rng = np.random.default_rng(33)
+    for i in range(3):
+        offset = i * (burst_n + gap_n)
+        burst = (rng.standard_normal(burst_n) * amp).astype(np.float32)
+        end = min(offset + burst_n, total)
+        buf[offset:end] += burst[:end - offset]
+    _apply_envelope(buf, 2, int(total * 0.4))
+    return buf
+
+
+def _tom_oneshot(sr: int = SR, amp: float = 0.5) -> np.ndarray:
+    """Tom: 150 Hz sine burst."""
+    dur = 0.12
+    n = int(dur * sr)
+    t = np.linspace(0, dur, n, endpoint=False)
+    buf = (amp * np.sin(2.0 * np.pi * 150.0 * t)).astype(np.float32)
+    _apply_envelope(buf, int(sr * 0.002), int(sr * 0.06))
+    return buf
+
+
+def _shaker_oneshot(sr: int = SR, amp: float = 0.15) -> np.ndarray:
+    """Shaker: soft short noise burst."""
+    dur = 0.03
+    n = int(dur * sr)
+    rng = np.random.default_rng(44)
+    buf = (rng.standard_normal(n) * amp).astype(np.float32)
+    _apply_envelope(buf, int(sr * 0.002), int(sr * 0.015))
+    return buf
+
+
 # ─── Mock stem generators ─────────────────────────────────────────────────────
 
 def _gen_drums(duration: float, tempo: float) -> np.ndarray:

@@ -20,6 +20,7 @@ from routers import lyrics as lyrics_router
 from routers import ai_assist as ai_assist_router
 from routers import midi_workshop as midi_workshop_router
 from routers import jam as jam_router
+from routers import drums as drums_router
 
 UPLOAD_DIR = Path("/tmp/voxmidi")
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
@@ -53,6 +54,7 @@ app.include_router(lyrics_router.router, prefix="/api")
 app.include_router(ai_assist_router.router, prefix="/api")
 app.include_router(midi_workshop_router.router, prefix="/api")
 app.include_router(jam_router.router, prefix="/api")
+app.include_router(drums_router.router, prefix="/api")
 
 
 @app.get("/api/health")

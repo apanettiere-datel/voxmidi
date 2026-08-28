@@ -73,6 +73,8 @@ async def download_file(job_id: str, filename: str):
         if file_path.exists():
             if filename.endswith(".mp3"):
                 media_type = "audio/mpeg"
+            elif filename.endswith(".wav"):
+                media_type = "audio/wav"
             elif filename.endswith(".mid"):
                 media_type = "audio/midi"
             else:
