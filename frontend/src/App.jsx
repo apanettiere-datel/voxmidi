@@ -1,5 +1,5 @@
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
-import { MusicalNoteIcon, MicrophoneIcon, FolderIcon, Cog6ToothIcon, WrenchScrewdriverIcon } from '@heroicons/react/20/solid'
+import { MusicalNoteIcon, MicrophoneIcon, FolderIcon, Cog6ToothIcon, WrenchScrewdriverIcon, BoltIcon } from '@heroicons/react/20/solid'
 import { SidebarLayout } from '@/components/catalyst/sidebar-layout'
 import { Sidebar, SidebarBody, SidebarFooter, SidebarHeader, SidebarItem, SidebarLabel, SidebarSection } from '@/components/catalyst/sidebar'
 import { Navbar, NavbarSpacer } from '@/components/catalyst/navbar'
@@ -8,6 +8,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 import GeneratePage from '@/pages/GeneratePage'
+import JamPage from '@/pages/JamPage'
 import MidiWorkshopPage from '@/pages/MidiWorkshopPage'
 import LibraryPage from '@/pages/LibraryPage'
 import SettingsPage from '@/pages/SettingsPage'
@@ -21,6 +22,7 @@ const CLERK_KEY = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY
 
 const navigation = [
   { name: 'Song Generator', href: '/generate', icon: MusicalNoteIcon },
+  { name: 'Jam', href: '/jam', icon: BoltIcon },
   { name: 'MIDI Workshop', href: '/midi', icon: WrenchScrewdriverIcon },
   { name: 'Library', href: '/library', icon: FolderIcon },
   { name: 'Settings', href: '/settings', icon: Cog6ToothIcon },
@@ -125,6 +127,7 @@ function AppRoutes() {
       <Routes>
         <Route path="/" element={<Navigate to="/generate" replace />} />
         <Route path="/generate" element={<GeneratePage />} />
+        <Route path="/jam" element={<JamPage />} />
         <Route path="/midi" element={<MidiWorkshopPage />} />
         <Route path="/library" element={<LibraryPage />} />
         <Route path="/settings" element={<SettingsPage />} />
