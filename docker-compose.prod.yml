@@ -1,21 +1,13 @@
-version: "3.9"
-
+# The Lightsail host runs its own nginx on port 80 (routes voxmidi.com and other
+# apps): it serves the frontend from /var/www/voxmidi and proxies /api to
+# 127.0.0.1:3002. So prod runs the backend container only; no nginx container.
 services:
-  nginx:
-    image: nginx:alpine
-    ports:
-      - "80:80"
-    volumes:
-      - ./nginx/nginx.prod.conf:/etc/nginx/nginx.conf:ro
-      - ./frontend/dist:/usr/share/nginx/html:ro
-    depends_on:
-      - backend
-    restart: always
-
   backend:
     build:
       context: ./backend
       dockerfile: Dockerfile.prod
+    ports:
+      - "127.0.0.1:3002:8080"
     env_file: ./backend/.env
     volumes:
       - ./backend/data:/app/data
