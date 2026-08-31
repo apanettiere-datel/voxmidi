@@ -154,6 +154,93 @@ def _minimax_api_call(
         return _attempt()
 
 
+def _fal_music_api_call(
+    prompt: str,
+    lyrics: str,
+    job_dir: Path,
+    out_filename: str = "fal_audio.mp3",
+) -> str:
+    """Submit to fal queue, poll until COMPLETED, download audio, return path.
+
+    Uses FAL_KEY env var. Model ID from FAL_MUSIC_MODEL, default fal-ai/minimax-music/v2.6.
+    Polls every 3s up to 5 minutes. Raises RuntimeError with API error text on failure.
+    """
+    import httpx
+    import json as _json
+
+    api_key = os.environ.get('FAL_KEY', '')
+    if not api_key:
+        raise RuntimeError("FAL_KEY not set")
+
+    model_id = os.environ.get('FAL_MUSIC_MODEL', 'fal-ai/minimax-music/v2.6')
+    headers = {
+        "Authorization": f"Key {api_key}",
+        "Content-Type": "application/json",
+    }
+
+    payload: dict = {"prompt": prompt}
+    if lyrics and lyrics.strip():
+        payload["lyrics"] = lyrics.strip()
+    else:
+        payload["is_instrumental"] = True
+
+    mode_label = "vocal" if lyrics and lyrics.strip() else "instrumental"
+    print(f"[midi_generator] fal {model_id}: submitting {mode_label}...")
+
+    # Submit to queue
+    submit_resp = httpx.post(
+        f"https://queue.fal.run/{model_id}",
+        headers=headers,
+        json=payload,
+        timeout=30.0,
+    )
+    if not submit_resp.is_success:
+        raise RuntimeError(f"fal submit failed {submit_resp.status_code}: {submit_resp.text}")
+
+    submit_data = submit_resp.json()
+    request_id = submit_data["request_id"]
+    status_url = submit_data["status_url"]
+    response_url = submit_data["response_url"]
+    print(f"[midi_generator] fal queued request_id={request_id}")
+
+    # Poll status every 3s up to 5 minutes
+    deadline = time.time() + 300
+    while time.time() < deadline:
+        status_resp = httpx.get(status_url, headers=headers, timeout=15.0)
+        if not status_resp.is_success:
+            raise RuntimeError(f"fal status check failed {status_resp.status_code}: {status_resp.text}")
+        status_data = status_resp.json()
+        state = status_data.get("status", "")
+        print(f"[midi_generator] fal status: {state}")
+        if state == "COMPLETED":
+            break
+        if state not in ("IN_QUEUE", "IN_PROGRESS"):
+            raise RuntimeError(f"fal job failed with status {state}: {_json.dumps(status_data)[:300]}")
+        time.sleep(3)
+    else:
+        raise RuntimeError("fal job timed out after 5 minutes")
+
+    # Fetch result from response_url
+    result_resp = httpx.get(response_url, headers=headers, timeout=30.0)
+    if not result_resp.is_success:
+        raise RuntimeError(f"fal result fetch failed {result_resp.status_code}: {result_resp.text}")
+
+    result_data = result_resp.json()
+    audio_url = result_data.get("audio", {}).get("url", "")
+    if not audio_url:
+        raise RuntimeError(f"fal result missing audio URL: {_json.dumps(result_data)[:300]}")
+
+    print(f"[midi_generator] fal: downloading audio from {audio_url[:80]}...")
+    audio_resp = httpx.get(audio_url, timeout=60.0)
+    if not audio_resp.is_success:
+        raise RuntimeError(f"fal audio download failed {audio_resp.status_code}")
+
+    audio_file = job_dir / out_filename
+    audio_file.write_bytes(audio_resp.content)
+    print(f"[midi_generator] fal: saved {len(audio_resp.content)} bytes -> {out_filename}")
+    return str(audio_file)
+
+
 # ─── Melody extraction (Basic Pitch) ─────────────────────────────────────────
 
 NOTE_NAMES_FLAT = ['C', 'Db', 'D', 'Eb', 'E', 'F', 'Gb', 'G', 'Ab', 'A', 'Bb', 'B']
@@ -280,9 +367,17 @@ def generate_from_prompt(
     if not genre:
         genre = 'pop'
 
+    has_fal = bool(os.environ.get('FAL_KEY'))
     has_minimax = bool(os.environ.get('MINIMAX_API_KEY'))
-    provider = os.environ.get('MIDI_GEN_PROVIDER', 'auto')
-    use_api = provider == 'api' or (provider == 'auto' and has_minimax)
+    music_provider = os.environ.get('MUSIC_PROVIDER', 'auto')
+    if music_provider == 'auto':
+        if has_fal:
+            music_provider = 'fal'
+        elif has_minimax:
+            music_provider = 'minimax'
+        else:
+            music_provider = 'mock'
+    print(f"[midi_generator] provider: {music_provider}")
 
     job_dir = Path(output_path).parent
     job_dir.mkdir(parents=True, exist_ok=True)
@@ -302,7 +397,7 @@ def generate_from_prompt(
     print(f"[midi_generator] inputs: {', '.join(log_parts) or 'text-only'} lyrics={'yes' if has_lyrics else 'no'}")
 
     # ── MOCK MODE ────────────────────────────────────────────────────────────
-    if not use_api or provider == 'mock':
+    if music_provider == 'mock':
         pm = mock_generate(genre=genre, tempo=tempo, key=key, chord_progression=chord_progression)
         pm.write(output_path)
         return output_path, None, None
@@ -369,15 +464,20 @@ def generate_from_prompt(
     style_desc = ". ".join(desc_parts) if desc_parts else "An instrumental composition"
     effective_lyrics = lyrics if has_lyrics else ""
 
-    # ── Step 5: Call MiniMax ─────────────────────────────────────────────────
+    # ── Step 5: Generate audio via selected provider ──────────────────────────
     try:
         voice_path = kwargs.get("voice_audio_path")
         route = "cover" if voice_path else ("vocal" if has_lyrics else ("voice+instrumental" if has_voice else "text-only"))
-        model_name = "music-cover" if voice_path else "music-2.6"
-        print(f"[midi_generator] Route: {route} - using {model_name}")
-        audio_out = _minimax_api_call(style_desc, lyrics=effective_lyrics, job_dir=job_dir, voice_audio_path=voice_path)
+        if music_provider == 'fal':
+            fal_model = os.environ.get('FAL_MUSIC_MODEL', 'fal-ai/minimax-music/v2.6')
+            print(f"[midi_generator] Route: {route} - using fal ({fal_model})")
+            audio_out = _fal_music_api_call(style_desc, lyrics=effective_lyrics, job_dir=job_dir)
+        else:
+            model_name = "music-cover" if voice_path else "music-2.6"
+            print(f"[midi_generator] Route: {route} - using {model_name}")
+            audio_out = _minimax_api_call(style_desc, lyrics=effective_lyrics, job_dir=job_dir, voice_audio_path=voice_path)
     except Exception as e:
-        print(f"[midi_generator] MiniMax failed: {e}")
+        print(f"[midi_generator] {music_provider} failed: {e}")
         raise
 
     return output_path, None, audio_out
