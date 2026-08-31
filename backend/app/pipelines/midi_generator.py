@@ -146,6 +146,9 @@ def _minimax_api_call(
     try:
         return _attempt()
     except Exception as e:
+        # status 2153 = MiniMax ended music API access for this account; retrying can't help
+        if "no longer available" in str(e).lower():
+            raise RuntimeError(f"MiniMax access ended: {e}")
         print(f"[midi_generator] MiniMax attempt 1 failed: {e} — retrying in 10s")
         time.sleep(10)
         return _attempt()

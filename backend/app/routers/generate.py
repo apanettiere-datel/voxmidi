@@ -183,7 +183,9 @@ def _run_generate(
             output_midi_path = midi_path
         except Exception as e:
             err_str = str(e).lower()
-            if any(w in err_str for w in ("minimax", "api", "key", "rate", "timeout", "403", "401", "429")):
+            if "access ended" in err_str or "no longer available" in err_str:
+                msg = "MiniMax has discontinued music generation for this account. A new provider is being wired up; song generation is down until then."
+            elif any(w in err_str for w in ("minimax", "api", "key", "rate", "timeout", "403", "401", "429")):
                 msg = "Music generation service is temporarily unavailable. Please try again in a moment."
             else:
                 msg = "Generation failed. Please try again."

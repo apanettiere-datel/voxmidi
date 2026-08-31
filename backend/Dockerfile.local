@@ -12,4 +12,6 @@ RUN pip install --break-system-packages -r requirements.txt
 COPY app/ /app/
 
 EXPOSE 8080
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080", "--workers", "2"]
+# Single worker: the job store (routers/jobs.py) is in-process memory, so a second
+# worker 404s status polls for jobs it never saw. Concurrency comes from job threads.
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080", "--workers", "1"]
