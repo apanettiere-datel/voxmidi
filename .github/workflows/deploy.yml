@@ -73,5 +73,5 @@ jobs:
           username: ubuntu
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
-            cd /home/ubuntu/voxmidi
-            docker compose -f docker-compose.prod.yml restart nginx
+            sudo cp -r /home/ubuntu/voxmidi/frontend/dist/* /var/www/voxmidi/
+            sudo systemctl reload nginx
