@@ -16,7 +16,7 @@ librosa.beat.beat_track, because beat_track's 120 BPM prior pulls clean
 strummed riffs away from their real tempo.
 """
 
-from typing import List
+from typing import List, Optional
 
 import numpy as np
 
@@ -124,8 +124,13 @@ def _key_name(root: int, mode: str) -> str:
     return f"{spell(root, flats)} {mode}"
 
 
-def analyze_riff(wav_path: str) -> dict:
-    """Analyze a riff recording. Raises ValueError when the audio can't be used."""
+def analyze_riff(wav_path: str, tempo_hint: Optional[float] = None, start_hint: Optional[float] = None) -> dict:
+    """Analyze a riff recording. Raises ValueError when the audio can't be used.
+
+    A riff recorded to the app's click already has a known tempo and a known
+    bar 1 (start_hint, seconds). When given, those set the bar grid instead of
+    being detected, so chords are read bar by bar on the grid the user played to.
+    """
     import librosa
 
     try:
@@ -140,7 +145,8 @@ def analyze_riff(wav_path: str) -> dict:
 
     frame_rate = SR / HOP
     oenv = librosa.onset.onset_strength(y=y, sr=SR, hop_length=HOP)
-    tempo, tempo_conf = _tempo(oenv, frame_rate)
+    detected, tempo_conf = _tempo(oenv, frame_rate)
+    tempo = float(tempo_hint) if tempo_hint else detected
     period = 60.0 / tempo * frame_rate
     beat_off = _beat_phase(oenv, period)
 
@@ -160,7 +166,7 @@ def analyze_riff(wav_path: str) -> dict:
         return out
 
     best_start, best_score = beat_off, -1.0
-    for k in range(4):
+    for k in (range(4) if start_hint is None else ()):
         start = beat_off + k * period
         bcs = bar_chromas(start)
         if len(bcs) < 1:
@@ -175,6 +181,8 @@ def analyze_riff(wav_path: str) -> dict:
     while best_start - period * 4 >= -period * 0.25:
         best_start -= period * 4
     best_start = max(0.0, best_start)
+    if start_hint is not None:
+        best_start = start_hint * frame_rate
 
     bcs = bar_chromas(best_start)[:32]
     if not bcs:
@@ -211,7 +219,7 @@ def analyze_riff(wav_path: str) -> dict:
 
     # Tempo alternatives: half and double are the classic beat-tracking errors
     t_int = int(round(tempo))
-    alts = sorted({a for a in (int(round(tempo / 2)), t_int, int(round(tempo * 2))) if 40 <= a <= 240})
+    alts = sorted({a for a in (int(round(tempo / 2)), t_int, int(round(tempo * 2)), int(round(detected))) if 40 <= a <= 240})
 
     # Onset attacks, backtracked from the flux peak to where the note starts
     peak_frames = librosa.onset.onset_detect(onset_envelope=oenv, sr=SR, hop_length=HOP)
@@ -223,7 +231,7 @@ def analyze_riff(wav_path: str) -> dict:
     # then, if the recording starts sounding right at bar 1, snap to that.
     start_sec = best_start / frame_rate
     attack_secs = attack_frames / frame_rate
-    if len(attack_secs):
+    if len(attack_secs) and start_hint is None:
         residuals = []
         k = 0
         while start_sec + k * beat_sec < duration:
@@ -237,7 +245,7 @@ def analyze_riff(wav_path: str) -> dict:
             start_sec += float(np.median(residuals))
     level = np.abs(y)
     first_sound = int(np.argmax(level > 0.1 * float(level.max()))) / SR
-    if abs(first_sound - start_sec) <= beat_sec / 8:
+    if start_hint is None and abs(first_sound - start_sec) <= beat_sec / 8:
         start_sec = first_sound
     start_sec = max(0.0, start_sec)
 
@@ -274,6 +282,7 @@ def analyze_riff(wav_path: str) -> dict:
     return {
         "duration": round(duration, 3),
         "tempo": round(tempo, 1),
+        "detected_tempo": round(detected, 1),
         "tempo_confidence": int(round(100 * tempo_conf)),
         "tempo_options": alts,
         "start": round(start_sec, 3),

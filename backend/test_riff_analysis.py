@@ -125,10 +125,27 @@ def test_rejects_silence_and_short_audio():
     print("  PASS: rejects silence and short audio")
 
 
+def test_click_grid_hint():
+    """A take recorded to the click: the given tempo and bar 1 set the grid."""
+    from pipelines.riff_analysis import analyze_riff
+
+    with tempfile.TemporaryDirectory() as tmp:
+        path = str(Path(tmp) / "riff.wav")
+        # Starts half a bar late relative to the file, as if the player came in on beat 3
+        synth_riff(path, ["Am", "F", "C", "G"], 100.0, 0.0, repeats=2)
+        r = analyze_riff(path, tempo_hint=100.0, start_hint=0.0)
+    got = [c["chord"] for c in r["chords"]]
+    assert r["tempo"] == 100.0 and r["start"] == 0.0, r
+    assert got == ["Am", "F", "C", "G"] * 2, got
+    assert 100 in r["tempo_options"]
+    print(f"  PASS: click grid hint (chords={got})")
+
+
 if __name__ == "__main__":
     print("=" * 50)
     for case in CASES:
         run_case(*case)
     test_rejects_silence_and_short_audio()
+    test_click_grid_hint()
     print("=" * 50)
     print("All tests passed.")
