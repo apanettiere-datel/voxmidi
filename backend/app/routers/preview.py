@@ -1,3 +1,4 @@
+import shutil
 from pathlib import Path
 from fastapi import APIRouter, UploadFile, File, HTTPException
 import uuid
@@ -13,12 +14,17 @@ async def preview_midi(midi: UploadFile = File(...)):
     job_dir = UPLOAD_DIR / job_id
     job_dir.mkdir(parents=True, exist_ok=True)
 
-    midi_path = job_dir / "preview.mid"
-    content = await midi.read()
-    midi_path.write_bytes(content)
+    try:
+        midi_path = job_dir / "preview.mid"
+        content = await midi.read()
+        midi_path.write_bytes(content)
 
-    # TODO: integrate FluidSynth rendering
-    # wav_path = render_midi_to_audio(str(midi_path), str(job_dir / "preview.wav"))
-    # return FileResponse(wav_path, media_type="audio/wav")
+        # TODO: integrate FluidSynth rendering
+        # wav_path = render_midi_to_audio(str(midi_path), str(job_dir / "preview.wav"))
+        # return FileResponse(wav_path, media_type="audio/wav")
+        # When that lands, stream the WAV before this cleanup runs (or keep the dir).
 
-    return {"status": "preview not yet implemented", "job_id": job_id}
+        return {"status": "preview not yet implemented", "job_id": job_id}
+    finally:
+        # Nothing serves files from this dir afterwards
+        shutil.rmtree(job_dir, ignore_errors=True)

@@ -154,11 +154,12 @@ def _client():
     from fastapi.testclient import TestClient
     from sqlalchemy import create_engine
     from sqlalchemy.orm import sessionmaker
-    from sqlalchemy.pool import StaticPool
     import database
     from main import app
 
-    engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    # A file, not one shared in-memory connection: background jobs commit refunds from their own thread
+    db_file = Path(tempfile.mkdtemp()) / "test.db"
+    engine = create_engine(f"sqlite:///{db_file}", connect_args={"check_same_thread": False})
     database.Base.metadata.create_all(bind=engine)
     Session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
     database.SessionLocal = Session  # the job thread's refund uses this

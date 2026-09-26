@@ -30,6 +30,19 @@ def get_job(job_id: str) -> dict | None:
         return dict(_jobs[job_id]) if job_id in _jobs else None
 
 
+def claim_refund(job_id: str) -> str | None:
+    """
+    Take the refund owed for a charged job, at most once per job.
+    Returns the user id to refund, or None if the job was never charged
+    or was already refunded.
+    """
+    with _lock:
+        job = _jobs.get(job_id)
+        if not job:
+            return None
+        return job.pop("_charged", None)
+
+
 def queue_position(job_id: str) -> int:
     """1-based queue position; 0 if not in queue."""
     with _lock:

@@ -3,10 +3,12 @@ import re
 import uuid
 import json as _json
 import shutil
-import threading
+import asyncio
+import tempfile
 from pathlib import Path
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Depends
 from typing import Optional
+from sqlalchemy import update
 from sqlalchemy.orm import Session
 
 from pipelines.midi_generator import generate_from_prompt
@@ -14,11 +16,86 @@ from pipelines.post_processor import post_process_midi
 from pipelines.midi_analyzer import analyze_midi
 from database import get_db, SessionLocal, User, Generation, Preset
 from middleware.auth import get_current_user
-from .jobs import set_job, update_job, try_start, queue_position, cancel_job, get_job
+from .jobs import set_job, update_job, try_start, queue_position, cancel_job, get_job, claim_refund
 
 router = APIRouter()
 UPLOAD_DIR = Path("/tmp/voxmidi")
 MIDI_STORE = Path("/app/data/midi")
+MAX_UPLOAD_BYTES = 25 * 1024 * 1024
+
+# Job ids are short: 8 hex chars, optionally prefixed (sep_, ext_, concat_, workshop_)
+_JOB_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+
+
+def valid_job_id(job_id: str) -> bool:
+    return bool(job_id) and _JOB_ID_RE.fullmatch(job_id) is not None
+
+
+def require_job_id(job_id: str, field: str = "job_id") -> str:
+    """400 unless job_id has the shape of an id we issue (no separators or dots)."""
+    if not valid_job_id(job_id):
+        raise HTTPException(status_code=400, detail=f"{field}: not a valid job id")
+    return job_id
+
+
+def safe_job_file(base: Path, dir_name: str, filename: str) -> Optional[Path]:
+    """
+    Resolve base/dir_name/filename, or None if the names are not plain
+    single path segments or the result is not a regular file inside base.
+    """
+    if not valid_job_id(dir_name) or not filename or len(filename) > 255 \
+            or filename.startswith(".") or ".." in filename \
+            or any(c in filename for c in "/\\") or any(ord(c) < 32 for c in filename):
+        return None
+    try:
+        root = base.resolve()
+        path = (base / dir_name / filename).resolve()
+    except (OSError, RuntimeError, ValueError):
+        return None
+    if not path.is_relative_to(root) or not path.is_file():
+        return None
+    return path
+
+
+def charge_song(db: Session, user: User) -> None:
+    """Charge one song only if the user is under their limit, in one statement,
+    so two concurrent requests can't both slip under it. Raises 429 otherwise."""
+    result = db.execute(
+        update(User)
+        .where(User.id == user.id, User.usage_count < User.usage_limit)
+        .values(usage_count=User.usage_count + 1)
+    )
+    db.commit()
+    if result.rowcount != 1:
+        raise HTTPException(status_code=429, detail=f"Monthly limit of {user.usage_limit} reached")
+
+
+def refund_song(job_id: str) -> None:
+    """Give back the song charged for job_id. Safe to call from every failure
+    and cancel path: claim_refund hands out the refund at most once per job."""
+    user_id = claim_refund(job_id)
+    if not user_id:
+        return
+    from database import SessionLocal as _SessionLocal
+    db = _SessionLocal()
+    try:
+        db.execute(update(User).where(User.id == user_id, User.usage_count > 0).values(usage_count=User.usage_count - 1))
+        db.commit()
+        print(f"[generate] refunded job={job_id} user={user_id}")
+    except Exception as e:
+        print(f"[generate] refund failed job={job_id}: {e}")
+    finally:
+        db.close()
+
+
+def _queued(job_id: str) -> None:
+    pos = queue_position(job_id)
+    update_job(job_id, {
+        "status": "queued",
+        "progress": 0,
+        "queue_position": pos,
+        "message": f"Server is busy. You're #{pos} in queue.",
+    })
 
 
 @router.post("/generate")
@@ -40,12 +117,6 @@ async def generate(
     db: Session = Depends(get_db),
 ):
     """Start async generation. Returns job_id immediately; poll /api/status/{job_id}."""
-    if current_user.usage_count >= current_user.usage_limit:
-        raise HTTPException(
-            status_code=429,
-            detail=f"Monthly limit of {current_user.usage_limit} reached",
-        )
-
     job_id = str(uuid.uuid4())[:8]
     is_advanced_dirty = advanced_dirty.lower() in ("true", "1", "yes")
 
@@ -63,10 +134,13 @@ async def generate(
     if voice_audio:
         voice_audio_content = await voice_audio.read()
 
-    current_user.usage_count += 1
-    db.commit()
+    for name, data in (("audio", audio_content), ("piano_melody", piano_melody_content), ("voice_audio", voice_audio_content)):
+        if data is not None and len(data) > MAX_UPLOAD_BYTES:
+            raise HTTPException(status_code=400, detail=f"{name}: keep uploads under 25 MB")
 
-    set_job(job_id, {"status": "processing", "progress": 0})
+    charge_song(db, current_user)
+
+    set_job(job_id, {"status": "processing", "progress": 0, "_owner": current_user.id, "_charged": current_user.id})
 
     args = (
         job_id, audio_content, audio_suffix, piano_melody_content,
@@ -77,13 +151,7 @@ async def generate(
     started = try_start(job_id, _run_generate, args)
 
     if not started:
-        pos = queue_position(job_id)
-        update_job(job_id, {
-            "status": "queued",
-            "progress": 0,
-            "queue_position": pos,
-            "message": f"Server is busy. You're #{pos} in queue.",
-        })
+        _queued(job_id)
 
     return {"job_id": job_id, "status": "queued" if not started else "processing"}
 
@@ -192,9 +260,11 @@ def _run_generate(
             print(f"[generate] Phase 1 error job={job_id}: {e}")
             import traceback; traceback.print_exc()
             update_job(job_id, {"status": "error", "message": msg})
+            refund_song(job_id)
             return
 
         if get_job(job_id) and get_job(job_id).get("status") == "cancelled":
+            refund_song(job_id)
             return
 
         try:
@@ -269,6 +339,7 @@ def _run_generate(
         print(f"[generate] unexpected error job={job_id}: {e}")
         import traceback; traceback.print_exc()
         update_job(job_id, {"status": "error", "message": "An unexpected error occurred. Please try again."})
+        refund_song(job_id)
     finally:
         db.close()
 
@@ -282,13 +353,14 @@ async def separate_stems_endpoint(
     current_user: User = Depends(get_current_user),
 ):
     """Trigger on-demand stem separation for a completed job (works for in-memory and library entries)."""
+    require_job_id(job_id)
     sep_job_id = f"sep_{job_id}"
 
     existing = get_job(sep_job_id)
     if existing:
         return {"sep_job_id": sep_job_id, "status": existing.get("status", "unknown")}
 
-    # Find audio file — check persistent store first, then /tmp
+    # Find audio file: check persistent store first, then /tmp
     audio_path: Optional[Path] = None
     for base in (MIDI_STORE, UPLOAD_DIR):
         store_dir = base / job_id
@@ -313,18 +385,17 @@ async def separate_stems_endpoint(
 
     # Ensure job entry exists in memory (needed by _run_separate to update result)
     if not get_job(job_id):
-        set_job(job_id, {"status": "complete", "progress": 100, "result": {
+        set_job(job_id, {"status": "complete", "progress": 100, "_owner": current_user.id, "result": {
             "audio_url": f"/api/download/{job_id}/{audio_path.name}"
         }})
 
-    set_job(sep_job_id, {"status": "separating_stems", "progress": 0})
+    set_job(sep_job_id, {"status": "separating_stems", "progress": 0, "_owner": current_user.id})
 
-    t = threading.Thread(
-        target=_run_separate,
-        args=(sep_job_id, job_id, str(audio_path)),
-        daemon=True,
-    )
-    t.start()
+    # Through the shared queue so separation counts against MAX_CONCURRENT
+    started = try_start(sep_job_id, _run_separate, (sep_job_id, job_id, str(audio_path)))
+    if not started:
+        _queued(sep_job_id)
+        return {"sep_job_id": sep_job_id, "status": "queued"}
 
     return {"sep_job_id": sep_job_id, "status": "separating_stems"}
 
@@ -372,9 +443,13 @@ async def cancel_generation(
 ):
     """Cancel a running or queued generation job."""
     job = get_job(job_id)
-    if not job:
+    if not job or job.get("_owner") != current_user.id:
         raise HTTPException(status_code=404, detail="Job not found")
+    was_queued = queue_position(job_id) > 0
     cancelled = cancel_job(job_id)
+    if cancelled and was_queued:
+        # Never started, so no worker will see the cancel and refund it
+        refund_song(job_id)
     return {"cancelled": cancelled, "job_id": job_id}
 
 
@@ -384,23 +459,31 @@ async def analyze_audio_endpoint(
     current_user: User = Depends(get_current_user),
 ):
     """Detect BPM and key from uploaded audio using librosa."""
-    import tempfile, os as _os
+    from pipelines.transcriber import _ensure_wav
+    from pipelines.midi_generator import _analyze_reference_audio
+
     content = await audio.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="audio: the file is empty")
+    if len(content) > MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=400, detail="audio: keep uploads under 25 MB")
     suffix = Path(audio.filename or "audio.webm").suffix or ".webm"
-    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as f:
-        f.write(content)
-        tmp_path = f.name
-    try:
-        from pipelines.midi_generator import _analyze_reference_audio
-        tempo_f, key_str, _ = _analyze_reference_audio(tmp_path)
-        return {"tempo": round(tempo_f), "key": key_str}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-    finally:
+    loop = asyncio.get_running_loop()
+    # A private dir per request: _ensure_wav writes its converted copy next to the input
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_path = Path(tmp) / f"audio{suffix}"
+        tmp_path.write_bytes(content)
         try:
-            _os.unlink(tmp_path)
-        except Exception:
-            pass
+            wav_path = await loop.run_in_executor(None, _ensure_wav, str(tmp_path))
+        except Exception as e:
+            print(f"[analyze-audio] undecodable upload: {e}")
+            raise HTTPException(status_code=400, detail="audio: could not read this file as audio")
+        try:
+            tempo_f, key_str, _ = await loop.run_in_executor(None, _analyze_reference_audio, wav_path)
+        except Exception as e:
+            print(f"[analyze-audio] failed: {e}")
+            raise HTTPException(status_code=500, detail="Audio analysis failed")
+        return {"tempo": round(tempo_f), "key": key_str}
 
 
 @router.get("/presets")
@@ -449,8 +532,13 @@ async def extend_generation(
     db: Session = Depends(get_db),
 ):
     """Extend a completed generation by continuing from the last 10 seconds."""
-    if current_user.usage_count >= current_user.usage_limit:
-        raise HTTPException(status_code=429, detail=f"Monthly limit of {current_user.usage_limit} reached")
+    require_job_id(job_id)
+    ext_job_id = f"ext_{job_id}"
+    existing = get_job(ext_job_id)
+    if existing and existing.get("_owner") == current_user.id and \
+            existing.get("status") not in ("complete", "error", "cancelled"):
+        # Already extending this job: don't charge a second song for it
+        return {"ext_job_id": ext_job_id, "status": existing.get("status", "processing")}
 
     audio_path: Optional[Path] = None
     for base in (MIDI_STORE, UPLOAD_DIR):
@@ -470,15 +558,16 @@ async def extend_generation(
 
     gen = db.query(Generation).filter(Generation.id == job_id).first()
 
-    ext_job_id = f"ext_{job_id}"
-    current_user.usage_count += 1
-    db.commit()
+    charge_song(db, current_user)
 
     ext_args = (ext_job_id, str(audio_path), gen.prompt if gen else "", gen.genre if gen else "pop",
                 gen.tempo if gen else 120, gen.key if gen else "Am", current_user.id, job_id)
-    set_job(ext_job_id, {"status": "processing", "progress": 0})
-    t = threading.Thread(target=_run_extend, args=ext_args, daemon=True)
-    t.start()
+    set_job(ext_job_id, {"status": "processing", "progress": 0, "_owner": current_user.id, "_charged": current_user.id})
+    # Through the shared queue so extends count against MAX_CONCURRENT
+    started = try_start(ext_job_id, _run_extend, ext_args)
+    if not started:
+        _queued(ext_job_id)
+        return {"ext_job_id": ext_job_id, "status": "queued"}
     return {"ext_job_id": ext_job_id, "status": "processing"}
 
 
@@ -551,6 +640,7 @@ def _run_extend(ext_job_id: str, audio_path: str, prompt: str, genre: str, tempo
         print(f"[extend] error: {e}")
         import traceback; traceback.print_exc()
         update_job(ext_job_id, {"status": "error", "message": "Extend failed."})
+        refund_song(ext_job_id)
     finally:
         db.close()
 
@@ -562,7 +652,9 @@ async def concat_generations(
     current_user: User = Depends(get_current_user),
 ):
     """Concatenate original audio with its extension using ffmpeg."""
-    import subprocess, tempfile
+    import subprocess
+    require_job_id(job_id)
+    require_job_id(ext_job_id, "ext_job_id")
     orig_audio: Optional[Path] = None
     ext_audio: Optional[Path] = None
     for base in (MIDI_STORE, UPLOAD_DIR):
@@ -591,6 +683,8 @@ async def concat_generations(
             check=True, capture_output=True
         )
     except subprocess.CalledProcessError as e:
+        # The inputs are files we generated, so a failure here is on our side
+        print(f"[concat] ffmpeg failed job={job_id}: {e.stderr[-500:] if e.stderr else e}")
         raise HTTPException(status_code=500, detail="Concat failed")
     return {"audio_url": f"/api/download/concat_{job_id}/full_mix.mp3"}
 

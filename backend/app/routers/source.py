@@ -70,7 +70,7 @@ async def extract_source(
     current_user.usage_count += 1
     db.commit()
 
-    set_job(job_id, {"status": "processing", "progress": 0})
+    set_job(job_id, {"status": "processing", "progress": 0, "_owner": current_user.id})
 
     args = (job_id, url, file_content, file_suffix, file_name, start_time, end_time, genre, tempo, key, current_user.id)
     started = try_start(job_id, _run_source, args)
@@ -256,7 +256,7 @@ def _run_source(
             "job_id": job_id,
             "midi_url": f"/api/download/{job_id}/output.mid" if output_midi_path else None,
             "audio_url": audio_url,
-            "stems": stem_audio_urls,  # audio stems (mp3) — empty in mock mode
+            "stems": stem_audio_urls,  # audio stems (mp3), empty in mock mode
             "stem_midis": stem_midi_urls,  # per-stem MIDI URLs
             "tracks": all_tracks,
             "tempo": tempo,

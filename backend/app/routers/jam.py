@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from database import get_db, SessionLocal, User, Generation
 from middleware.auth import get_current_user
 from .jobs import set_job, update_job, try_start, queue_position, get_job
-from .generate import UPLOAD_DIR, MIDI_STORE, _persist_files
+from .generate import UPLOAD_DIR, MIDI_STORE, _persist_files, charge_song, refund_song, MAX_UPLOAD_BYTES
 
 from pipelines.accompanist import run_accompaniment, VALID_PARTS
 
@@ -29,12 +29,6 @@ async def jam(
     db: Session = Depends(get_db),
 ):
     """Start async jam accompaniment. Returns job_id immediately; poll /api/status/{job_id}."""
-    if current_user.usage_count >= current_user.usage_limit:
-        raise HTTPException(
-            status_code=429,
-            detail=f"Monthly limit of {current_user.usage_limit} reached",
-        )
-
     # Validate parts JSON
     try:
         parts_list = _json.loads(parts)
@@ -55,17 +49,22 @@ async def jam(
     # Read file bytes before backgrounding (UploadFile stream closes after response)
     riff_content = await riff.read()
     riff_suffix = Path(riff.filename or "riff.webm").suffix or ".webm"
+    if not riff_content:
+        raise HTTPException(status_code=400, detail="riff: the file is empty")
+    if len(riff_content) > MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=400, detail="riff: keep recordings under 25 MB")
 
     beatbox_content: Optional[bytes] = None
     beatbox_suffix = ".webm"
     if beatbox:
         beatbox_content = await beatbox.read()
         beatbox_suffix = Path(beatbox.filename or "beatbox.webm").suffix or ".webm"
+        if len(beatbox_content) > MAX_UPLOAD_BYTES:
+            raise HTTPException(status_code=400, detail="beatbox: keep recordings under 25 MB")
 
-    current_user.usage_count += 1
-    db.commit()
+    charge_song(db, current_user)
 
-    set_job(job_id, {"status": "processing", "progress": 0})
+    set_job(job_id, {"status": "processing", "progress": 0, "_owner": current_user.id, "_charged": current_user.id})
 
     args = (
         job_id,
@@ -138,9 +137,11 @@ def _run_jam(
             print(f"[jam] pipeline error job={job_id}: {e}")
             import traceback; traceback.print_exc()
             update_job(job_id, {"status": "error", "message": "Jam generation failed. Please try again."})
+            refund_song(job_id)
             return
 
         if get_job(job_id) and get_job(job_id).get("status") == "cancelled":
+            refund_song(job_id)
             return
 
         _persist_files(job_dir, store_dir)
@@ -172,5 +173,6 @@ def _run_jam(
         print(f"[jam] unexpected error job={job_id}: {e}")
         import traceback; traceback.print_exc()
         update_job(job_id, {"status": "error", "message": "An unexpected error occurred. Please try again."})
+        refund_song(job_id)
     finally:
         db.close()

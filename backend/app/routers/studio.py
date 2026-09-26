@@ -6,8 +6,10 @@ analysis in a couple of seconds, so none of them go through the job store.
 Bad input always comes back as 400 with a readable detail, never 422 or 500.
 """
 
+import asyncio
 import json
 import random
+import shutil
 import uuid
 from pathlib import Path
 from typing import List, Optional
@@ -301,21 +303,30 @@ async def studio_analyze_riff(
     job_dir.mkdir(parents=True, exist_ok=True)
     suffix = Path(riff.filename or "riff.webm").suffix or ".webm"
     raw_path = job_dir / f"riff{suffix}"
-    raw_path.write_bytes(data)
 
-    try:
-        wav_path = _ensure_wav(str(raw_path))
-    except Exception as exc:
-        raise HTTPException(status_code=400, detail=f"riff: cannot read audio ({exc})")
-    try:
+    def analyze(wav_path):
         if kind == "harmonic":
             result = analyze_riff(wav_path, tempo_hint=tempo_hint, start_hint=start_hint)
             result["kind"] = "harmonic"
-        else:
-            from pipelines.part_analysis import analyze_part
-            result = analyze_part(wav_path, kind, tempo_hint=tempo_hint, start_hint=start_hint)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+            return result
+        from pipelines.part_analysis import analyze_part
+        return analyze_part(wav_path, kind, tempo_hint=tempo_hint, start_hint=start_hint)
+
+    # Decoding and analysis are CPU-bound: run them off the event loop.
+    # Nothing downloads from this dir later, so it goes when we're done.
+    loop = asyncio.get_running_loop()
+    try:
+        raw_path.write_bytes(data)
+        try:
+            wav_path = await loop.run_in_executor(None, _ensure_wav, str(raw_path))
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=f"riff: cannot read audio ({exc})")
+        try:
+            result = await loop.run_in_executor(None, analyze, wav_path)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+    finally:
+        shutil.rmtree(job_dir, ignore_errors=True)
     print(f"[studio] analyze-riff user={current_user.id} tempo={result['tempo']} key={result['key']} bars={result['bars']}")
     return result
 
@@ -409,7 +420,7 @@ async def studio_ai_drums(
             raise HTTPException(status_code=429, detail=f"Monthly limit of {current_user.usage_limit} songs reached")
 
     job_id = str(uuid.uuid4())[:8]
-    set_job(job_id, {"status": "queued", "progress": 0})
+    set_job(job_id, {"status": "queued", "progress": 0, "_owner": current_user.id})
     payload = req.model_dump()
     started = try_start(job_id, _run_ai_drums, (job_id, payload, current_user.id, charged))
     return {"job_id": job_id, "status": "processing" if started else "queued", "provider": provider}
@@ -506,6 +517,6 @@ async def studio_real_part(
             raise HTTPException(status_code=429, detail=f"Monthly limit of {current_user.usage_limit} songs reached")
 
     job_id = str(uuid.uuid4())[:8]
-    set_job(job_id, {"status": "queued", "progress": 0})
+    set_job(job_id, {"status": "queued", "progress": 0, "_owner": current_user.id})
     started = try_start(job_id, _run_real_part, (job_id, req.model_dump(), current_user.id, charged))
     return {"job_id": job_id, "status": "processing" if started else "queued", "provider": provider}
