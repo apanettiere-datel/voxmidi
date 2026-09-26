@@ -121,7 +121,15 @@ def test_vocals():
     assert got == bars, got
     for c in r["chords"]:
         assert c["chord"] in c["options"] and isinstance(c["confidence"], int)
-    print("  PASS: vocals harmonized to the chords they outline")
+    # Uploaded without the click: tempo and bar 1 detected, first note at sample 0
+    with tempfile.TemporaryDirectory() as tmp:
+        p = str(Path(tmp) / "vocal.wav")
+        synth_vocal(p)
+        r2 = analyze_part(p, "vocals")
+    got2 = [c["chord"] for c in r2["chords"]]
+    assert abs(r2["tempo"] - 100) <= 1.5 and r2["start"] < 0.02, (r2["tempo"], r2["start"])
+    assert got2 == bars, f"no-click vocal chords {got2}"
+    print("  PASS: vocals harmonized to the chords they outline, with and without the click")
 
 
 def test_drums():

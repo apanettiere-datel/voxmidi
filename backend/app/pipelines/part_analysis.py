@@ -50,7 +50,12 @@ def _grid(y, tempo_hint, start_hint):
         start = float(start_hint)
     else:
         onsets = librosa.onset.onset_detect(onset_envelope=oenv, sr=SR, hop_length=HOP, units="time", backtrack=True)
-        start = float(onsets[0]) if len(onsets) else _beat_phase(oenv, 60.0 / tempo * frame_rate) / frame_rate
+        # A note that starts at sample 0 has no rise to detect, so the first
+        # moment the recording is audible counts too
+        level = np.abs(y)
+        first_sound = int(np.argmax(level > 0.1 * float(level.max()))) / SR
+        candidates = [first_sound] + ([float(onsets[0])] if len(onsets) else [])
+        start = min(candidates)
     t = int(round(tempo))
     options = sorted({a for a in (int(round(tempo / 2)), t, int(round(tempo * 2)), int(round(detected))) if 40 <= a <= 240})
     return tempo, detected, conf, options, max(0.0, start)

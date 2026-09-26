@@ -300,6 +300,7 @@ export function StudioProvider({ children }) {
     form.append('riff', wavBlob, 'riff.wav')
     if (hints.tempo) form.append('tempo', String(hints.tempo))
     if (hints.start != null) form.append('start', String(hints.start))
+    if (hints.instrument) form.append('instrument', hints.instrument)
     const res = await authFetch('/api/studio/analyze-riff', { method: 'POST', body: form })
     if (!res.ok) throw new Error(await readError(res))
     return res.json()

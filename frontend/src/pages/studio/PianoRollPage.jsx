@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import clsx from 'clsx'
 import { ChevronLeftIcon, ChevronRightIcon, ArrowPathIcon } from '@heroicons/react/20/solid'
 import EditorFrame from '@/components/voxmidi/studio/EditorFrame'
+import RealPartPanel from '@/components/voxmidi/studio/RealPartPanel'
 import { outlineBtn, plainBtn } from '@/components/voxmidi/studio/ui'
 import { useStudio } from '@/lib/studio/StudioContext'
 import { engine } from '@/lib/studio/engine'
@@ -262,6 +263,7 @@ function RollEditor() {
           </div>
         </div>
       </div>
+      <RealPartPanel key={trackId} trackId={trackId} />
       <p className="flex-none px-4 py-2 text-xs text-zinc-400 dark:text-zinc-500 border-t border-zinc-200 dark:border-zinc-800">
         Click the grid to add a note. Drag a note to move it, drag its right edge to change length, drag a velocity bar to change how hard it plays. Delete removes the selected note.
       </p>

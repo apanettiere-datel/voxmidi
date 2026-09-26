@@ -70,7 +70,7 @@ class ComposeRequest(BaseModel):
     feel: Optional[str] = None
     tempo: Optional[int] = Field(None, ge=40, le=240)
     key: Optional[str] = Field(None, max_length=12)
-    chords: Optional[List[str]] = Field(None, min_length=1, max_length=8)
+    chords: Optional[List[str]] = Field(None, min_length=1, max_length=32)
     fills: bool = True
     groove: Optional[List[float]] = Field(None, min_length=1, max_length=16)
     structure: Optional[List[StructureSection]] = Field(None, min_length=1, max_length=32)
@@ -116,7 +116,7 @@ class SectionIn(BaseModel):
     id: str = Field(..., min_length=1, max_length=40)
     kind: str
     bars: int = Field(..., ge=1, le=64)
-    chords: List[str] = Field(..., min_length=1, max_length=8)
+    chords: List[str] = Field(..., min_length=1, max_length=32)
 
     @field_validator("kind")
     @classmethod

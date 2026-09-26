@@ -6,7 +6,8 @@ import { Button } from '@/components/catalyst/button'
 import { useStudio } from '@/lib/studio/StudioContext'
 import { engine } from '@/lib/studio/engine'
 import { openMic, listInputs, startCapture, measureLatency, toBuffer } from '@/lib/studio/capture'
-import { sectionRanges, updateTrack, BEATS_PER_BAR } from '@/lib/studio/project'
+import { sectionRanges, updateTrack, makeTrack, trackById, BEATS_PER_BAR } from '@/lib/studio/project'
+import { INSTRUMENTS } from './RiffPage'
 import { Callout, Pill, Toggle, Wave, panel, outlineBtn } from '@/components/voxmidi/studio/ui'
 
 const COUNT_INS = [1, 2, 4]
@@ -62,6 +63,7 @@ export default function RecordPage() {
   const [recording, setRecording] = useState(false)
   const [takeSel, setTakeSel] = useState(null)
   const [dest, setDest] = useState('guitar')
+  const [instrument, setInstrument] = useState('harmonic')
   const [showLatency, setShowLatency] = useState(false)
   const [clickOn, setClickOn] = useState(true)
 
@@ -186,7 +188,7 @@ export default function RecordPage() {
       toast('That take was under half a second. Nothing saved.')
       return
     }
-    const meta = await addTake(toBuffer(ctx, take, sampleRate), { startBeat: project ? startBeat : 0, tempo: bpm, latency: latency || 0 })
+    const meta = await addTake(toBuffer(ctx, take, sampleRate), { startBeat: project ? startBeat : 0, tempo: bpm, latency: latency || 0, instrument, name: `${INSTRUMENTS.find((i) => i.id === instrument).label} ${takes.length + 1}` })
     setTakeSel(meta.id)
     toast('Take captured')
   }
@@ -202,12 +204,25 @@ export default function RecordPage() {
     const take = takes.find((t) => t.id === takeSel)
     if (!take) { toast('Record a take first'); return }
     if (!project) {
-      navigate(`/riff?take=${take.id}`)
+      navigate(`/riff?take=${take.id}&kind=${take.instrument || instrument}`)
       return
     }
     const clip = { id: `c${Date.now().toString(36)}`, takeId: take.id, startBeat: take.startBeat ?? startBeat, offset: 0, duration: take.duration }
-    setProject((p) => updateTrack(p, dest, (t) => ({ clips: [...(t.clips || []), clip] })), { what: `Placed ${take.name} on ${dest === 'guitar' ? 'Guitar' : 'Vocals'}` })
-    toast(`${take.name} placed on ${dest === 'guitar' ? 'Guitar' : 'Vocals'}`)
+    // A destination that was deleted since falls back to a new track
+    const target = dest !== '__new' && !trackById(project, dest) ? '__new' : dest
+    let destName = trackById(project, target)?.name
+    setProject((p) => {
+      let next = p
+      let id = target
+      if (target === '__new') {
+        const t = { ...makeTrack(p, 'audio'), name: take.name }
+        next = { ...next, tracks: [...next.tracks, t] }
+        id = t.id
+        destName = t.name
+      }
+      return updateTrack(next, id, (t) => ({ clips: [...(t.clips || []), clip] }))
+    }, { what: `Placed ${take.name} on ${destName || 'a new track'}` })
+    toast(`${take.name} placed on ${destName || 'a new track'}`)
     navigate('/song')
   }
 
@@ -227,6 +242,11 @@ export default function RecordPage() {
             The song plays while you record. Wear headphones so it doesn't bleed into your take.
           </p>
         )}
+      </div>
+
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="text-xs text-zinc-500 dark:text-zinc-400">What are you recording?</span>
+        {INSTRUMENTS.map((i) => <Pill key={i.id} on={instrument === i.id} onClick={() => { setInstrument(i.id); if (project) setDest(i.id === 'vocals' ? 'vocals' : i.id === 'harmonic' ? 'guitar' : '__new') }}>{i.label}</Pill>)}
       </div>
 
       {micError && (
@@ -363,8 +383,8 @@ export default function RecordPage() {
             <label className="flex items-center gap-2 text-xs text-zinc-500 dark:text-zinc-400 mt-auto">
               Put it on
               <select value={dest} onChange={(e) => setDest(e.target.value)} className="rounded-md border border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 px-1.5 py-1 text-xs text-zinc-900 dark:text-white">
-                <option value="guitar">Guitar</option>
-                <option value="vocals">Vocals</option>
+                {project.tracks.filter((t) => t.kind === 'audio' && t.id !== 'drumsai').map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+                <option value="__new">New audio track</option>
               </select>
             </label>
           )}
