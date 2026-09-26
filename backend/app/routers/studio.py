@@ -52,6 +52,18 @@ def _check_groove(v):
     return v
 
 
+class StructureSection(BaseModel):
+    kind: str
+    bars: int = Field(..., ge=1, le=64)
+
+    @field_validator("kind")
+    @classmethod
+    def _kind(cls, v):
+        if v not in SECTION_KINDS:
+            raise ValueError(f"kind must be one of {list(SECTION_KINDS)}")
+        return v
+
+
 class ComposeRequest(BaseModel):
     prompt: str = Field("", max_length=500)
     genre: Optional[str] = None
@@ -61,11 +73,19 @@ class ComposeRequest(BaseModel):
     chords: Optional[List[str]] = Field(None, min_length=1, max_length=8)
     fills: bool = True
     groove: Optional[List[float]] = Field(None, min_length=1, max_length=16)
+    structure: Optional[List[StructureSection]] = Field(None, min_length=1, max_length=32)
 
     @field_validator("groove")
     @classmethod
     def _groove(cls, v):
         return _check_groove(v)
+
+    @field_validator("structure")
+    @classmethod
+    def _structure(cls, v):
+        if v is not None and sum(s.bars for s in v) > MAX_TOTAL_BARS:
+            raise ValueError(f"at most {MAX_TOTAL_BARS} bars in total")
+        return v
 
     @field_validator("genre")
     @classmethod
@@ -193,6 +213,7 @@ async def studio_compose(
         fills=req.fills,
         groove=req.groove,
         mode=heard["mode"],
+        structure=[s.model_dump() for s in req.structure] if req.structure else None,
     )
 
     # Charge one song only if the user is under their limit, in one statement,
@@ -243,6 +264,7 @@ async def studio_analyze_riff(
     riff: Optional[UploadFile] = File(None),
     tempo: Optional[str] = Form(None),
     start: Optional[str] = Form(None),
+    instrument: Optional[str] = Form(None),
     current_user: User = Depends(get_current_user),
 ):
     """Detect tempo, bar 1, key, per-bar chords and strum accents in a riff recording."""
@@ -251,6 +273,10 @@ async def studio_analyze_riff(
 
     if riff is None:
         raise HTTPException(status_code=400, detail="riff: an audio file is required")
+    # What was recorded: a harmonic riff (guitar, keys), a bass line, a vocal or drums
+    kind = (instrument or "harmonic").strip().lower()
+    if kind not in ("harmonic", "bass", "vocals", "drums"):
+        raise HTTPException(status_code=400, detail="instrument: must be harmonic, bass, vocals or drums")
     # Optional click grid for takes recorded to the app's metronome
     tempo_hint = start_hint = None
     try:
@@ -282,7 +308,12 @@ async def studio_analyze_riff(
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"riff: cannot read audio ({exc})")
     try:
-        result = analyze_riff(wav_path, tempo_hint=tempo_hint, start_hint=start_hint)
+        if kind == "harmonic":
+            result = analyze_riff(wav_path, tempo_hint=tempo_hint, start_hint=start_hint)
+            result["kind"] = "harmonic"
+        else:
+            from pipelines.part_analysis import analyze_part
+            result = analyze_part(wav_path, kind, tempo_hint=tempo_hint, start_hint=start_hint)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     print(f"[studio] analyze-riff user={current_user.id} tempo={result['tempo']} key={result['key']} bars={result['bars']}")
@@ -381,4 +412,100 @@ async def studio_ai_drums(
     set_job(job_id, {"status": "queued", "progress": 0})
     payload = req.model_dump()
     started = try_start(job_id, _run_ai_drums, (job_id, payload, current_user.id, charged))
+    return {"job_id": job_id, "status": "processing" if started else "queued", "provider": provider}
+
+
+# ─── Real instruments: bass, guitar, keys, lead ─────────────────────────────
+
+class PartNote(BaseModel):
+    p: int = Field(..., ge=0, le=127)
+    t: float = Field(..., ge=0)
+    d: float = Field(..., gt=0, le=64)
+    v: int = Field(..., ge=1, le=127)
+
+
+class RealPartRequest(BaseModel):
+    part: str
+    style: str
+    tempo: int = Field(..., ge=40, le=240)
+    total_beats: int = Field(..., ge=4, le=MAX_TOTAL_BARS * BEATS_PER_BAR)
+    notes: List[PartNote] = Field(..., min_length=1, max_length=20000)
+    polish: bool = False
+    strength: float = Field(0.4, ge=0.2, le=0.9)
+
+    @field_validator("part")
+    @classmethod
+    def _part(cls, v):
+        from pipelines.part_render import PART_STYLES
+        if v not in PART_STYLES:
+            raise ValueError(f"part must be one of {list(PART_STYLES)}")
+        return v
+
+
+def _run_real_part(job_id: str, req: dict, user_id: str, charged: bool):
+    from pipelines.part_render import make_real_part
+    from .generate import MIDI_STORE, _persist_files
+    from .jobs import update_job, get_job
+
+    job_dir = UPLOAD_DIR / job_id
+    job_dir.mkdir(parents=True, exist_ok=True)
+
+    def progress(pct, status):
+        if (get_job(job_id) or {}).get("status") == "cancelled":
+            raise RuntimeError("cancelled")
+        update_job(job_id, {"status": status, "progress": pct})
+
+    try:
+        result = make_real_part(req["part"], req["style"], req["notes"], req["tempo"], req["total_beats"],
+                                req["polish"], req["strength"], job_dir, progress)
+        _persist_files(job_dir, MIDI_STORE / job_id)
+        result["audio_url"] = f"/api/download/{job_id}/{result.pop('file')}"
+        update_job(job_id, {"status": "complete", "progress": 100, "result": result})
+        print(f"[studio] real part job={job_id} {req['part']}/{req['style']} polish={req['polish']} provider={result['provider']} match={result['match']}%")
+    except Exception as exc:
+        if charged:
+            from database import SessionLocal
+            db = SessionLocal()
+            try:
+                db.execute(update(User).where(User.id == user_id, User.usage_count > 0).values(usage_count=User.usage_count - 1))
+                db.commit()
+            finally:
+                db.close()
+        cancelled = str(exc) == "cancelled"
+        update_job(job_id, {"status": "cancelled" if cancelled else "error", "message": None if cancelled else str(exc)})
+        print(f"[studio] real part job={job_id} failed: {exc}")
+
+
+@router.post("/studio/parts/real")
+async def studio_real_part(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Play a MIDI part on real instruments; with polish, also through the AI (counts as one song)."""
+    from pipelines.part_render import PART_STYLES
+    from pipelines.drum_ai import provider_name
+    from .jobs import set_job, try_start
+
+    req = await _parse(request, RealPartRequest)
+    if req.style not in PART_STYLES[req.part]:
+        raise HTTPException(status_code=400, detail=f"style: for {req.part} use one of {list(PART_STYLES[req.part])}")
+    if any(n.t >= req.total_beats for n in req.notes):
+        raise HTTPException(status_code=400, detail="notes: every note must start before total_beats")
+
+    provider = provider_name() if req.polish else "samples"
+    charged = req.polish and provider != "mock"
+    if charged:
+        result = db.execute(
+            update(User)
+            .where(User.id == current_user.id, User.usage_count < User.usage_limit)
+            .values(usage_count=User.usage_count + 1)
+        )
+        db.commit()
+        if result.rowcount != 1:
+            raise HTTPException(status_code=429, detail=f"Monthly limit of {current_user.usage_limit} songs reached")
+
+    job_id = str(uuid.uuid4())[:8]
+    set_job(job_id, {"status": "queued", "progress": 0})
+    started = try_start(job_id, _run_real_part, (job_id, req.model_dump(), current_user.id, charged))
     return {"job_id": job_id, "status": "processing" if started else "queued", "provider": provider}

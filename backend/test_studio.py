@@ -242,6 +242,16 @@ def test_compose_endpoint():
         assert r.status_code == 400, f"{raw!r} -> {r.status_code}"
     assert _usage(client)["used"] == used, "rejected requests must not count"
 
+    # A recording-based layout: sections exactly as given, chords restarting each section
+    structure = [{"kind": "Intro", "bars": 3}, {"kind": "Verse", "bars": 6}, {"kind": "Outro", "bars": 3}]
+    r = client.post("/api/studio/compose", json={"chords": ["Am", "F", "C"], "structure": structure, "tempo": 100, "key": "A minor"})
+    assert r.status_code == 200, r.text
+    assert [(x["kind"], x["bars"]) for x in r.json()["sections"]] == [("Intro", 3), ("Verse", 6), ("Outro", 3)]
+    assert all(x["chords"] == ["Am", "F", "C"] for x in r.json()["sections"])
+    for bad in ([{"kind": "Solo", "bars": 4}], [{"kind": "Verse", "bars": 0}], [{"kind": "Verse", "bars": 64}] * 5, []):
+        r = client.post("/api/studio/compose", json={"structure": bad})
+        assert r.status_code == 400, f"{bad} -> {r.status_code}"
+
     # At the limit: 429 and nothing charged
     db = Session()
     u = db.get(database.User, "dev")
@@ -313,6 +323,11 @@ def test_analyze_riff_endpoint():
     j = r.json()
     assert abs(j["tempo"] - 100) <= 1.5 and j["key"] == "A minor"
     assert [c["chord"] for c in j["chords"]][:4] == ["Am", "F", "C", "G"]
+    for bad in ({"instrument": "kazoo"},):
+        r = client.post("/api/studio/analyze-riff", files={"riff": ("riff.wav", io.BytesIO(data), "audio/wav")}, data=bad)
+        assert r.status_code == 400, r.text
+    r = client.post("/api/studio/analyze-riff", files={"riff": ("riff.wav", io.BytesIO(data), "audio/wav")}, data={"instrument": "harmonic"})
+    assert r.status_code == 200 and r.json()["kind"] == "harmonic"
     print("  PASS: /api/studio/analyze-riff")
 
 

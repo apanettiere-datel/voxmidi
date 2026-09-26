@@ -2,7 +2,7 @@ FROM nvidia/cuda:12.4.0-runtime-ubuntu24.04
 
 RUN apt-get update && apt-get install -y \
     python3.11 python3.11-venv python3-pip \
-    ffmpeg fluidsynth libsndfile1 \
+    ffmpeg fluidsynth fluid-soundfont-gm libsndfile1 \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

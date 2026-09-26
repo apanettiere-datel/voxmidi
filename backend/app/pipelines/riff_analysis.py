@@ -76,6 +76,17 @@ def _tempo(oenv: np.ndarray, frame_rate: float):
     best = float(fine[int(np.argmax(fine_scores))])
     peak = float(fine_scores.max())
 
+    # Octave correction: a part that skips beats (a bass line resting on 2
+    # and 3) can fit a half-speed pulse as well as the real one. Below 70 BPM,
+    # take the double tempo when it fits nearly as well.
+    if best < 70 and best * 2 <= 220:
+        dbl = float(fine[int(np.argmax(fine_scores))]) * 2
+        dbl_fine = np.arange(dbl - 1.0, dbl + 1.05, 0.1)
+        dbl_scores = np.array([comb(b) for b in dbl_fine])
+        if float(dbl_scores.max()) >= 0.8 * peak:
+            best = float(dbl_fine[int(np.argmax(dbl_scores))])
+            peak = float(dbl_scores.max())
+
     # Confidence: how far the winner stands above the best candidate that is
     # not the same tempo or a simple ratio of it.
     def related(b):

@@ -207,14 +207,23 @@ def read_prompt(prompt: str) -> dict:
 # ─── Song plan ───────────────────────────────────────────────────────────────
 
 def plan_song(key: dict, genre: str, feel: Optional[str], rng: random.Random,
-              chords: Optional[List[str]] = None) -> List[dict]:
-    """Section list with a chord cycle each. `chords` pins every section to that cycle."""
+              chords: Optional[List[str]] = None, structure: Optional[List[dict]] = None) -> List[dict]:
+    """Section list with a chord cycle each. `chords` pins every section to that cycle.
+
+    `structure` ([{kind, bars}]) replaces the default layout. Songs built around a
+    recording pass one whose sections are whole passes of the recording, so the
+    chord cycle restarts exactly where the recording does.
+    """
     prof = GENRES[genre]
     progs = PROGRESSIONS[key["mode"]]
     verse_deg = rng.choice(progs)
     chorus_deg = verse_deg if feel == "Hypnotic" else rng.choice([p for p in progs if p != verse_deg])
     verse = chords or [diatonic_chord(key, d, prof["sevenths"]) for d in verse_deg]
     chorus = chords or [diatonic_chord(key, d, prof["sevenths"]) for d in chorus_deg]
+    if structure:
+        return [{"id": f"s{i + 1}", "kind": s["kind"], "bars": int(s["bars"]),
+                 "chords": list(chords or (verse if s["kind"] != "Chorus" else chorus))}
+                for i, s in enumerate(structure)]
     long = 16 if genre == "Ambient" else 8
     layout = [("Intro", 4, verse), ("Verse", long, verse), ("Chorus", 8, chorus),
               ("Verse", long, verse), ("Chorus", 8, chorus), ("Outro", 4, [verse[0], chorus[-1]] if not chords else chords)]
@@ -507,7 +516,8 @@ def write_track(track_id, sections, key, genre, feel, seed, fills=True, groove=N
 
 def compose(genre: Optional[str], feel: Optional[str], tempo: Optional[int], key: Optional[str],
             seed: int, chords: Optional[List[str]] = None, fills: bool = True,
-            groove: Optional[List[float]] = None, mode: Optional[str] = None) -> dict:
+            groove: Optional[List[float]] = None, mode: Optional[str] = None,
+            structure: Optional[List[dict]] = None) -> dict:
     """Write a whole project. Unspecified tempo/key are chosen from the genre, seeded."""
     genre = genre if genre in GENRES else DEFAULT_GENRE
     feel = feel if feel in FEELS else None
@@ -521,7 +531,7 @@ def compose(genre: Optional[str], feel: Optional[str], tempo: Optional[int], key
         k = parse_key(f"{rng.choice(NOTE_NAMES)} {mode}")
     if chords:
         chords = [spell(parse_chord(c)["root"], k["flats"]) + parse_chord(c)["quality"] for c in chords]
-    sections = plan_song(k, genre, feel, rng, chords)
+    sections = plan_song(k, genre, feel, rng, chords, structure)
     groove = normalize_groove(groove)
     tracks = []
     for tid in TRACK_IDS:
