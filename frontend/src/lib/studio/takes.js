@@ -4,13 +4,19 @@
 const DB = 'voxmidi-studio'
 const STORE = 'takes'
 
+let db = null
+
+// One connection, reused
 function open() {
-  return new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB, 1)
-    req.onupgradeneeded = () => req.result.createObjectStore(STORE, { keyPath: 'id' })
-    req.onsuccess = () => resolve(req.result)
-    req.onerror = () => reject(req.error)
-  })
+  if (!db) {
+    db = new Promise((resolve, reject) => {
+      const req = indexedDB.open(DB, 1)
+      req.onupgradeneeded = () => req.result.createObjectStore(STORE, { keyPath: 'id' })
+      req.onsuccess = () => resolve(req.result)
+      req.onerror = () => reject(req.error)
+    }).catch((e) => { db = null; throw e })
+  }
+  return db
 }
 
 function tx(mode, fn) {

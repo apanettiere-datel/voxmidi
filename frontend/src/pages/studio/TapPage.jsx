@@ -7,7 +7,7 @@ import { useStudio } from '@/lib/studio/StudioContext'
 import { engine } from '@/lib/studio/engine'
 import { wavBytes } from '@/lib/studio/files'
 import { useAuthFetch } from '@/lib/authFetch'
-import { blankProject, updateTrack, totalBars, sectionRanges, BEATS_PER_BAR } from '@/lib/studio/project'
+import { blankProject, updateTrack, trackById, totalBars, sectionRanges, BEATS_PER_BAR } from '@/lib/studio/project'
 import { Callout, panel } from '@/components/voxmidi/studio/ui'
 
 const PADS = [
@@ -17,6 +17,7 @@ const PADS = [
 ]
 const LANE_PITCH = { kick: 36, snare: 38, hat: 42 }
 const DRUMS = { id: 'drums', kind: 'midi', sound: 'Tight kit', vol: 90 }
+const LOOP_BARS = [1, 2, 4]
 
 // Quantize hits to 16ths, dropping duplicates on the same step
 function snap(hits, loopBeats) {
@@ -64,6 +65,7 @@ export default function TapPage() {
 
   const bpm = project?.tempo ?? tempo
   const loopBeats = loopBars * BEATS_PER_BAR
+  const replaces = !!trackById(project, 'drums')?.notes.length
 
   function startClick() {
     if (clock.current) return clock.current.start
@@ -129,7 +131,8 @@ export default function TapPage() {
         for (const s of steps) out.push({ p: pad.p, t: s / data.steps_per_beat, v: pad.v })
       }
       if (!out.length) throw new Error("Didn't catch any hits. Beatbox a little louder and closer to the mic.")
-      setLoopBars(Math.min(4, Math.max(1, data.bars)))
+      // Round up to a loop length the picker offers so no hits fold over
+      setLoopBars(LOOP_BARS.find((b) => b >= data.bars) ?? LOOP_BARS[LOOP_BARS.length - 1])
       if (!project) setTempo(Math.round(data.tempo))
       setHits(out)
       toast(`${out.length} hits from your beatbox`)
@@ -158,9 +161,13 @@ export default function TapPage() {
       }
       notes.sort((a, b) => a.t - b.t)
     }
-    const next = updateTrack(p0, 'drums', { notes })
+    let next = updateTrack(p0, 'drums', { notes })
+    // AI drums play an audio render of the old groove: switch back to the MIDI drums
+    const ai = trackById(next, 'drumsai')
+    const aiOff = ai && (!ai.mute || trackById(next, 'drums')?.mute)
+    if (aiOff) next = updateTrack(updateTrack(next, 'drums', { mute: false }), 'drumsai', { mute: true })
     setProject(next, { undoable: !!project, what: extra ? 'Tapped and elaborated the drums' : 'Tapped the drums' })
-    toast(`${base.length} hits snapped to 16ths${extra ? `, ${pattern.length - base.length} added` : ''}`)
+    toast(`${base.length} hits snapped to 16ths${extra ? `, ${pattern.length - base.length} added` : ''}${aiOff ? '. AI drums switched off because the pattern changed' : ''}`)
     navigate('/song')
   }
 
@@ -193,7 +200,7 @@ export default function TapPage() {
           Loop
           <select value={loopBars} disabled={running} onChange={(e) => setLoopBars(Number(e.target.value))}
             className="rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-2 py-1 font-mono text-sm text-zinc-900 dark:text-white disabled:opacity-50">
-            {[1, 2, 4].map((b) => <option key={b} value={b}>{b} bar{b > 1 ? 's' : ''}</option>)}
+            {LOOP_BARS.map((b) => <option key={b} value={b}>{b} bar{b > 1 ? 's' : ''}</option>)}
           </select>
         </label>
         {running && <button type="button" onClick={stopClick} className="rounded-lg border border-zinc-700 px-2.5 py-1 text-xs text-zinc-300 hover:bg-zinc-800">Stop the click</button>}
@@ -231,6 +238,11 @@ export default function TapPage() {
         <Button outline onClick={() => commit(true)}>Elaborate pattern</Button>
         <Button outline onClick={() => { setHits([]); stopClick() }}>Clear</Button>
       </div>
+      {replaces && (
+        <p className="text-xs text-amber-500 dark:text-amber-400">
+          This replaces the song's current drums. Press <span className="font-mono">Ctrl+Z</span> to undo.
+        </p>
+      )}
       <p className="text-xs text-zinc-400 dark:text-zinc-500">
         Both repeat your loop across the {project ? 'whole song, replacing its drum part' : 'new song'}. Elaborate keeps every hit where you put it and fills in 8th hats, ghost snares, an open hat and a fill at each section end.
       </p>

@@ -5,6 +5,8 @@
 // Audio tracks hold clips pointing at a recorded take:
 //   { id, takeId, startBeat, offset (seconds trimmed from the take), duration (seconds) }
 
+import { splitAt, copyRange, newId } from './edit'
+
 export const BEATS_PER_BAR = 4
 
 export const SECTION_KINDS = ['Intro', 'Verse', 'Chorus', 'Bridge', 'Outro']
@@ -165,7 +167,7 @@ export function reorderSections(project, newOrder) {
   }
 }
 
-// Insert a copy of section i right after it, notes included
+// Insert a copy of section i right after it, notes and audio included
 export function duplicateSection(project, i) {
   const sec = project.sections[i]
   const ranges = sectionRanges(project.sections)
@@ -179,10 +181,15 @@ export function duplicateSection(project, i) {
     tracks: project.tracks.map((tr) => {
       const moved = tr.notes.map((n) => (n.t >= end ? { ...n, t: n.t + len } : n))
       const copies = tr.notes.filter((n) => n.t >= start && n.t < end).map((n) => ({ ...n, t: n.t + len }))
+      // Audio: cut clips at the section end, move what follows, then copy the section's audio
+      const spb = 60 / project.tempo
+      const cut = tr.kind === 'audio' ? splitAt(tr, end, spb) : tr
+      const later = (cut.clips || []).map((c) => (c.startBeat >= end - 1e-6 ? { ...c, startBeat: c.startBeat + len } : c))
+      const dup = tr.kind === 'audio' ? copyRange(cut, start, end, spb).clips.map((c) => ({ ...c, id: newId(), startBeat: c.startBeat + end })) : []
       return {
         ...tr,
         notes: [...moved, ...copies].sort((a, b) => a.t - b.t),
-        clips: (tr.clips || []).map((c) => (c.startBeat >= end ? { ...c, startBeat: c.startBeat + len } : c)),
+        clips: [...later, ...dup],
       }
     }),
   }

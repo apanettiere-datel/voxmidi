@@ -167,7 +167,7 @@ export default function DescribePage() {
 
       {/* Page header */}
       <div>
-        <h1 className="text-2xl font-bold text-zinc-900 dark:text-white">Describe a beat</h1>
+        <h1 className="text-2xl font-bold text-zinc-900 dark:text-white">Describe your song</h1>
         <p className="text-sm text-zinc-500 dark:text-zinc-400 mt-1">
           You get a whole song back: drums, bass, chords and melody laid out in sections. Every part is MIDI you can edit or ask to change.
         </p>
@@ -267,7 +267,7 @@ export default function DescribePage() {
       <div className="flex items-center gap-3 flex-wrap">
         <Button color="indigo" disabled={blocked} onClick={handleGenerate}>
           <SparklesIcon data-slot="icon" />
-          Generate Beat
+          Generate Song
         </Button>
         <span className="text-xs text-zinc-400 dark:text-zinc-500">Takes a second or two · counts as one song · regenerating parts afterwards is free</span>
       </div>
@@ -279,8 +279,8 @@ export default function DescribePage() {
         <h2 className="text-sm font-semibold text-zinc-900 dark:text-white">Or start from something you play</h2>
         <p className="mt-1 mb-3.5 text-xs text-zinc-400 dark:text-zinc-500">Your recording stays audio. VoxMIDI writes the parts around it.</p>
         <div className="flex flex-wrap gap-2.5">
-          <ToolCard icon={SparklesIcon} title="Describe a beat" sub="Text to a full arrangement" active />
-          <ToolCard icon={MicrophoneIcon} title="Record a riff" sub="Guitar or keys through your mic" onClick={() => navigate('/record')} />
+          <ToolCard icon={SparklesIcon} title="Describe it" sub="Text to a full arrangement" active />
+          <ToolCard icon={MicrophoneIcon} title="Play or sing" sub="Guitar, keys, bass, drums or vocals" onClick={() => navigate('/riff')} />
           <ToolCard icon={Squares2X2Icon} title="Tap a groove" sub="Tap pads or beatbox it" onClick={() => navigate('/tap')} />
         </div>
       </section>

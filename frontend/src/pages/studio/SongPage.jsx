@@ -308,10 +308,10 @@ function SongTimeline() {
     if (copy(true)) { del('Cut'); toast('Cut. Paste puts it at the cursor') }
   }
 
-  function paste(at = cursor, data = clipboard) {
+  function paste(at = cursor, data = clipboard, onto = selTrack) {
     if (!data) { toast('Nothing copied yet'); return }
     // One copied track pastes onto the selected track if it's the same kind
-    const selT = trackById(project, selTrack)
+    const selT = trackById(project, onto)
     const map = (it) => (data.items.length === 1 && selT && selT.kind === it.kind ? selT.id : it.trackId)
     const plan = data.items.map((it) => ({ it, to: map(it) })).filter(({ to }) => trackById(project, to))
     if (!plan.length) { toast('Those tracks are gone. Select a track of the same kind'); return }
@@ -341,7 +341,7 @@ function SongTimeline() {
       return
     }
     setSelTrack(tg.tracks[0].id)
-    paste(tg.end, { ...data, items: data.items })
+    paste(tg.end, data, tg.tracks[0].id)
   }
 
   function split() {
@@ -349,6 +349,11 @@ function SongTimeline() {
     const tracks = sc ? [sc.track] : sel ? selTracks() : project.tracks.filter((t) => t.id === selTrack)
     if (!tracks.length) return
     const ids = new Set(tracks.map((t) => t.id))
+    const after = project.tracks.map((t) => (ids.has(t.id) ? splitAt(t, cursor, spb) : t))
+    if (after.every((t, i) => (t.clips || []).length === (project.tracks[i].clips || []).length)) {
+      toast('Put the cursor inside an audio clip to split it')
+      return
+    }
     setProject((p) => ({ ...p, tracks: p.tracks.map((t) => (ids.has(t.id) ? splitAt(t, cursor, spb) : t)) }), { what: `Split at bar ${Math.floor(cursor / 4) + 1}` })
     toast(`Split at ${fmtPos(cursor)}`)
   }
@@ -401,8 +406,10 @@ function SongTimeline() {
   // ── Import audio (button or drag and drop) ─────────────────────────────────
 
   async function importFiles(files, at = cursor, onTrackId = null) {
-    const file = [...files].find((f) => f.type.startsWith('audio/') || /\.(wav|mp3|m4a|aac|ogg|flac|webm)$/i.test(f.name))
+    const audio = [...files].filter((f) => f.type.startsWith('audio/') || /\.(wav|mp3|m4a|aac|ogg|flac|webm)$/i.test(f.name))
+    const file = audio[0]
     if (!file) { toast('That file is not audio'); return }
+    if (at >= maxBeat - 0.25) at = cursor < maxBeat - 0.25 ? cursor : 0
     if (file.size > 100 * 1024 * 1024) { toast('Keep imports under 100 MB'); return }
     let buffer
     try {
@@ -412,7 +419,13 @@ function SongTimeline() {
       return
     }
     const name = file.name.replace(/\.[^.]+$/, '').slice(0, 40)
-    const take = await addTake(buffer, { name })
+    let take
+    try {
+      take = await addTake(buffer, { name })
+    } catch (e) {
+      toast(`Couldn't save ${file.name}: ${e.message}`)
+      return
+    }
     const clip = { id: newId(), takeId: take.id, startBeat: Math.min(at, maxBeat - 0.25), offset: 0, duration: Math.min(buffer.duration, (maxBeat - at) * spb) }
     let dest = onTrackId ? trackById(project, onTrackId) : trackById(project, selTrack)
     setProject((p) => {
@@ -424,7 +437,8 @@ function SongTimeline() {
       return updateTrack(next, dest.id, (t) => ({ clips: [...(t.clips || []), clip] }))
     }, { what: `Imported ${file.name}` })
     setSelClip(clip.id)
-    toast(buffer.duration > clip.duration + 0.05 ? `${name} placed, cut at the song end` : `${name} placed at ${fmtPos(at)}`)
+    const more = audio.length > 1 ? `. One file at a time, so the other ${audio.length - 1} were skipped` : ''
+    toast((buffer.duration > clip.duration + 0.05 ? `${name} placed, cut at the song end` : `${name} placed at ${fmtPos(at)}`) + more)
   }
 
   function onDrop(e) {
@@ -462,8 +476,10 @@ function SongTimeline() {
     const end = start + 8 * BEATS_PER_BAR
     setProject((p) => appendSection(p, section), { what: 'Added a bridge' })
     setSelSection(project.sections.length)
+    toast('Writing the bridge...')
     try {
-      await Promise.all(project.tracks.filter((t) => t.kind === 'midi').map((t) => rewrite(t.id, { start, end, seed: project.seed })))
+      // Written into the same undo step as the new section
+      await Promise.all(project.tracks.filter((t) => t.kind === 'midi').map((t) => rewrite(t.id, { start, end, seed: project.seed, undoable: false })))
       toast('Bridge added')
     } catch (e) {
       toast(`Bridge added, but writing its parts failed: ${e.message}`)
@@ -476,6 +492,7 @@ function SongTimeline() {
     function onKey(e) {
       const tag = e.target?.tagName
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || e.target?.isContentEditable) return
+      if (document.querySelector('[role=dialog]')) return
       const mod = e.metaKey || e.ctrlKey
       const k = e.key.toLowerCase()
       if (mod && k === 'c') { e.preventDefault(); copy() }
@@ -560,9 +577,26 @@ function SongTimeline() {
           {/* Track heads */}
           <div className="flex-none w-[248px] sticky left-0 z-10 bg-sidebar border-r border-zinc-200 dark:border-zinc-800">
             <div className="sticky top-0 z-10 flex items-center gap-1.5 px-3 border-b border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900" style={{ height: SECTIONS_H + BARS_H }}>
-              <span className="text-xs text-zinc-400 dark:text-zinc-500">Song plan</span>
-              <button type="button" onClick={addBridge} title="Add an 8-bar bridge at the end" className="ml-auto rounded-md px-1.5 py-0.5 text-zinc-400 hover:text-white hover:bg-white/5">
-                <PlusIcon className="size-3.5" />
+              <div className="flex flex-col gap-1 min-w-0">
+                <span className="text-xs text-zinc-400 dark:text-zinc-500 truncate">
+                  Section: <span className="text-zinc-200">{project.sections[selSection]?.kind || 'none'}</span>
+                </span>
+                <span className="flex gap-1">
+                  {[
+                    [ChevronLeftIcon, 'Move this section earlier', () => moveSection(selSection, -1)],
+                    [DocumentDuplicateIcon, 'Duplicate this section', () => dupSection(selSection)],
+                    [ChevronRightIcon, 'Move this section later', () => moveSection(selSection, 1)],
+                    [TrashIcon, 'Remove this section', () => removeSec(selSection)],
+                  ].map(([Icon, title, fn]) => (
+                    <button key={title} type="button" title={title} aria-label={title} onClick={fn} disabled={!project.sections[selSection]}
+                      className="grid place-items-center size-6 rounded-md bg-white/5 text-zinc-300 hover:bg-white/10 disabled:opacity-40">
+                      <Icon className="size-3.5" />
+                    </button>
+                  ))}
+                </span>
+              </div>
+              <button type="button" onClick={addBridge} title="Add an 8-bar bridge at the end" className="ml-auto inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-xs text-zinc-400 hover:text-white hover:bg-white/5">
+                <PlusIcon className="size-3.5" /> Bridge
               </button>
             </div>
             {project.tracks.map((t) => (
@@ -580,28 +614,13 @@ function SongTimeline() {
                     <div
                       key={s.id}
                       onClick={() => { setSelSection(i); setSel({ start: ranges[i].start, end: ranges[i].end, tracks: project.tracks.map((t) => t.id) }) }}
-                      onDoubleClick={() => dupSection(i)}
-                      title="Click to select this section on every track. Double-click to duplicate it"
+                      title="Click to select this section on every track"
                       className={clsx('flex-none min-w-0 px-1.5 py-1 rounded-[3px] cursor-pointer overflow-hidden border transition', on ? 'border-indigo-300' : 'border-transparent')}
                       style={{ width: s.bars * BW - 2, background: on ? SECTION_COLORS[s.kind] : `color-mix(in srgb, ${SECTION_COLORS[s.kind]} 60%, transparent)` }}
                     >
                       <div className="flex items-center gap-1.5 min-w-0">
                         <span className="text-xs font-semibold text-white whitespace-nowrap">{s.kind}</span>
                         <span className="font-mono tabular-nums text-xs text-zinc-300">{s.bars}</span>
-                        {on && s.bars * BW > 110 && (
-                          <span className="ml-auto flex gap-0.5">
-                            {[
-                              [ChevronLeftIcon, 'Move earlier', () => moveSection(i, -1)],
-                              [DocumentDuplicateIcon, 'Duplicate', () => dupSection(i)],
-                              [ChevronRightIcon, 'Move later', () => moveSection(i, 1)],
-                              [TrashIcon, 'Remove', () => removeSec(i)],
-                            ].map(([Icon, title, fn]) => (
-                              <button key={title} type="button" title={title} onClick={(e) => { e.stopPropagation(); fn() }} className="grid place-items-center size-4 rounded-[3px] bg-white/10 text-zinc-200 hover:bg-white/20">
-                                <Icon className="size-3" />
-                              </button>
-                            ))}
-                          </span>
-                        )}
                       </div>
                       <div className="flex gap-[3px] mt-1 overflow-hidden">
                         {s.chords.slice(0, 4).map((c, k) => (

@@ -32,7 +32,7 @@ function DrumEditor() {
   const paint = useRef(null)
 
   const setBar = (b) => setParams({ bar: String(Math.max(0, Math.min(bars - 1, b))), ...(trackId !== 'drums' ? { track: trackId } : {}) }, { replace: true })
-  const setNotes = (fn, what) => setProject((p) => updateTrack(p, trackId, (t) => ({ notes: fn(t.notes) })), { what })
+  const setNotes = (fn, what, undoable = true) => setProject((p) => updateTrack(p, trackId, (t) => ({ notes: fn(t.notes) })), { what, undoable })
 
   // Light up the step under the playhead when it's in this bar
   useEffect(() => engine.subscribe((b) => {
@@ -40,34 +40,38 @@ function DrumEditor() {
     setPlayStep((prev) => (prev === s ? prev : s))
   }), [o])
 
-  // Drag-to-paint: the first cell decides whether the drag adds or erases
+  // Drag-to-paint: the first cell decides whether the drag adds or erases,
+  // and the whole drag is one undo step
   useEffect(() => {
     const up = () => { paint.current = null }
     window.addEventListener('pointerup', up)
     return () => window.removeEventListener('pointerup', up)
   }, [])
 
-  function applyCell(lane, step, add) {
+  function applyCell(lane, step, add, first) {
     const t = o + step * 0.25
     setNotes((notes) => {
       const k = findHit(notes, lane.p, t)
       if (add && k < 0) return [...notes, { p: lane.p, t, d: 0.12, v: 100 }].sort((a, b) => a.t - b.t)
-      if (!add && k >= 0) return notes.filter((_, i) => i !== k)
+      // Rolls can put several hits of one pitch in a step: clear them all
+      if (!add && k >= 0) return notes.filter((n) => !(n.p === lane.p && Math.abs(n.t - t) < HIT))
       return notes
-    }, add ? 'Added a drum hit' : 'Removed a drum hit')
+    }, first ? (add ? 'Added a drum hit' : 'Removed a drum hit') : undefined, first)
     if (add) engine.audition(drums, { p: lane.p, v: 100, d: 0.12 })
   }
 
   function cellDown(e, lane, step, on) {
     if (e.button !== 0) return
     e.preventDefault()
+    // Touch captures the pointer to this cell, which stops pointerenter on the others
+    if (e.target.hasPointerCapture?.(e.pointerId)) e.target.releasePointerCapture(e.pointerId)
     paint.current = { add: !on }
-    applyCell(lane, step, !on)
+    applyCell(lane, step, !on, true)
   }
 
   function cellEnter(lane, step, on) {
     if (!paint.current || paint.current.add === on) return
-    applyCell(lane, step, paint.current.add)
+    applyCell(lane, step, paint.current.add, false)
   }
 
   function cycle(e, lane, step) {
@@ -82,14 +86,19 @@ function DrumEditor() {
     }, 'Changed a hit to roll or flam')
   }
 
+  // The bar shows the loudest hit; dragging scales every hit in the step by
+  // the same ratio so kick vs hat balance is kept
   function velDrag(e, step, v0) {
     e.preventDefault()
     const y0 = e.clientY
     const t = o + step * 0.25
+    const from = v0 || 90
+    const base = drums.notes.map((n) => n.v)
     let first = true
     const move = (ev) => {
-      const nv = Math.round(Math.max(8, Math.min(127, (v0 || 90) - ((ev.clientY - y0) / 44) * 127)))
-      setProject((p) => updateTrack(p, trackId, (tr) => ({ notes: tr.notes.map((n) => (Math.abs(n.t - t) < HIT ? { ...n, v: nv } : n)) })), { undoable: first, what: first ? 'Changed velocity' : undefined })
+      const nv = Math.max(8, Math.min(127, from - ((ev.clientY - y0) / 44) * 127))
+      const scale = (v) => Math.round(Math.max(8, Math.min(127, v * (nv / from))))
+      setProject((p) => updateTrack(p, trackId, (tr) => ({ notes: tr.notes.map((n, i) => (Math.abs(n.t - t) < HIT ? { ...n, v: scale(base[i] ?? n.v) } : n)) })), { undoable: first, what: first ? 'Changed velocity' : undefined })
       first = false
     }
     const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up) }
@@ -225,7 +234,10 @@ function DrumEditor() {
             </div>
           ))}
           <div className="flex items-center gap-2.5">
-            <Toggle on={project.fills} onChange={toggleFills} label="Section-end fills" />
+            {/* Toggle has no disabled prop: block it here while a rewrite runs */}
+            <span className={clsx('flex', busy && 'opacity-50 pointer-events-none')} aria-disabled={!!busy}>
+              <Toggle on={project.fills} onChange={(on) => !busy && toggleFills(on)} label="Section-end fills" />
+            </span>
             <span className="text-xs text-zinc-500 dark:text-zinc-400">
               {busy === 'fill' ? 'Rewriting section ends...' : 'Fill in the last bar of each section'}
             </span>

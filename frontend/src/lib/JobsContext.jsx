@@ -36,6 +36,7 @@ export function JobsProvider({ children }) {
       [jobId]: {
         jobId,
         label:     meta.label || 'Generating music...',
+        kind:      meta.kind,
         genre:     meta.genre,
         tempo:     meta.tempo,
         key:       meta.key,
@@ -79,8 +80,7 @@ export function JobsProvider({ children }) {
     const timer = setInterval(async () => {
       for (const job of active) {
         try {
-          const s = await getJobStatus(job.jobId, authFetch)
-          if (!s) continue
+          const s = await getJobStatus(job.jobId, authFetch) ?? { status: 'error', message: 'This job was lost, most likely because the server restarted. Nothing was placed; please try again.' }
           setJobs(prev => {
             if (!prev[job.jobId]) return prev
             return {
@@ -184,7 +184,7 @@ export function JobsNotificationBar({ activeJobId }) {
 
             {/* Actions */}
             <div className="flex items-center gap-1 flex-shrink-0">
-              {isDone && job.result && (
+              {isDone && job.result && job.kind !== 'studio' && (
                 <button
                   onClick={() => {
                     sessionStorage.setItem('voxmidi_pending_result', JSON.stringify(job.result))

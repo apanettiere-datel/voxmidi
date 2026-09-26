@@ -121,6 +121,7 @@ export class Voices {
     this.ctx = ctx
     this.dest = destination
     this.trackOut = {}
+    this.live = null // while the transport runs: [{ g, end }] so Stop can silence queued notes
     const len = Math.floor(ctx.sampleRate * 0.2)
     this.noise = ctx.createBuffer(1, len, ctx.sampleRate)
     const d = this.noise.getChannelData(0)
@@ -164,11 +165,16 @@ export class Voices {
     }
   }
 
+  keep(g, end) {
+    if (this.live) this.live.push({ g, end })
+  }
+
   drum(track, n, t) {
     const ctx = this.ctx
     const kit = KITS[track.sound] || KITS['Tight kit']
     const g = ctx.createGain()
     g.connect(this.output(track).head)
+    this.keep(g, t + 0.6)
     const v = n.v / 127
     if (n.p === 36) {
       const o = ctx.createOscillator()
@@ -202,6 +208,7 @@ export class Voices {
     g.connect(this.output(track).head)
     const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = cut; f.connect(g)
     const stopAt = t + dur + tail + 0.1
+    this.keep(g, stopAt)
     const o1 = ctx.createOscillator(); o1.type = type
     o1.frequency.setValueAtTime(freq(n.p), t)
     if (n.glide) o1.frequency.exponentialRampToValueAtTime(freq(n.p - 5), t + dur * 0.8)
@@ -224,6 +231,19 @@ export class Voices {
     o.type = 'square'; o.frequency.value = strong ? 1800 : 1200
     g.gain.setValueAtTime(0.09, t); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.04)
     o.connect(g); g.connect(this.dest); o.start(t); o.stop(t + 0.06)
+    this.keep(g, t + 0.06)
+  }
+
+  // Fade out everything still queued or ringing
+  silence() {
+    const t = this.ctx.currentTime
+    for (const { g, end } of this.live || []) {
+      if (end < t) continue
+      g.gain.cancelScheduledValues(t)
+      g.gain.setTargetAtTime(0, t, 0.008)
+      setTimeout(() => g.disconnect(), 120)
+    }
+    this.live = null
   }
 }
 
@@ -281,6 +301,7 @@ export class Engine {
     this.startCtx = (opts.at ?? ctx.currentTime) + 0.06
     this.schedTo = this.startBeat
     this.sources = []
+    this.voices.live = []
     this.playing = true
     this.timer = setInterval(this.pump, 25)
     this.pump()
@@ -319,23 +340,28 @@ export class Engine {
       if (this.metronome) for (let b = Math.ceil(from); b < end; b++) this.voices.click(at(b), b % 4 === 0)
       this.schedTo = end
     }
-    if (now >= hi - 0.02) {
-      if (this.loop) {
-        this.startCtx = ctx.currentTime + 0.02
+    if (this.loop) {
+      // Queue the next lap on the same timeline, so loops don't drift
+      if (this.schedTo >= hi && now >= hi - 0.35 / this.spb) {
+        this.startCtx += (hi - this.startBeat) * this.spb
         this.startBeat = lo
         this.schedTo = lo
-      } else {
-        const cb = this.onEnd
-        this.stop()
-        cb?.()
       }
+    } else if (now >= hi - 0.02) {
+      const cb = this.onEnd
+      this.stop()
+      cb?.()
     }
+    // Forget notes that have finished
+    if (this.voices.live?.length > 400) this.voices.live = this.voices.live.filter((x) => x.end > ctx.currentTime)
   }
 
   tick = () => {
     if (!this.playing) return
     const [lo, hi] = this.range()
-    const b = Math.min(hi, Math.max(lo, this.beatAt(this.ctx.currentTime)))
+    let b = this.beatAt(this.ctx.currentTime)
+    if (this.loop && b < lo) b += hi - lo // the next lap is queued, this one is still ending
+    b = Math.min(hi, Math.max(lo, b))
     for (const fn of this.listeners) fn(b)
     this.raf = requestAnimationFrame(this.tick)
   }
@@ -347,12 +373,7 @@ export class Engine {
     this.playing = false
     for (const s of this.sources || []) { try { s.stop() } catch { /* already stopped */ } }
     this.sources = []
-    if (this.ctx && wasPlaying) {
-      // Cut ringing tails
-      const t = this.ctx.currentTime
-      this.master.gain.setValueAtTime(0, t)
-      this.master.gain.setValueAtTime(0.85, t + 0.06)
-    }
+    if (this.ctx && wasPlaying) this.voices.silence()
     for (const fn of this.listeners) fn(null)
   }
 

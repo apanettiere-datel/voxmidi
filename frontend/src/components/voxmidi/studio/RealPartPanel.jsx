@@ -5,17 +5,10 @@ import { Button } from '@/components/catalyst/button'
 import { useAuthFetch } from '@/lib/authFetch'
 import { useJobs } from '@/lib/JobsContext'
 import { useStudio } from '@/lib/studio/StudioContext'
-import { engine } from '@/lib/studio/engine'
-import { trackById, updateTrack, totalBars, roleOf, makeTrack, BEATS_PER_BAR } from '@/lib/studio/project'
+import { trackById, updateTrack, totalBars, roleOf, BEATS_PER_BAR } from '@/lib/studio/project'
+import { PART_STYLES as STYLES, noteSignature as signature } from '@/lib/studio/renders'
 import { Pill, Callout } from './ui'
 
-// Styles per part, matching backend/app/pipelines/part_render.py
-const STYLES = {
-  bass: [['finger', 'Finger bass'], ['pick', 'Pick bass'], ['slap', 'Slap bass'], ['upright', 'Upright bass'], ['synth', 'Synth bass']],
-  guitar: [['clean', 'Clean electric'], ['acoustic', 'Acoustic'], ['crunch', 'Crunch'], ['distorted', 'Distorted'], ['nylon', 'Nylon']],
-  keys: [['piano', 'Piano'], ['rhodes', 'Rhodes'], ['organ', 'Organ'], ['pad', 'Pad']],
-  lead: [['guitar', 'Lead guitar'], ['piano', 'Piano'], ['synth', 'Synth lead'], ['flute', 'Flute']],
-}
 // Which render parts a MIDI track can become
 const PARTS_FOR_ROLE = { bass: ['bass'], chords: ['guitar', 'keys'], melody: ['lead', 'guitar'] }
 const PART_LABEL = { bass: 'Bass', guitar: 'Guitar', keys: 'Keys', lead: 'Lead' }
@@ -28,16 +21,10 @@ const STATUS = {
   checking_pitch: 'Checking every note is still yours...',
 }
 
-function signature(notes) {
-  let h = 2166136261
-  for (const ch of notes.map((n) => `${n.p}:${n.t}:${n.d}:${n.v}`).join('|')) h = Math.imul(h ^ ch.charCodeAt(0), 16777619)
-  return (h >>> 0).toString(36)
-}
-
 export default function RealPartPanel({ trackId }) {
   const authFetch = useAuthFetch()
-  const { jobs, startJob, removeJob } = useJobs()
-  const { project, setProject, addTake, toast, refreshUsage, usage } = useStudio()
+  const { jobs } = useJobs()
+  const { project, setProject, refreshUsage, usage, renders, renderErrors, startRender, clearRenderError } = useStudio()
   const track = trackById(project, trackId)
   const parts = PARTS_FOR_ROLE[roleOf(track)] || ['keys']
   const info = project.realParts?.[trackId]
@@ -45,63 +32,26 @@ export default function RealPartPanel({ trackId }) {
   const [part, setPart] = useState(info?.part || parts[0])
   const [style, setStyle] = useState(info?.style || STYLES[parts[0]][0][0])
   const [strength, setStrength] = useState(0.4)
-  const [jobId, setJobId] = useState(null)
-  const [mode, setMode] = useState(null) // 'samples' | 'polish' while running
-  const [error, setError] = useState(null)
+  const [starting, setStarting] = useState(null) // 'samples' | 'polish' while the request is sent
+  const [startError, setStartError] = useState(null)
 
   useEffect(() => {
     if (!parts.includes(part)) { setPart(parts[0]); setStyle(STYLES[parts[0]][0][0]) }
   }, [trackId])
 
+  // A render keeps running if you leave this screen; the studio places it when it's done
+  const jobId = Object.keys(renders).find((id) => renders[id].songId === project.id && renders[id].target === trackId)
   const job = jobId ? jobs[jobId] : null
+  const mode = starting || (jobId ? renders[jobId].mode : null)
+  const error = startError || renderErrors[`${project.id}:${trackId}`]
   const realTrack = info && trackById(project, info.audioTrackId)
   const usingReal = !!realTrack && !realTrack.mute
   const stale = info && info.signature !== signature(track.notes)
 
-  useEffect(() => {
-    if (!job) return
-    if (job.status === 'complete' && job.result) {
-      const result = job.result
-      removeJob(jobId)
-      setJobId(null)
-      place(result).catch((e) => setError(`Couldn't load the audio: ${e.message}`)).finally(() => setMode(null))
-    } else if (job.status === 'error' || job.status === 'cancelled') {
-      setError(job.status === 'cancelled' ? 'Cancelled. Nothing was placed.' : job.error || 'That render failed. Nothing was placed.')
-      removeJob(jobId)
-      setJobId(null)
-      setMode(null)
-      refreshUsage()
-    }
-  }, [job?.status])
-
-  async function place(result) {
-    const res = await authFetch(result.audio_url)
-    if (!res.ok) throw new Error(`download failed (${res.status})`)
-    const buffer = await engine.context().decodeAudioData(await res.arrayBuffer())
-    const styleLabel = STYLES[result.part].find(([id]) => id === result.style)?.[1] || result.style
-    const take = await addTake(buffer, { name: `${track.name} · ${styleLabel}${result.polish ? ' · AI' : ''}` })
-    const clip = { id: `r${Date.now().toString(36)}`, takeId: take.id, startBeat: 0, offset: 0, duration: buffer.duration }
-    setProject((p) => {
-      let next = p
-      let audioId = p.realParts?.[trackId]?.audioTrackId
-      if (!audioId || !trackById(next, audioId)) {
-        const t = { ...makeTrack(next, 'audio'), name: `${track.name} (real)` }
-        const at = next.tracks.findIndex((x) => x.id === trackId) + 1
-        next = { ...next, tracks: [...next.tracks.slice(0, at), t, ...next.tracks.slice(at)] }
-        audioId = t.id
-      }
-      next = updateTrack(next, audioId, { clips: [clip], mute: false })
-      next = updateTrack(next, trackId, { mute: true })
-      const realParts = { ...(next.realParts || {}), [trackId]: { part: result.part, style: result.style, polish: result.polish, provider: result.provider, match: result.match, audioTrackId: audioId, signature: signature(trackById(p, trackId).notes) } }
-      return { ...next, realParts }
-    }, { what: `Made ${track.name} sound real (${styleLabel}${result.polish ? ', AI polish' : ''})` })
-    refreshUsage()
-    toast(result.polish ? (result.provider === 'mock' ? 'Preview polish placed' : `AI polish placed · ${result.match}% of your notes kept`) : `${track.name} now plays on ${styleLabel}`)
-  }
-
   async function start(polish) {
-    setError(null)
-    setMode(polish ? 'polish' : 'samples')
+    setStartError(null)
+    clearRenderError(project.id, trackId)
+    setStarting(polish ? 'polish' : 'samples')
     try {
       const body = {
         part, style, polish, strength,
@@ -115,11 +65,14 @@ export default function RealPartPanel({ trackId }) {
         throw new Error(res.status === 429 ? `That's your ${usage?.limit ?? ''} songs for the month.` : err.detail || `Request failed: ${res.status}`)
       }
       const data = await res.json()
-      setJobId(data.job_id)
-      startJob(data.job_id, { label: `${track.name} · ${polish ? 'AI polish' : 'real instrument'}` })
+      startRender(data.job_id, {
+        kind: 'part', songId: project.id, target: trackId, trackId, mode: polish ? 'polish' : 'samples',
+        signature: signature(track.notes), label: `${track.name} · ${polish ? 'AI polish' : 'real instrument'}`,
+      })
     } catch (e) {
-      setError(e.message)
-      setMode(null)
+      setStartError(e.message)
+    } finally {
+      setStarting(null)
     }
   }
 
@@ -161,7 +114,7 @@ export default function RealPartPanel({ trackId }) {
           <div className="flex items-center gap-3 flex-wrap">
             <Button outline disabled={!!mode || !track.notes.length} onClick={() => start(false)}>
               <MusicalNoteIcon data-slot="icon" />
-              {mode === 'samples' ? 'Rendering...' : 'Real Instrument'}
+              {mode === 'samples' ? 'Rendering...' : 'Real instrument'}
             </Button>
             <span className="text-xs text-zinc-400 dark:text-zinc-500">Free. Recorded instrument samples play your exact notes.</span>
           </div>

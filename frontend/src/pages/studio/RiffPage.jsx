@@ -1,15 +1,14 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import clsx from 'clsx'
-import { SparklesIcon, CheckIcon, ArrowUpTrayIcon } from '@heroicons/react/20/solid'
+import { SparklesIcon, ArrowUpTrayIcon, MicrophoneIcon } from '@heroicons/react/20/solid'
 import { Button } from '@/components/catalyst/button'
-import AudioRecorder from '@/components/voxmidi/AudioRecorder'
 import { useStudio } from '@/lib/studio/StudioContext'
 import { engine } from '@/lib/studio/engine'
 import { wavBytes } from '@/lib/studio/files'
 import { diatonicChords, ALL_KEYS } from '@/lib/studio/theory'
 import { updateTrack, totalBars, makeTrack, BEATS_PER_BAR } from '@/lib/studio/project'
-import { StepLabel, Pill, Callout, Wave, Toggle, panel } from '@/components/voxmidi/studio/ui'
+import { StepLabel, Pill, Callout, Wave, Toggle, panel, outlineBtn } from '@/components/voxmidi/studio/ui'
 
 const FEELS = ['Half-time', 'Driving', 'Laid back', 'Sparse', 'Anthemic']
 const GENRES = ['Indie rock', 'Folk', 'Lo-fi', 'R&B', 'Synthwave', 'Trap', 'House', 'Jazz']
@@ -72,7 +71,7 @@ function structureFor(kind, n) {
 export default function RiffPage() {
   const navigate = useNavigate()
   const [params] = useSearchParams()
-  const { takes, addTake, analyzeRiff, compose, openProject, setProject, usage, toast } = useStudio()
+  const { takes, addTake, loadTake, analyzeRiff, compose, openProject, setProject, usage, toast } = useStudio()
 
   const [takeId, setTakeId] = useState(params.get('take'))
   const take = takes.find((t) => t.id === takeId)
@@ -84,7 +83,6 @@ export default function RiffPage() {
   const [key, setKey] = useState(null)
   const [chords, setChords] = useState([])
   const [autoChords, setAutoChords] = useState(false)
-  const [confirmed, setConfirmed] = useState(false)
   const [feel, setFeel] = useState('Half-time')
   const [genre, setGenre] = useState('Indie rock')
   const [followGroove, setFollowGroove] = useState(true)
@@ -100,15 +98,16 @@ export default function RiffPage() {
   // Analyze whenever the take or the instrument changes
   useEffect(() => {
     if (!take) return
-    const buf = engine.takes.get(take.id)
-    if (!buf) return
     let alive = true
     setBusy('analyze')
     setError(null)
     setAnalysis(null)
-    setConfirmed(false)
     const hints = { instrument: kind, ...(take.tempo ? { tempo: take.tempo, start: 0 } : {}) }
-    analyzeRiff(new Blob([wavBytes(buf)], { type: 'audio/wav' }), hints)
+    loadTake(take.id)
+      .then((buf) => {
+        if (!buf) throw new Error("That take couldn't be loaded. Record or upload it again.")
+        return analyzeRiff(new Blob([wavBytes(buf)], { type: 'audio/wav' }), hints)
+      })
       .then((r) => {
         if (!alive) return
         // A take recorded to the click already knows its tempo, and starts on bar 1
@@ -120,7 +119,6 @@ export default function RiffPage() {
         const limit = kind === 'vocals' ? MAX_VOCAL_BARS : MAX_LOOP_BARS
         setChords(r.chords.slice(0, limit).map((c) => c.chord))
         setAutoChords(kind === 'drums')
-        setConfirmed(kind === 'drums')
       })
       .catch((e) => alive && setError(e.message))
       .finally(() => alive && setBusy(null))
@@ -140,7 +138,6 @@ export default function RiffPage() {
 
   function pickChord(i, name) {
     setChords((cs) => cs.map((c, k) => (k === i ? name : c)))
-    setConfirmed(false)
   }
 
   function togglePart(id) {
@@ -213,7 +210,7 @@ export default function RiffPage() {
     { k: analysis.clicked ? `Tempo · recorded to a ${analysis.clicked} BPM click` : 'Tempo', v: `${tempo} BPM`, conf: analysis.tempo_confidence, alts: analysis.tempo_options.map((b) => ({ label: String(b), on: tempo === b, pick: () => setTempo(b) })) },
     kind === 'drums'
       ? { k: 'Key · drums have none, so pick one', v: key, select: true }
-      : { k: 'Key', v: key, conf: analysis.key_confidence, alts: analysis.key_options.map((o) => ({ label: o, on: key === o, pick: () => { setKey(o); setConfirmed(false) } })) },
+      : { k: 'Key', v: key, conf: analysis.key_confidence, alts: analysis.key_options.map((o) => ({ label: o, on: key === o, pick: () => setKey(o) })) },
   ]
   const optionsFor = (i) => {
     const detected = analysis.chords[i]?.options || []
@@ -239,24 +236,27 @@ export default function RiffPage() {
         <div className="flex flex-wrap gap-1.5">
           {INSTRUMENTS.map((i) => <Pill key={i.id} on={kind === i.id} onClick={() => setKind(i.id)}>{i.label}</Pill>)}
         </div>
-        {takes.length > 0 && (
-          <label className="flex items-center gap-2 text-xs text-zinc-500 dark:text-zinc-400">
-            Use a take
-            <select value={takeId || ''} onChange={(e) => setTakeId(e.target.value || null)} className="rounded-md border border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 px-1.5 py-1 text-xs text-zinc-900 dark:text-white">
-              <option value="">Choose one</option>
-              {takes.map((t) => <option key={t.id} value={t.id}>{t.name} · {t.duration.toFixed(1)}s</option>)}
-            </select>
-          </label>
-        )}
-        <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-3 items-start">
-          <AudioRecorder label={`Record your ${inst.noun}`} onRecordingComplete={(blob) => takeFromBlob(blob, inst.label)} />
-          <label className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 px-3 py-1.5 text-sm font-medium text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800 cursor-pointer">
+        <div className="flex flex-wrap items-center gap-2 pt-1">
+          <Button color="red" onClick={() => navigate(`/record?new=1&kind=${kind}`)}>
+            <MicrophoneIcon data-slot="icon" />
+            Record it
+          </Button>
+          <label className={clsx(outlineBtn, 'inline-flex items-center gap-1.5 cursor-pointer py-1.5')}>
             <ArrowUpTrayIcon className="size-4" />
-            Upload audio
-            <input type="file" accept="audio/*" className="hidden" onChange={(e) => e.target.files[0] && takeFromBlob(e.target.files[0], e.target.files[0].name.replace(/\.[^.]+$/, ''))} />
+            Upload a file
+            <input type="file" accept="audio/*" className="hidden" onChange={(e) => { const f = e.target.files[0]; e.target.value = ''; f && takeFromBlob(f, f.name.replace(/\.[^.]+$/, '')) }} />
           </label>
+          {takes.length > 0 && (
+            <label className="flex items-center gap-2 text-xs text-zinc-500 dark:text-zinc-400 ml-1">
+              or use a take
+              <select value={takeId || ''} onChange={(e) => setTakeId(e.target.value || null)} className="rounded-md border border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 px-1.5 py-1 text-xs text-zinc-900 dark:text-white">
+                <option value="">Choose one</option>
+                {[...takes].reverse().map((t) => <option key={t.id} value={t.id}>{t.name} · {t.duration.toFixed(1)}s</option>)}
+              </select>
+            </label>
+          )}
         </div>
-        <p className="text-xs text-zinc-400 dark:text-zinc-500">For the tightest result, record on the Record screen: playing to the click gives exact tempo and bar lines.</p>
+        <p className="text-xs text-zinc-400 dark:text-zinc-500">Record it plays a click so the tempo and bar lines come out exact. Uploads work too: WAV, MP3 or M4A.</p>
       </section>
 
       {busy === 'analyze' && (
@@ -311,13 +311,13 @@ export default function RiffPage() {
 
           {kind !== 'drums' ? (
             <section className={clsx(panel, 'p-5')}>
-              <StepLabel n={2} title="Confirm chords" hint={kind === 'vocals' ? 'One per bar, under your melody. Tap to change' : 'One per bar. Tap to change'} />
+              <StepLabel n={2} title="Check the chords" hint={kind === 'vocals' ? 'One per bar, under your melody. Tap another to change it' : 'One per bar. Tap another to change it'} />
               {inst.loops && analysis.bars > MAX_LOOP_BARS && (
                 <p className="mt-2 text-xs text-zinc-400 dark:text-zinc-500">Your {inst.noun} has {analysis.bars} bars. The first {MAX_LOOP_BARS} repeat through the song.</p>
               )}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-3.5">
                 {chords.map((c, i) => (
-                  <div key={i} className={clsx('rounded-lg border bg-zinc-50 dark:bg-zinc-950/60 p-2', confirmed ? 'border-emerald-800' : 'border-zinc-200 dark:border-zinc-800')}>
+                  <div key={i} className="rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950/60 p-2">
                     <div className="flex items-baseline justify-between">
                       <span className="font-mono text-[10px] text-zinc-400 dark:text-zinc-500">Bar {i + 1}</span>
                       <span className="font-mono tabular-nums text-[10px] text-zinc-500">{analysis.chords[i]?.confidence}%</span>
@@ -333,15 +333,6 @@ export default function RiffPage() {
                   </div>
                 ))}
               </div>
-              <div className="flex items-center gap-3 mt-4">
-                <Button color="indigo" onClick={() => { setConfirmed(true); toast('Chords confirmed') }}>
-                  <CheckIcon data-slot="icon" />
-                  Confirm chords
-                </Button>
-                <span className={clsx('text-xs', confirmed ? 'text-emerald-400' : 'text-zinc-400 dark:text-zinc-500')}>
-                  {confirmed ? 'Confirmed. You can build now' : 'Building needs confirmed chords'}
-                </span>
-              </div>
             </section>
           ) : (
             <section className={clsx(panel, 'p-5')}>
@@ -350,7 +341,7 @@ export default function RiffPage() {
             </section>
           )}
 
-          <section className={clsx(panel, 'p-5 space-y-4 transition-opacity', !confirmed && 'opacity-50')}>
+          <section className={clsx(panel, 'p-5 space-y-4')}>
             <StepLabel n={3} title="What should the AI add?" hint="Everything it writes is MIDI you can edit" />
             <div className="flex flex-wrap gap-1.5">
               {available.map((x) => <Pill key={x.id} on={parts.has(x.id)} onClick={() => togglePart(x.id)}>{x.label}</Pill>)}
@@ -378,9 +369,9 @@ export default function RiffPage() {
               </div>
             )}
             <div className="flex items-center gap-3 flex-wrap">
-              <Button color="indigo" disabled={!confirmed || busy === 'build' || blocked || nothingToAdd} onClick={build}>
+              <Button color="indigo" disabled={busy === 'build' || blocked || nothingToAdd} onClick={build}>
                 <SparklesIcon data-slot="icon" />
-                {busy === 'build' ? 'Building...' : 'Build the Band'}
+                {busy === 'build' ? 'Building...' : 'Build the band'}
               </Button>
               <span className="text-xs text-zinc-400 dark:text-zinc-500">
                 {blocked ? `You've used all ${usage.limit} songs this month.` : nothingToAdd ? 'Pick at least one part to add.' : 'Counts as one song. Afterwards, make any part sound real on its editor screen.'}

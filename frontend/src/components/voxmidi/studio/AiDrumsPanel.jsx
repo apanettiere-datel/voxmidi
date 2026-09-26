@@ -1,22 +1,14 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import clsx from 'clsx'
 import { SparklesIcon } from '@heroicons/react/20/solid'
 import { Button } from '@/components/catalyst/button'
 import { useAuthFetch } from '@/lib/authFetch'
 import { useJobs } from '@/lib/JobsContext'
 import { useStudio } from '@/lib/studio/StudioContext'
-import { engine, performedNotes } from '@/lib/studio/engine'
+import { performedNotes } from '@/lib/studio/engine'
 import { trackById, updateTrack, totalBars, drumSignature, BEATS_PER_BAR } from '@/lib/studio/project'
+import { DRUM_STYLES as STYLES } from '@/lib/studio/renders'
 import { Pill, Callout, panel } from './ui'
-
-const STYLES = [
-  { id: 'acoustic', label: 'Acoustic kit' },
-  { id: 'rock', label: 'Rock room' },
-  { id: 'breaks', label: 'Vintage breaks' },
-  { id: 'trap', label: 'Trap 808' },
-  { id: 'brushes', label: 'Brushed jazz' },
-  { id: 'electronic', label: 'Drum machine' },
-]
 
 const STATUS = {
   queued: 'Waiting in queue...',
@@ -28,63 +20,28 @@ const STATUS = {
 
 export default function AiDrumsPanel() {
   const authFetch = useAuthFetch()
-  const { jobs, startJob, removeJob } = useJobs()
-  const { project, setProject, addTake, toast, refreshUsage, usage } = useStudio()
+  const { jobs } = useJobs()
+  const { project, setProject, refreshUsage, usage, renders, renderErrors, startRender, clearRenderError } = useStudio()
   const [style, setStyle] = useState(project.aiDrums?.style || 'acoustic')
   const [strength, setStrength] = useState(0.5)
-  const [jobId, setJobId] = useState(null)
-  const [error, setError] = useState(null)
-  const [busy, setBusy] = useState(false)
+  const [starting, setStarting] = useState(false)
+  const [startError, setStartError] = useState(null)
 
+  // A render keeps running if you leave this screen; the studio places it when it's done
+  const jobId = Object.keys(renders).find((id) => renders[id].songId === project.id && renders[id].target === 'drums')
   const job = jobId ? jobs[jobId] : null
+  const busy = starting || !!jobId
+  const error = startError || renderErrors[`${project.id}:drums`]
   const ai = project.aiDrums
   const aiTrack = trackById(project, 'drumsai')
   const usingAi = !!aiTrack && !aiTrack.mute
   const stale = ai && ai.signature !== drumSignature(project)
   const drumNotes = trackById(project, 'drums')?.notes || []
 
-  // When the job finishes, pull the audio in and put it on an AI drums track
-  useEffect(() => {
-    if (!job) return
-    if (job.status === 'complete' && job.result) {
-      const result = job.result
-      removeJob(jobId)
-      setJobId(null)
-      place(result).catch((e) => setError(`Couldn't load the AI drums: ${e.message}`)).finally(() => setBusy(false))
-    } else if (job.status === 'error' || job.status === 'cancelled') {
-      setError(job.status === 'cancelled' ? 'Cancelled. Nothing was placed.' : job.error || 'The AI drums failed. Nothing was placed.')
-      removeJob(jobId)
-      setJobId(null)
-      setBusy(false)
-      refreshUsage()
-    }
-  }, [job?.status])
-
-  async function place(result) {
-    const res = await authFetch(result.audio_url)
-    if (!res.ok) throw new Error(`download failed (${res.status})`)
-    const buffer = await engine.context().decodeAudioData(await res.arrayBuffer())
-    const label = STYLES.find((s) => s.id === result.style)?.label || 'AI'
-    const take = await addTake(buffer, { name: `AI drums · ${label}` })
-    const clip = { id: `ai${Date.now().toString(36)}`, takeId: take.id, startBeat: 0, offset: 0, duration: buffer.duration }
-    setProject((p) => {
-      let next = p
-      if (!trackById(next, 'drumsai')) {
-        const at = next.tracks.findIndex((t) => t.id === 'drums') + 1
-        const track = { id: 'drumsai', name: 'AI drums', kind: 'audio', sound: 'Dry', mute: false, solo: false, vol: 85, notes: [], clips: [] }
-        next = { ...next, tracks: [...next.tracks.slice(0, at), track, ...next.tracks.slice(at)] }
-      }
-      next = updateTrack(next, 'drumsai', { clips: [clip], mute: false })
-      next = updateTrack(next, 'drums', { mute: true })
-      return { ...next, aiDrums: { style: result.style, provider: result.provider, match: result.match, offsetMs: result.offset_ms, signature: drumSignature(p) } }
-    }, { what: `Made AI drums (${label})` })
-    refreshUsage()
-    toast(result.provider === 'mock' ? 'Preview drums placed' : `AI drums placed · ${result.match}% on your pattern`)
-  }
-
   async function start() {
-    setError(null)
-    setBusy(true)
+    setStartError(null)
+    clearRenderError(project.id, 'drums')
+    setStarting(true)
     try {
       const drums = trackById(project, 'drums')
       const body = {
@@ -104,12 +61,13 @@ export default function AiDrumsPanel() {
         throw new Error(res.status === 429 ? `That's your ${usage?.limit ?? ''} songs for the month.` : err.detail || `Request failed: ${res.status}`)
       }
       const data = await res.json()
-      setJobId(data.job_id)
-      startJob(data.job_id, { label: `AI drums · ${STYLES.find((s) => s.id === style).label}` })
+      // The signature is taken now, so edits made while it renders show as stale
+      startRender(data.job_id, { kind: 'drums', songId: project.id, target: 'drums', signature: drumSignature(project), label: `AI drums · ${STYLES.find((s) => s.id === style).label}` })
       refreshUsage()
     } catch (e) {
-      setError(e.message)
-      setBusy(false)
+      setStartError(e.message)
+    } finally {
+      setStarting(false)
     }
   }
 

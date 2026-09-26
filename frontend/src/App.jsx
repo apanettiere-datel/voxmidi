@@ -1,5 +1,5 @@
-import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
-import { MusicalNoteIcon, MicrophoneIcon, FolderIcon, Cog6ToothIcon, WrenchScrewdriverIcon, BoltIcon, Squares2X2Icon, SparklesIcon, QueueListIcon, PaintBrushIcon } from '@heroicons/react/20/solid'
+import { Routes, Route, useLocation } from 'react-router-dom'
+import { MusicalNoteIcon, MicrophoneIcon, FolderIcon, Cog6ToothIcon, WrenchScrewdriverIcon, BoltIcon, Squares2X2Icon, QueueListIcon, HomeIcon, SpeakerWaveIcon } from '@heroicons/react/20/solid'
 import { SidebarLayout } from '@/components/catalyst/sidebar-layout'
 import { Sidebar, SidebarBody, SidebarFooter, SidebarHeader, SidebarHeading, SidebarItem, SidebarLabel, SidebarSection } from '@/components/catalyst/sidebar'
 import { Navbar, NavbarSpacer } from '@/components/catalyst/navbar'
@@ -23,6 +23,7 @@ import PianoRollPage from '@/pages/studio/PianoRollPage'
 import RecordPage from '@/pages/studio/RecordPage'
 import RiffPage from '@/pages/studio/RiffPage'
 import TapPage from '@/pages/studio/TapPage'
+import HomePage from '@/pages/studio/HomePage'
 import PlanCard from '@/components/voxmidi/studio/PlanCard'
 import { StudioProvider, useStudio } from '@/lib/studio/StudioContext'
 import { totalBars } from '@/lib/studio/project'
@@ -30,25 +31,26 @@ import { JobsNotificationBar } from '@/lib/JobsContext'
 
 const CLERK_KEY = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY
 
-const startNav = [
-  { name: 'Describe a beat', href: '/describe', icon: SparklesIcon },
-  { name: 'Record a riff', href: '/record', icon: MicrophoneIcon },
-  { name: 'Tap a groove', href: '/tap', icon: Squares2X2Icon },
+const homeNav = [
+  { name: 'Home', href: '/', icon: HomeIcon, exact: true },
 ]
 
 const songNav = [
   { name: 'Song', href: '/song', icon: QueueListIcon, exact: true },
   { name: 'Drums', href: '/song/drums', icon: Squares2X2Icon },
   { name: 'Piano roll', href: '/song/roll', icon: MusicalNoteIcon },
-  { name: 'From a riff', href: '/riff', icon: PaintBrushIcon },
+  { name: 'Record', href: '/record', icon: MicrophoneIcon },
 ]
 
-const navigation = [
-  { name: 'Song Generator', href: '/generate', icon: MusicalNoteIcon },
+const toolsNav = [
+  { name: 'AI song with vocals', href: '/generate', icon: SpeakerWaveIcon },
   { name: 'Jam', href: '/jam', icon: BoltIcon },
-  { name: 'Drum Grid', href: '/drums', icon: Squares2X2Icon },
-  { name: 'MIDI Workshop', href: '/midi', icon: WrenchScrewdriverIcon },
+  { name: 'Drum grid', href: '/drums', icon: Squares2X2Icon, exact: true },
+  { name: 'MIDI workshop', href: '/midi', icon: WrenchScrewdriverIcon },
   { name: 'Library', href: '/library', icon: FolderIcon },
+]
+
+const settingsNav = [
   { name: 'Settings', href: '/settings', icon: Cog6ToothIcon },
 ]
 
@@ -119,8 +121,7 @@ function AppLayout({ children }) {
           </SidebarHeader>
           <SidebarBody>
             <SidebarSection>
-              <SidebarHeading>Start something</SidebarHeading>
-              <NavItems items={startNav} pathname={location.pathname} />
+              <NavItems items={homeNav} pathname={location.pathname} />
             </SidebarSection>
             {song && (
               <SidebarSection>
@@ -129,8 +130,11 @@ function AppLayout({ children }) {
               </SidebarSection>
             )}
             <SidebarSection>
-              <SidebarHeading>Tools</SidebarHeading>
-              <NavItems items={navigation} pathname={location.pathname} />
+              <SidebarHeading>More tools</SidebarHeading>
+              <NavItems items={toolsNav} pathname={location.pathname} />
+            </SidebarSection>
+            <SidebarSection>
+              <NavItems items={settingsNav} pathname={location.pathname} />
             </SidebarSection>
           </SidebarBody>
           <PlanCard />
@@ -149,7 +153,7 @@ function AppRoutes() {
     <StudioProvider>
       <AppLayout>
         <Routes>
-          <Route path="/" element={<Navigate to="/generate" replace />} />
+          <Route path="/" element={<HomePage />} />
           <Route path="/generate" element={<GeneratePage />} />
           <Route path="/jam" element={<JamPage />} />
           <Route path="/drums" element={<DrumGridPage />} />

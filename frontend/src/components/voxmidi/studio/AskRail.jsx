@@ -23,8 +23,13 @@ export default function AskRail({ onClose, className }) {
   function send(raw) {
     const q = raw.trim()
     if (!q) return
-    if (pending?.ab === 'before') setProject((p) => updateTrack(p, pending.trackId, { notes: pending.after }), { undoable: false })
-    const plan = planAsk(project, q)
+    // Plan on the kept change, not on the Before preview
+    let base = project
+    if (pending?.ab === 'before') {
+      base = updateTrack(project, pending.trackId, { notes: pending.after })
+      setProject(base, { undoable: false })
+    }
+    const plan = planAsk(base, q)
     setText('')
     if (plan.error) {
       setAskLog((log) => [...settlePending(log), { role: 'user', text: q }, { role: 'reply', text: plan.error }])
@@ -46,8 +51,16 @@ export default function AskRail({ onClose, className }) {
     toast('Kept')
   }
 
+  // Only revert if the track still holds exactly what the Ask wrote, so
+  // edits made to it since aren't thrown away
   function undoChange() {
-    setProject((p) => updateTrack(p, pending.trackId, { notes: pending.before }), { what: 'Undid an Ask change' })
+    const notes = project.tracks.find((t) => t.id === pending.trackId)?.notes
+    if (notes !== pending.after && notes !== pending.before) {
+      patchCard(pendingIndex, { state: 'kept', ab: 'after' })
+      toast('This part was edited after the Ask, so it can\'t be undone here. Use Ctrl+Z to step back.')
+      return
+    }
+    if (notes === pending.after) setProject((p) => updateTrack(p, pending.trackId, { notes: pending.before }), { what: 'Undid an Ask change' })
     setAskLog((log) => log.filter((_, k) => k !== pendingIndex))
     toast('Undone')
   }
@@ -148,7 +161,7 @@ export default function AskRail({ onClose, className }) {
         />
         <div className="flex items-center gap-2">
           <span className="text-xs text-zinc-400 dark:text-zinc-500">Only the part you name changes.</span>
-          <button type="button" onClick={() => send(text)} className="ml-auto rounded-lg bg-indigo-600 hover:bg-indigo-500 px-3 py-1.5 text-sm font-semibold text-white">Ask</button>
+          <button type="button" onClick={() => send(text)} disabled={!text.trim()} className="ml-auto rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:hover:bg-indigo-600 px-3 py-1.5 text-sm font-semibold text-white">Ask</button>
         </div>
       </div>
     </aside>

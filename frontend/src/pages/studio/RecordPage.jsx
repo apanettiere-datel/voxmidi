@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import clsx from 'clsx'
 import { MicrophoneIcon, StopIcon } from '@heroicons/react/20/solid'
 import { Button } from '@/components/catalyst/button'
@@ -52,7 +52,12 @@ function LatencyDialog({ latency, onMeasure, onClose }) {
 
 export default function RecordPage() {
   const navigate = useNavigate()
-  const { project, setProject, selSection, setSelSection, takes, addTake, latency, setLatency, toast } = useStudio()
+  const [params] = useSearchParams()
+  const studio = useStudio()
+  const { setProject, selSection, setSelSection, takes, addTake, latency, setLatency, toast } = studio
+  // ?new=1 records the start of a new song, even while another song is open
+  const startingNew = !!params.get('new')
+  const project = startingNew ? null : studio.project
 
   const [devices, setDevices] = useState([])
   const [deviceId, setDeviceId] = useState('')
@@ -63,7 +68,7 @@ export default function RecordPage() {
   const [recording, setRecording] = useState(false)
   const [takeSel, setTakeSel] = useState(null)
   const [dest, setDest] = useState('guitar')
-  const [instrument, setInstrument] = useState('harmonic')
+  const [instrument, setInstrument] = useState(params.get('kind') || 'harmonic')
   const [showLatency, setShowLatency] = useState(false)
   const [clickOn, setClickOn] = useState(true)
 
@@ -81,12 +86,21 @@ export default function RecordPage() {
     if (takeSel == null && takes.length) setTakeSel(takes[takes.length - 1].id)
   }, [takes, takeSel])
 
-  // Release the mic when leaving the page
-  useEffect(() => () => {
-    cancelAnimationFrame(raf.current)
-    clearInterval(rec.current?.clickTimer)
-    mic.current?.stream.getTracks().forEach((t) => t.stop())
-    engine.stop()
+  // Release the mic and any running capture when leaving the page
+  const gone = useRef(false)
+  const opening = useRef(null)
+  useEffect(() => {
+    gone.current = false
+    return () => {
+      gone.current = true
+      cancelAnimationFrame(raf.current)
+      clearInterval(rec.current?.clickTimer)
+      rec.current?.cap.stop()
+      rec.current = null
+      mic.current?.stream.getTracks().forEach((t) => t.stop())
+      mic.current = null
+      engine.stop()
+    }
   }, [])
 
   function meter() {
@@ -104,11 +118,21 @@ export default function RecordPage() {
     raf.current = requestAnimationFrame(meter)
   }
 
-  async function ensureMic(id = deviceId) {
-    if (mic.current) return true
+  // One open at a time: a second call while the permission prompt is up waits for the first
+  function ensureMic(id = deviceId) {
+    if (mic.current) return Promise.resolve(true)
+    if (!opening.current) opening.current = openInput(id).finally(() => { opening.current = null })
+    return opening.current
+  }
+
+  async function openInput(id) {
     try {
       const ctx = engine.context()
       const stream = await openMic(id)
+      if (gone.current) {
+        stream.getTracks().forEach((t) => t.stop())
+        return false
+      }
       const source = ctx.createMediaStreamSource(stream)
       const analyser = ctx.createAnalyser()
       analyser.fftSize = 1024
@@ -143,18 +167,30 @@ export default function RecordPage() {
     if (mic.current) mic.current.monGain.gain.value = v ? 0.8 : 0
   }
 
+  const starting = useRef(false)
   async function startRecording() {
-    if (!(await ensureMic())) return
+    if (starting.current || rec.current) return
+    starting.current = true
+    try {
+      await beginTake()
+    } finally {
+      starting.current = false
+    }
+  }
+
+  async function beginTake() {
+    if (!(await ensureMic()) || gone.current) return
     const ctx = engine.context()
     const spb = 60 / bpm
     const t0 = ctx.currentTime + 0.15
     const downbeat = t0 + countIn * BEATS_PER_BAR * spb
     for (let i = 0; i < countIn * BEATS_PER_BAR; i++) engine.click(t0 + i * spb, i % 4 === 0)
     const cap = await startCapture(ctx, mic.current.source)
+    if (gone.current) { cap.stop(); return }
     let clickTimer = null
     if (project) {
       engine.play(project, { from: startBeat, at: downbeat - 0.06, metronome: clickOn })
-    } else {
+    } else if (clickOn) {
       // No song yet: keep the click going after the count-in
       let next = downbeat
       let beat = 0
@@ -175,6 +211,7 @@ export default function RecordPage() {
 
   async function stopRecording() {
     const r = rec.current
+    if (!r) return
     rec.current = null
     setRecording(false)
     clearInterval(r.clickTimer)
@@ -188,7 +225,7 @@ export default function RecordPage() {
       toast('That take was under half a second. Nothing saved.')
       return
     }
-    const meta = await addTake(toBuffer(ctx, take, sampleRate), { startBeat: project ? startBeat : 0, tempo: bpm, latency: latency || 0, instrument, name: `${INSTRUMENTS.find((i) => i.id === instrument).label} ${takes.length + 1}` })
+    const meta = await addTake(toBuffer(ctx, take, sampleRate), { startBeat: project ? startBeat : 0, tempo: project || clickOn ? bpm : null, latency: latency || 0, instrument, name: `${INSTRUMENTS.find((i) => i.id === instrument).label} ${takes.length + 1}` })
     setTakeSel(meta.id)
     toast('Take captured')
   }
@@ -233,9 +270,11 @@ export default function RecordPage() {
 
       {/* Page header */}
       <div>
-        <h1 className="text-2xl font-bold text-zinc-900 dark:text-white">Record</h1>
+        <h1 className="text-2xl font-bold text-zinc-900 dark:text-white">{project ? `Record into ${project.name}` : 'Record your part'}</h1>
         <p className="text-sm text-zinc-500 dark:text-zinc-400 mt-1">
-          Play along with the click. Your take stays audio. Nothing gets transcribed unless you ask.
+          {project
+            ? 'Play along with the song. Your take stays audio and lands on the track you pick.'
+            : 'Pick what you play, hit record and play along with the click. Next, we write the rest of the band around it.'}
         </p>
         {project && (
           <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-1">
@@ -312,22 +351,20 @@ export default function RecordPage() {
                 </select>
               </div>
             )}
-            {project && (
-              <div className="flex flex-col gap-1.5">
-                <label className="text-xs text-zinc-500 dark:text-zinc-400">Click</label>
-                <div className="flex items-center gap-2 py-1">
-                  <Toggle on={clickOn} onChange={setClickOn} label="Click while recording" />
-                  <span className="text-xs text-zinc-400 dark:text-zinc-500">{clickOn ? 'On' : 'Song only'}</span>
-                </div>
+            <div className="flex flex-col gap-1.5">
+              <label className="text-xs text-zinc-500 dark:text-zinc-400">Click</label>
+              <div className="flex items-center gap-2 py-1">
+                <Toggle on={clickOn} onChange={setClickOn} label="Click while recording" />
+                <span className="text-xs text-zinc-400 dark:text-zinc-500">{clickOn ? 'On' : project ? 'Song only' : 'Count-in only, tempo is detected'}</span>
               </div>
-            )}
+            </div>
             <div className="flex flex-col gap-1.5">
               <label className="text-xs text-zinc-500 dark:text-zinc-400">Tempo</label>
               {project ? (
                 <span className="py-1.5 font-mono tabular-nums text-sm text-zinc-700 dark:text-zinc-300">{bpm} BPM</span>
               ) : (
                 <div className="flex items-center gap-1.5">
-                  <input type="number" min={40} max={240} value={tempo} onChange={(e) => { const v = e.target.valueAsNumber; if (v >= 40 && v <= 240) setTempo(v) }}
+                  <input type="number" min={40} max={240} value={tempo} onChange={(e) => { const v = Math.round(e.target.valueAsNumber); if (v >= 40 && v <= 240) setTempo(v) }}
                     className="w-16 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-2 py-1 text-center font-mono tabular-nums text-sm text-zinc-900 dark:text-white" />
                   <span className="text-xs text-zinc-500">BPM</span>
                 </div>
@@ -389,11 +426,11 @@ export default function RecordPage() {
             </label>
           )}
           <Button color="emerald" className={clsx(!project || takes.length === 0 ? 'mt-auto' : '')} disabled={!takeSel || recording} onClick={useTake}>
-            {project ? 'Use this take' : 'Build a song from this take'}
+            {project ? 'Put it in the song' : 'Build the band around it'}
           </Button>
           {project && takeSel && !recording && (
             <button type="button" onClick={() => navigate(`/riff?take=${takeSel}`)} className="text-xs text-zinc-400 hover:text-indigo-300 transition">
-              Or build a new song from this take
+              Or start a new song from this take
             </button>
           )}
         </section>

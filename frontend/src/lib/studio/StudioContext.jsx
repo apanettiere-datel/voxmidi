@@ -3,14 +3,20 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { useAuthFetch } from '@/lib/authFetch'
+import { useJobs } from '@/lib/JobsContext'
+import { applyRender, takeName } from './renders'
 import { engine } from './engine'
-import { listTakes, saveTake, peaksOf } from './takes'
+import { listTakes, saveTake, deleteTake, peaksOf } from './takes'
 import { fromServer, totalBars, sectionRanges, spliceNotes, updateTrack, trackById, composerPart, BEATS_PER_BAR } from './project'
 import { wavBytes } from './files'
 
 const StudioContext = createContext(null)
-const STORE_KEY = 'voxmidi.studio.project.v1'
+const LEGACY_KEY = 'voxmidi.studio.project.v1'
+const SONGS_KEY = 'voxmidi.studio.songs.v1' // [{ id, name, tempo, key, bars, updatedAt }]
+const CURRENT_KEY = 'voxmidi.studio.current'
+const songKey = (id) => `voxmidi.studio.song.${id}`
 const LATENCY_KEY = 'voxmidi.studio.latency'
+const RENDERS_KEY = 'voxmidi.studio.renders' // background renders still running
 const UNDO_LIMIT = 60
 
 function load(key, fallback) {
@@ -31,6 +37,32 @@ function save(key, value) {
   }
 }
 
+function summary(p) {
+  return { id: p.id, name: p.name, tempo: p.tempo, key: p.key, bars: totalBars(p.sections), updatedAt: Date.now() }
+}
+
+// Songs live one per key, with a small index for the songs list. A project
+// saved by the single-song version is moved into the list on first load.
+function loadSongs() {
+  let songs = load(SONGS_KEY, null)
+  if (!songs) {
+    const legacy = load(LEGACY_KEY, null)
+    songs = []
+    if (legacy?.id) {
+      save(songKey(legacy.id), legacy)
+      save(CURRENT_KEY, legacy.id)
+      songs.push(summary(legacy))
+    }
+    save(SONGS_KEY, songs)
+    save(LEGACY_KEY, null)
+  }
+  return songs
+}
+
+function takeIdsOf(p) {
+  return new Set((p?.tracks || []).flatMap((t) => (t.clips || []).map((c) => c.takeId)))
+}
+
 async function readError(res) {
   const err = await res.json().catch(() => ({ detail: res.statusText }))
   return err.detail || `Request failed: ${res.status}`
@@ -38,7 +70,13 @@ async function readError(res) {
 
 export function StudioProvider({ children }) {
   const authFetch = useAuthFetch()
-  const [project, setProjectState] = useState(() => load(STORE_KEY, null))
+  const [songs, setSongs] = useState(loadSongs)
+  const songsRef = useRef(songs)
+  songsRef.current = songs
+  const [project, setProjectState] = useState(() => {
+    const id = load(CURRENT_KEY, null)
+    return id ? load(songKey(id), null) : null
+  })
   const undoRef = useRef([])
   const redoRef = useRef([])
   const [, bump] = useState(0)
@@ -83,12 +121,23 @@ export function StudioProvider({ children }) {
     setProjectState(value)
   }, [])
 
+  // Mixer moves (volume, mute, solo, sound) aren't undo steps, so undo and
+  // redo keep the mixer as it is now
+  const withMixer = (snap, now) => ({
+    ...snap,
+    tracks: snap.tracks.map((t) => {
+      const cur = now.tracks.find((x) => x.id === t.id)
+      return cur ? { ...t, vol: cur.vol, mute: cur.mute, solo: cur.solo, sound: cur.sound } : t
+    }),
+  })
+
   const undo = useCallback(() => {
     const prev = undoRef.current.pop()
     if (!prev) return
     redoRef.current.push(projectRef.current)
-    projectRef.current = prev
-    setProjectState(prev)
+    const value = withMixer(prev, projectRef.current)
+    projectRef.current = value
+    setProjectState(value)
     bump((n) => n + 1)
   }, [])
 
@@ -96,23 +145,100 @@ export function StudioProvider({ children }) {
     const next = redoRef.current.pop()
     if (!next) return
     undoRef.current.push(projectRef.current)
-    projectRef.current = next
-    setProjectState(next)
+    const value = withMixer(next, projectRef.current)
+    projectRef.current = value
+    setProjectState(value)
     bump((n) => n + 1)
   }, [])
 
+  const persist = useCallback((p) => {
+    save(CURRENT_KEY, p?.id ?? null)
+    if (!p) return
+    save(songKey(p.id), p)
+    const next = [summary(p), ...songsRef.current.filter((x) => x.id !== p.id)]
+    songsRef.current = next
+    save(SONGS_KEY, next)
+    setSongs(next)
+  }, [])
+
+  // Keep the cursor inside the song when it gets shorter
   useEffect(() => {
-    const t = setTimeout(() => save(STORE_KEY, project), 300)
+    if (project && cursorRef.current >= totalBars(project.sections) * BEATS_PER_BAR) setCursor(0)
+  }, [project, setCursor])
+
+  useEffect(() => {
+    const t = setTimeout(() => persist(project), 300)
     engine.setProject(project)
     return () => clearTimeout(t)
-  }, [project])
+  }, [project, persist])
 
   // Don't lose the last edit if the tab closes inside the save debounce
   useEffect(() => {
-    const flush = () => save(STORE_KEY, projectRef.current)
+    const flush = () => persist(projectRef.current)
     window.addEventListener('pagehide', flush)
     return () => window.removeEventListener('pagehide', flush)
-  }, [])
+  }, [persist])
+
+  // ── Songs list ──────────────────────────────────────────────────────────────
+
+  const resetSession = useCallback(() => {
+    engine.stop()
+    setPlaying(false)
+    setSelSection(0)
+    setCursor(0)
+    setAskLog([])
+  }, [setCursor])
+
+  const openSong = useCallback((id) => {
+    if (projectRef.current?.id === id) return projectRef.current
+    const p = load(songKey(id), null)
+    if (!p) return null
+    if (projectRef.current) persist(projectRef.current)
+    resetSession()
+    setProject(p, { undoable: false })
+    return p
+  }, [persist, resetSession, setProject])
+
+  // Close the current song (it stays in the list) so a start screen begins a new one
+  const closeSong = useCallback(() => {
+    if (projectRef.current) persist(projectRef.current)
+    resetSession()
+    setProject(null, { undoable: false })
+    save(CURRENT_KEY, null)
+  }, [persist, resetSession, setProject])
+
+  const renameSong = useCallback((id, name) => {
+    const clean = name.trim().slice(0, 80)
+    if (!clean) return
+    if (projectRef.current?.id === id) {
+      setProject((p) => ({ ...p, name: clean }), { undoable: false })
+      return
+    }
+    const p = load(songKey(id), null)
+    if (!p) return
+    save(songKey(id), { ...p, name: clean })
+    const next = songsRef.current.map((x) => (x.id === id ? { ...x, name: clean } : x))
+    save(SONGS_KEY, next)
+    setSongs(next)
+  }, [setProject])
+
+  const deleteSong = useCallback((id) => {
+    const gone = id === projectRef.current?.id ? projectRef.current : load(songKey(id), null)
+    if (id === projectRef.current?.id) {
+      resetSession()
+      setProject(null, { undoable: false })
+      save(CURRENT_KEY, null)
+    }
+    save(songKey(id), null)
+    const rest = songsRef.current.filter((x) => x.id !== id)
+    save(SONGS_KEY, rest)
+    setSongs(rest)
+    // Recordings only this song used go with it; takes not on any song stay on the Record screen
+    const kept = new Set(rest.flatMap((x) => [...takeIdsOf(load(songKey(x.id), null))]))
+    const drop = [...takeIdsOf(gone)].filter((t) => !kept.has(t))
+    drop.forEach((t) => { deleteTake(t); engine.takes.delete(t); blobs.current.delete(t) })
+    if (drop.length) setTakes((prev) => prev.filter((t) => !drop.includes(t.id)))
+  }, [resetSession, setProject])
 
   // ── Toast ───────────────────────────────────────────────────────────────────
 
@@ -148,7 +274,9 @@ export function StudioProvider({ children }) {
     const p = projectRef.current
     if (!p) return
     const loop = loopRange()
-    const start = from ?? (loop ? loop[0] : cursorRef.current)
+    let start = from ?? (loop ? loop[0] : cursorRef.current)
+    // From the end there's nothing to hear: start over
+    if (start >= totalBars(p.sections) * BEATS_PER_BAR - 0.01) start = loop ? loop[0] : 0
     engine.play(p, { from: start, loop, metronome: metro, onEnd: () => setPlaying(false) })
     setPlaying(true)
   }, [loopRange, metro])
@@ -175,7 +303,7 @@ export function StudioProvider({ children }) {
     function onKey(e) {
       const tag = e.target?.tagName
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || e.target?.isContentEditable) return
-      if (!projectRef.current) return
+      if (!projectRef.current || document.querySelector('[role=dialog]')) return
       if (e.code === 'Space' && !e.repeat && window.location.pathname.startsWith('/song')) {
         e.preventDefault()
         togglePlay()
@@ -192,25 +320,45 @@ export function StudioProvider({ children }) {
 
   // ── Takes ───────────────────────────────────────────────────────────────────
 
+  // Takes list from IndexedDB. Audio is decoded on demand (the open song's
+  // clips, or a take a screen asks for), not all at once.
+  const blobs = useRef(new Map())
+  const decoding = useRef(new Map())
   useEffect(() => {
     let alive = true
-    listTakes().then(async (list) => {
-      // Publish the list only once the audio is decoded, so a screen that
-      // reads engine.takes for a listed take always finds it
-      const ctx = engine.context()
-      const ready = []
+    listTakes().then((list) => {
+      const metas = []
       for (const { blob, ...meta } of list) {
-        try {
-          engine.takes.set(meta.id, await ctx.decodeAudioData(await blob.arrayBuffer()))
-          ready.push(meta)
-        } catch {
-          /* a take that no longer decodes is skipped */
-        }
+        blobs.current.set(meta.id, blob)
+        metas.push(meta)
       }
-      if (alive) setTakes((prev) => [...ready, ...prev.filter((t) => !ready.some((r) => r.id === t.id))])
+      if (alive) setTakes((prev) => [...metas.filter((m) => !prev.some((t) => t.id === m.id)), ...prev])
     })
     return () => { alive = false }
   }, [])
+
+  // Resolves to the take's AudioBuffer, or null if it's gone or won't decode
+  const loadTake = useCallback((id) => {
+    if (engine.takes.has(id)) return Promise.resolve(engine.takes.get(id))
+    if (decoding.current.has(id)) return decoding.current.get(id)
+    const blob = blobs.current.get(id)
+    if (!blob) return Promise.resolve(null)
+    const job = blob.arrayBuffer()
+      .then((ab) => engine.context().decodeAudioData(ab))
+      .then((buf) => { engine.takes.set(id, buf); return buf })
+      .catch(() => null)
+      .finally(() => decoding.current.delete(id))
+    decoding.current.set(id, job)
+    return job
+  }, [])
+
+  const loadTakes = useCallback((ids) => Promise.all([...new Set(ids)].map(loadTake)), [loadTake])
+
+  // The open song's recordings get decoded as soon as they're known
+  const clipTakes = (project?.tracks || []).flatMap((t) => (t.clips || []).map((c) => c.takeId)).join(',')
+  useEffect(() => {
+    if (clipTakes) loadTakes(clipTakes.split(','))
+  }, [clipTakes, takes.length, loadTakes])
 
   const addTake = useCallback(async (buffer, extra = {}) => {
     const id = `take-${Date.now().toString(36)}`
@@ -222,16 +370,90 @@ export function StudioProvider({ children }) {
       createdAt: Date.now(),
       ...extra,
     }
+    // Encoded first: if the audio is too big to keep, nothing half-saved is left behind
+    const blob = new Blob([wavBytes(buffer)], { type: 'audio/wav' })
     engine.takes.set(id, buffer)
+    blobs.current.set(id, blob)
     setTakes((prev) => [...prev, meta])
-    await saveTake({ ...meta, blob: new Blob([wavBytes(buffer)], { type: 'audio/wav' }) })
+    if (!(await saveTake({ ...meta, blob }))) toast("This browser's storage is full, so that recording won't survive a reload. Export or delete old songs to free space.")
     return meta
-  }, [takes.length])
+  }, [takes.length, toast])
 
   const setLatency = useCallback((ms) => {
     setLatencyState(ms)
     save(LATENCY_KEY, ms)
   }, [])
+
+  // ── Background renders ──────────────────────────────────────────────────────
+  // AI drums and real parts: { [jobId]: { kind, songId, target, trackId, signature } }.
+  // Placed from here so leaving the panel (or the song) doesn't lose them.
+
+  const { jobs, startJob, removeJob } = useJobs()
+  const [renders, setRenders] = useState(() => load(RENDERS_KEY, {}))
+  // Renders still running survive a reload: keep polling them
+  useEffect(() => {
+    for (const [jobId, info] of Object.entries(load(RENDERS_KEY, {}))) startJob(jobId, { label: info.label, kind: 'studio' })
+  }, [startJob])
+  useEffect(() => { save(RENDERS_KEY, Object.keys(renders).length ? renders : null) }, [renders])
+  const [renderErrors, setRenderErrors] = useState({}) // `${songId}:${target}` -> message
+  const handled = useRef(new Set())
+
+  const startRender = useCallback((jobId, info) => {
+    setRenders((r) => ({ ...r, [jobId]: info }))
+    setRenderErrors((e) => { const next = { ...e }; delete next[`${info.songId}:${info.target}`]; return next })
+    startJob(jobId, { label: info.label, kind: 'studio' })
+  }, [startJob])
+
+  const clearRenderError = useCallback((songId, target) => {
+    setRenderErrors((e) => { const next = { ...e }; delete next[`${songId}:${target}`]; return next })
+  }, [])
+
+  useEffect(() => {
+    for (const [jobId, info] of Object.entries(renders)) {
+      const job = jobs[jobId]
+      if (!job || handled.current.has(jobId)) continue
+      if (!['complete', 'error', 'cancelled'].includes(job.status)) continue
+      handled.current.add(jobId)
+      const done = (error) => {
+        if (error) setRenderErrors((e) => ({ ...e, [`${info.songId}:${info.target}`]: error }))
+        setRenders((r) => { const next = { ...r }; delete next[jobId]; return next })
+        removeJob(jobId)
+        refreshUsage()
+      }
+      if (job.status !== 'complete' || !job.result) {
+        done(job.status === 'cancelled' ? 'Cancelled. Nothing was placed.' : job.error || 'That render failed. Nothing was placed.')
+        continue
+      }
+      const result = job.result
+      ;(async () => {
+        const res = await authFetch(result.audio_url)
+        if (!res.ok) throw new Error(`download failed (${res.status})`)
+        const buffer = await engine.context().decodeAudioData(await res.arrayBuffer())
+        const current = projectRef.current?.id === info.songId
+        const base = current ? projectRef.current : load(songKey(info.songId), null)
+        if (!base) throw new Error('the song was deleted')
+        const take = await addTake(buffer, { name: takeName(base, info, result) })
+        if (projectRef.current?.id === info.songId) {
+          const out = applyRender(projectRef.current, info, result, take)
+          if (!out) throw new Error('that track was deleted')
+          setProject(out.project, { what: out.what })
+          toast(out.toast)
+        } else {
+          // Finished after you switched songs: place it in that song where it's saved
+          const fresh = load(songKey(info.songId), null)
+          if (!fresh) throw new Error('the song was deleted')
+          const out = applyRender(fresh, info, result, take)
+          if (!out) throw new Error('that track was deleted')
+          const saved = { ...out.project, history: [...(out.project.history || []), { at: new Date().toISOString(), what: out.what }] }
+          save(songKey(saved.id), saved)
+          const next = songsRef.current.map((x) => (x.id === saved.id ? summary(saved) : x))
+          save(SONGS_KEY, next)
+          setSongs(next)
+          toast(`${out.toast} in ${saved.name}`)
+        }
+      })().then(() => done(null), (e) => done(`Couldn't place the audio: ${e.message}`))
+    }
+  }, [jobs, renders, authFetch, removeJob, refreshUsage, addTake, setProject, toast])
 
   // ── API ─────────────────────────────────────────────────────────────────────
 
@@ -251,14 +473,15 @@ export function StudioProvider({ children }) {
     return data
   }, [authFetch])
 
+  // A new song from the server joins the list; the previous one stays saved
   const openProject = useCallback((serverProject) => {
-    engine.stop()
+    if (projectRef.current) persist(projectRef.current)
+    resetSession()
     const p = fromServer(serverProject)
     setProject(p, { undoable: false })
     setSelSection(Math.min(2, p.sections.length - 1))
-    setAskLog([])
     return p
-  }, [setProject])
+  }, [persist, resetSession, setProject])
 
   // Fresh notes for one track, optionally only inside [start, end) beats. Free.
   const regenerate = useCallback(async (trackId, { start = null, end = null, seed, fills } = {}) => {
@@ -285,12 +508,16 @@ export function StudioProvider({ children }) {
   }, [authFetch])
 
   // Regenerate and splice into the project in one step
-  const rewrite = useCallback(async (trackId, { start, end, seed, fills, what } = {}) => {
+  const rewrite = useCallback(async (trackId, { start, end, seed, fills, what, undoable = true } = {}) => {
+    const songId = projectRef.current?.id
     const notes = await regenerate(trackId, { start, end, seed, fills })
     const p = projectRef.current
+    const songEnd = totalBars(p?.sections || []) * BEATS_PER_BAR
     const s = start ?? 0
-    const e = end ?? totalBars(p.sections) * BEATS_PER_BAR
-    setProject((prev) => updateTrack(prev, trackId, (t) => ({ notes: spliceNotes(t.notes, s, e, notes) })), { what })
+    const e = end ?? songEnd
+    // Dropped if you switched songs or undid the section while it was writing
+    if (!p || p.id !== songId || e > songEnd || !trackById(p, trackId)) throw new Error('The song changed while that part was being written, so it was not placed')
+    setProject((prev) => updateTrack(prev, trackId, (t) => ({ notes: spliceNotes(t.notes, s, e, notes) })), { what, undoable })
     return notes
   }, [regenerate, setProject])
 
@@ -307,16 +534,17 @@ export function StudioProvider({ children }) {
   }, [authFetch])
 
   const value = useMemo(() => ({
-    project, setProject, undo, redo, canUndo: undoRef.current.length > 0, canRedo: redoRef.current.length > 0,
+    project, setProject, undo, redo, songs, openSong, closeSong, renameSong, deleteSong, canUndo: undoRef.current.length > 0, canRedo: redoRef.current.length > 0,
     usage, refreshUsage,
     selTrack, setSelTrack, selSection, setSelSection, cursor, setCursor, cursorRef, clipboard, setClipboard,
     playing, play, stop, togglePlay, loopOn, setLoopOn, metro, setMetro,
-    takes, addTake, latency, setLatency,
+    takes, addTake, loadTake, loadTakes, latency, setLatency,
     askLog, setAskLog,
     toast, toastMsg,
     compose, openProject, regenerate, rewrite, analyzeRiff,
-  }), [project, setProject, undo, redo, usage, refreshUsage, selTrack, selSection, playing, play, stop, togglePlay,
-    loopOn, metro, cursor, setCursor, clipboard, takes, addTake, latency, setLatency, askLog, toast, toastMsg, compose, openProject, regenerate, rewrite, analyzeRiff])
+    renders, renderErrors, startRender, clearRenderError,
+  }), [renders, renderErrors, startRender, clearRenderError, project, setProject, undo, redo, songs, openSong, closeSong, renameSong, deleteSong, usage, refreshUsage, selTrack, selSection, playing, play, stop, togglePlay,
+    loopOn, metro, cursor, setCursor, clipboard, takes, addTake, loadTake, loadTakes, latency, setLatency, askLog, toast, toastMsg, compose, openProject, regenerate, rewrite, analyzeRiff])
 
   return <StudioContext.Provider value={value}>{children}</StudioContext.Provider>
 }

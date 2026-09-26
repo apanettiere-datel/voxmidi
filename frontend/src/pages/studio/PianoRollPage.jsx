@@ -44,6 +44,8 @@ function RollEditor() {
   const beats = end - start
   const [sel, setSel] = useState(null) // index into track.notes
   const [busy, setBusy] = useState(false)
+  const [frozen, setFrozen] = useState(null) // { lo, hi } held while a note is dragged
+  const own = useRef(null) // the notes array this page last wrote
   const head = useRef(null)
   const scroller = useRef(null)
 
@@ -56,9 +58,14 @@ function RollEditor() {
   let lo = Math.min(...pitches) - 3
   let hi = Math.max(...pitches) + 3
   if (hi - lo < 24) { const pad = Math.ceil((24 - (hi - lo)) / 2); lo -= pad; hi += pad }
+  // Keep the grid still under the pointer while dragging
+  if (frozen) ({ lo, hi } = frozen)
   const rows = hi - lo + 1
 
   useEffect(() => setSel(null), [trackId, secIndex])
+
+  // sel is an index, so drop it when the notes change from anywhere else (undo, rewrite, Ask)
+  useEffect(() => { if (track.notes !== own.current) setSel(null) }, [track.notes])
 
   useEffect(() => engine.subscribe((b) => {
     if (!head.current) return
@@ -81,8 +88,14 @@ function RollEditor() {
     return () => window.removeEventListener('keydown', onKey)
   })
 
-  const setNotes = (fn, opts) => setProject((p) => updateTrack(p, trackId, (t) => ({ notes: fn(t.notes) })), opts)
+  const setNotes = (fn, opts) => setProject((p) => updateTrack(p, trackId, (t) => {
+    const notes = fn(t.notes)
+    own.current = notes
+    return { notes }
+  }), opts)
   const inRange = (n) => n.t >= start && n.t < end
+  // Keep edited notes inside the section; a note at `end` would fall into the next one
+  const clampT = (t) => Math.max(start, Math.min(end - 0.125, t))
 
   function removeSelected() {
     if (sel == null) return
@@ -107,13 +120,14 @@ function RollEditor() {
     engine.audition(track, n0)
     let first = true
     let lastP = n0.p
+    setFrozen({ lo, hi })
     drag(e, (dx, dy) => {
       const t = Math.min(end - 0.25, Math.max(start, q(n0.t + dx / PPB, 0.25)))
       const p = Math.max(0, Math.min(127, n0.p - Math.round(dy / ROW)))
       if (p !== lastP) { engine.audition(track, { ...n0, p }); lastP = p }
       setNotes((ns) => ns.map((x, i) => (i === idx ? { ...x, t, p } : x)), { undoable: first, what: first ? `Moved a ${track.name.toLowerCase()} note` : undefined })
       first = false
-    })
+    }, () => setFrozen(null))
   }
 
   function resizeNote(e, idx) {
@@ -139,11 +153,11 @@ function RollEditor() {
   }
 
   const tools = [
-    ['Quantize 1/8', () => { setNotes((ns) => ns.map((n) => (inRange(n) ? { ...n, t: q(n.t, 0.5) } : n)), { what: 'Quantized to eighths' }); toast('Quantized to eighths') }],
-    ['Humanize', () => { setNotes((ns) => ns.map((n) => (inRange(n) ? { ...n, t: Math.max(start, n.t + (Math.random() - 0.5) * 0.08), v: Math.max(8, Math.min(127, Math.round(n.v + (Math.random() - 0.5) * 30))) } : n)), { what: 'Humanized' }); toast('Humanized') }],
-    ['+12', () => setNotes((ns) => ns.map((n) => (inRange(n) ? { ...n, p: Math.min(127, n.p + 12) } : n)), { what: 'Up an octave' })],
-    ['−12', () => setNotes((ns) => ns.map((n) => (inRange(n) ? { ...n, p: Math.max(0, n.p - 12) } : n)), { what: 'Down an octave' })],
-    ['Delete', removeSelected, sel == null],
+    ['Quantize 1/8', () => { setNotes((ns) => ns.map((n) => (inRange(n) ? { ...n, t: clampT(q(n.t, 0.5)) } : n)), { what: 'Quantized to eighths' }); toast('Quantized to eighths') }, false, 'Snap this section\'s notes to 8th notes'],
+    ['Humanize', () => { setNotes((ns) => ns.map((n) => (inRange(n) ? { ...n, t: clampT(n.t + (Math.random() - 0.5) * 0.08), v: Math.max(8, Math.min(127, Math.round(n.v + (Math.random() - 0.5) * 30))) } : n)), { what: 'Humanized' }); toast('Humanized') }, false, 'Nudge timing and velocity slightly so it sounds less mechanical'],
+    ['+12', () => setNotes((ns) => ns.map((n) => (inRange(n) ? { ...n, p: Math.min(127, n.p + 12) } : n)), { what: 'Up an octave' }), false, 'Move this section up an octave'],
+    ['−12', () => setNotes((ns) => ns.map((n) => (inRange(n) ? { ...n, p: Math.max(0, n.p - 12) } : n)), { what: 'Down an octave' }), false, 'Move this section down an octave'],
+    ['Delete', removeSelected, sel == null, 'Delete the selected note'],
   ]
 
   async function regenSelection() {
@@ -179,12 +193,12 @@ function RollEditor() {
         </div>
         <span className="font-mono tabular-nums text-xs text-zinc-400 dark:text-zinc-500 whitespace-nowrap">{inSec.length} notes · {sec.bars} bars · {track.sound}</span>
         <div className="flex-1" />
-        {tools.map(([label, fn, disabled]) => (
-          <button key={label} type="button" onClick={fn} disabled={disabled} className={clsx(outlineBtn, 'whitespace-nowrap', /\d/.test(label) && 'font-mono')}>{label}</button>
+        {tools.map(([label, fn, disabled, title]) => (
+          <button key={label} type="button" onClick={fn} disabled={disabled} title={title} className={clsx(outlineBtn, 'whitespace-nowrap', /\d/.test(label) && 'font-mono')}>{label}</button>
         ))}
         <button type="button" onClick={regenSelection} disabled={busy} className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 px-3 py-1.5 text-xs font-semibold text-white whitespace-nowrap">
           <ArrowPathIcon className={clsx('size-3.5', busy && 'animate-spin')} />
-          Regenerate selection
+          Rewrite this section
         </button>
       </div>
 

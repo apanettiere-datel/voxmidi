@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import clsx from 'clsx'
 import { CheckIcon, InformationCircleIcon } from '@heroicons/react/20/solid'
 import { useStudio } from '@/lib/studio/StudioContext'
@@ -15,7 +15,14 @@ function Box({ on }) {
 }
 
 export default function ExportDialog({ onClose }) {
-  const { project, toast } = useStudio()
+  const { project, toast, loadTakes } = useStudio()
+
+  // Escape closes, unless an export is running
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape' && !busy) onClose() }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  })
   const name = slug(project.name)
   const songSeconds = (totalBars(project.sections) * BEATS_PER_BAR * 60) / project.tempo + 2
 
@@ -54,6 +61,11 @@ export default function ExportDialog({ onClose }) {
     setError(null)
     try {
       const files = []
+      // Recordings decode on demand; make sure every clip's audio is in before rendering
+      if (chosen.some((r) => r.audio)) {
+        const bufs = await loadTakes(project.tracks.flatMap((t) => (t.clips || []).map((c) => c.takeId)))
+        if (bufs.some((b) => !b)) toast("Some recordings couldn't be loaded, so they are silent in the export")
+      }
       for (const r of chosen) {
         if (!r.audio) {
           files.push({ name: r.file, bytes: r.bytes })
