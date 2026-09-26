@@ -40,9 +40,18 @@ export function performDrums(notes, swing = 0, humanize = 0) {
   return out.sort((a, b) => a.t - b.t)
 }
 
+// The scheduler asks for these every 25ms; recompute only when the notes or
+// the swing/humanize settings actually change
+const performed = new WeakMap()
+
 export function performedNotes(project, track) {
   if (track.kind !== 'midi') return []
-  return track.id === 'drums' ? performDrums(track.notes, project.swing, project.humanize) : track.notes
+  if (track.id !== 'drums') return track.notes
+  const hit = performed.get(track.notes)
+  if (hit && hit.swing === project.swing && hit.humanize === project.humanize) return hit.notes
+  const notes = performDrums(track.notes, project.swing, project.humanize)
+  performed.set(track.notes, { swing: project.swing, humanize: project.humanize, notes })
+  return notes
 }
 
 export function audibleTracks(project) {
