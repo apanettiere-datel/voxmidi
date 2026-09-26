@@ -9,10 +9,26 @@ import { engine } from '@/lib/studio/engine'
 import { wavBytes } from '@/lib/studio/files'
 import { diatonicChords } from '@/lib/studio/theory'
 import { updateTrack, totalBars, BEATS_PER_BAR } from '@/lib/studio/project'
-import { StepLabel, Pill, Callout, Wave, panel } from '@/components/voxmidi/studio/ui'
+import { StepLabel, Pill, Callout, Wave, Toggle, panel } from '@/components/voxmidi/studio/ui'
 
 const FEELS = ['Half-time', 'Driving', 'Laid back', 'Sparse', 'Anthemic']
+const GENRES = ['Indie rock', 'Folk', 'Lo-fi', 'R&B', 'Synthwave', 'Trap', 'House', 'Jazz']
 const MAX_CHORDS = 8 // the compose endpoint takes a cycle of up to 8
+
+// Kick positions inside a bar from the riff's strum accents: a 16th counts
+// when an accent lands on it in at least a third of the bars
+function grooveFrom(analysis) {
+  const bars = Math.max(1, analysis.bars)
+  const counts = new Map()
+  for (const a of analysis.accents) {
+    if (a.beat < -0.125 || a.beat >= bars * 4) continue
+    const pos = ((Math.round(a.beat * 4) / 4) % 4 + 4) % 4
+    counts.set(pos, (counts.get(pos) || 0) + 1)
+  }
+  const out = [...counts].filter(([, n]) => n >= Math.max(1, bars / 3)).map(([p]) => p)
+  if (!out.includes(0)) out.push(0)
+  return out.sort((a, b) => a - b).slice(0, 8)
+}
 
 export default function RiffPage() {
   const navigate = useNavigate()
@@ -28,6 +44,8 @@ export default function RiffPage() {
   const [chords, setChords] = useState([])
   const [confirmed, setConfirmed] = useState(false)
   const [feel, setFeel] = useState('Half-time')
+  const [genre, setGenre] = useState('Indie rock')
+  const [followGroove, setFollowGroove] = useState(true)
 
   const take = takes.find((t) => t.id === takeId)
   const blocked = usage && usage.used >= usage.limit
@@ -42,11 +60,14 @@ export default function RiffPage() {
     setError(null)
     setAnalysis(null)
     setConfirmed(false)
-    analyzeRiff(new Blob([wavBytes(buf)], { type: 'audio/wav' }))
+    analyzeRiff(new Blob([wavBytes(buf)], { type: 'audio/wav' }), take.tempo ? { tempo: take.tempo, start: 0 } : {})
       .then((r) => {
         if (!alive) return
-        setAnalysis(r)
-        setTempo(Math.round(r.tempo))
+        // A take recorded to the click already knows its tempo, and starts on bar 1
+        const clicked = take.tempo || null
+        if (clicked && !r.tempo_options.includes(clicked)) r.tempo_options = [...r.tempo_options, clicked].sort((a, b) => a - b)
+        setAnalysis({ ...r, clicked })
+        setTempo(clicked || Math.round(r.tempo))
         setKey(r.key)
         setChords(r.chords.slice(0, MAX_CHORDS).map((c) => c.chord))
       })
@@ -76,19 +97,22 @@ export default function RiffPage() {
     setBusy('build')
     setError(null)
     try {
-      const data = await compose({ prompt: `Built around ${take.name}`, tempo, key, chords, feel })
+      const data = await compose({ prompt: `Built around ${take.name}`, tempo, key, chords, feel, genre, ...(followGroove && groove ? { groove } : {}) })
       let p = openProject(data)
       // Drums and bass only: the riff is the harmony
       p = updateTrack(p, 'chords', { notes: [] })
       p = updateTrack(p, 'melody', { notes: [] })
       // Loop the riff's whole bars across the song, one clip per pass, so a
       // rounded tempo can't drift more than one riff length
-      const seconds = (analysis.bars * BEATS_PER_BAR * 60) / analysis.tempo
+      const gridTempo = analysis.clicked || analysis.tempo
+      const start = analysis.clicked ? 0 : analysis.start
+      const riffBars = analysis.clicked ? Math.max(1, Math.floor(((take.duration - start) * gridTempo) / 60 / BEATS_PER_BAR)) : analysis.bars
+      const seconds = (riffBars * BEATS_PER_BAR * 60) / gridTempo
       const stride = Math.max(BEATS_PER_BAR, Math.round((seconds * data.tempo) / 60 / BEATS_PER_BAR) * BEATS_PER_BAR)
       const songBeats = totalBars(p.sections) * BEATS_PER_BAR
       const clips = []
       for (let b = 0; b < songBeats; b += stride) {
-        clips.push({ id: `c${b}-${Date.now().toString(36)}`, takeId: take.id, startBeat: b, offset: analysis.start, duration: Math.min(seconds, ((songBeats - b) * 60) / data.tempo) })
+        clips.push({ id: `c${b}-${Date.now().toString(36)}`, takeId: take.id, startBeat: b, offset: start, duration: Math.min(seconds, ((songBeats - b) * 60) / data.tempo) })
       }
       p = updateTrack(p, 'guitar', { clips })
       setProject({ ...p, name: 'Built around your riff' }, { undoable: false })
@@ -101,8 +125,9 @@ export default function RiffPage() {
     }
   }
 
+  const groove = analysis ? grooveFrom(analysis) : null
   const facts = analysis && [
-    { k: 'Tempo', v: `${tempo} BPM`, conf: analysis.tempo_confidence, alts: analysis.tempo_options.map((b) => ({ label: String(b), on: tempo === b, pick: () => setTempo(b) })) },
+    { k: analysis.clicked ? `Tempo · recorded to a ${analysis.clicked} BPM click` : 'Tempo', v: `${tempo} BPM`, conf: analysis.tempo_confidence, alts: analysis.tempo_options.map((b) => ({ label: String(b), on: tempo === b, pick: () => setTempo(b) })) },
     { k: 'Key', v: key, conf: analysis.key_confidence, alts: analysis.key_options.map((o) => ({ label: o, on: key === o, pick: () => { setKey(o); setConfirmed(false) } })) },
   ]
   const optionsFor = (i) => {
@@ -220,9 +245,21 @@ export default function RiffPage() {
           </section>
 
           <section className={clsx(panel, 'p-5 transition-opacity', !confirmed && 'opacity-50')}>
-            <div className="mb-3"><StepLabel n={3} title="Pick a feel" /></div>
+            <div className="mb-3"><StepLabel n={3} title="Pick a style and feel" hint="Sets how the drums and bass play" /></div>
             <div className="flex flex-wrap gap-1.5">
+              {GENRES.map((g) => <Pill key={g} on={genre === g} onClick={() => setGenre(g)}>{g}</Pill>)}
+            </div>
+            <div className="flex flex-wrap gap-1.5 mt-2.5">
               {FEELS.map((f) => <Pill key={f} on={feel === f} onClick={() => setFeel(f)}>{f}</Pill>)}
+            </div>
+            <div className="flex items-center gap-3 mt-4 flex-wrap">
+              <Toggle on={followGroove} onChange={setFollowGroove} label="Kick and bass follow your strum accents" />
+              <span className="text-xs text-zinc-500 dark:text-zinc-400">Kick and bass follow your strum accents</span>
+              <div className="flex gap-0.5" aria-label="Kick pattern">
+                {Array.from({ length: 16 }, (_, i) => (
+                  <span key={i} className={clsx('w-2.5 h-4 rounded-[2px]', groove.includes(i / 4) && followGroove ? 'bg-indigo-500' : i % 4 === 0 ? 'bg-zinc-700' : 'bg-zinc-800')} />
+                ))}
+              </div>
             </div>
             <div className="flex items-center gap-3 mt-4 flex-wrap">
               <Button color="indigo" disabled={!confirmed || busy === 'build' || blocked} onClick={build}>

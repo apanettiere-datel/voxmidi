@@ -36,11 +36,29 @@ def test_read_prompt():
     r = read_prompt("late night drive, sad piano, hard drums, around 90 BPM")
     assert r["tempo"] == 90 and r["genre"] == "Lo-fi" and r["key"] is None, r
     r = read_prompt("trap beat in F# minor, 140 bpm, half-time")
-    assert r == {"tempo": 140, "key": "F# minor", "genre": "Trap", "feel": "Half-time"}, r
+    assert r == {"tempo": 140, "key": "F# minor", "genre": "Trap", "feel": "Half-time", "mode": None}, r
+    # Mood decides major or minor when no key is named
+    assert read_prompt("sad piano at night")["mode"] == "minor"
+    assert read_prompt("happy summer pop")["mode"] == "major"
+    for seed in range(40):
+        assert compose(None, None, None, None, seed, mode="minor")["key"].endswith("minor")
+        assert compose(None, None, None, None, seed, mode="major")["key"].endswith("major")
     r = read_prompt("house groove in B flat major")
     assert r["key"] == "Bb major" and r["genre"] == "House", r
     r = read_prompt("something at 900 bpm")
     assert r["tempo"] is None, "out-of-range tempo must be ignored"
+    cases = {
+        "trap beat 140bpm F#m": (140, "F# minor", "Trap"),
+        "Bb minor drill": (None, "Bb minor", "Drill"),
+        "c sharp minor ballad": (None, "C# minor", None),
+        "folk song in G": (None, "G major", "Folk"),
+        "Am I dreaming, dreamy synthwave": (None, None, "Synthwave"),
+        "this needs to be a major hit, house": (None, None, "House"),
+        "": (None, None, None),
+    }
+    for text, (tempo, key, genre) in cases.items():
+        r = read_prompt(text)
+        assert (r["tempo"], r["key"], r["genre"]) == (tempo, key, genre), f"{text!r}: {r}"
     print("  PASS: read_prompt")
 
 
@@ -90,6 +108,25 @@ def test_music_theory_ground_truth():
     print("  PASS: music theory ground truth, all genres")
 
 
+def test_every_genre_feel_key():
+    """Every combination composes without error and stays in range."""
+    from pipelines.composer import FEELS, NOTE_NAMES
+    all_keys = [f"{r} {m}" for m in ("major", "minor") for r in NOTE_NAMES]
+    n = 0
+    for genre in GENRES:
+        for feel in (None,) + FEELS:
+            for key in all_keys:
+                p = compose(genre, feel, None, key, seed=n)
+                total = sum(s["bars"] for s in p["sections"]) * 4
+                assert p["key"] == parse_key(key)["name"]
+                for t in p["tracks"]:
+                    assert t["notes"], f"{genre}/{feel}/{key}: empty {t['id']}"
+                    for x in t["notes"]:
+                        assert 0 <= x["t"] < total and 0 <= x["p"] <= 127 and 1 <= x["v"] <= 127
+                n += 1
+    print(f"  PASS: {n} genre x feel x key combinations")
+
+
 def test_half_time_and_pinned_chords():
     p = compose("Indie rock", "Half-time", 120, "E major", seed=5, fills=False)
     drums = next(t["notes"] for t in p["tracks"] if t["id"] == "drums")
@@ -113,6 +150,25 @@ def test_seeded():
     one = write_track("bass", secs, key, a["genre"], a["feel"], 42)
     assert one == next(t["notes"] for t in a["tracks"] if t["id"] == "bass"), "write_track must match compose"
     print("  PASS: seeded and deterministic")
+
+
+def test_groove_follows_riff():
+    """Kick and bass land on the riff's accents, and only there."""
+    groove = [0, 0.75, 2.5]
+    for genre in ("Indie rock", "Folk", "Lo-fi", "Trap"):
+        p = compose(genre, None, 100, "A minor", seed=3, chords=["Am", "F", "C", "G"], groove=groove)
+        assert p["groove"] == groove
+        bars = bar_map(p["sections"])
+        tracks = {t["id"]: t["notes"] for t in p["tracks"]}
+        for b, info in enumerate(bars):
+            if info["sec"]["kind"] in ("Intro", "Outro"):
+                continue
+            o = b * 4
+            kicks = sorted(round((n["t"] - o) * 4) / 4 for n in tracks["drums"] if n["p"] == KICK and o <= n["t"] < o + 4)
+            assert kicks == groove, f"{genre} bar {b + 1}: kicks {kicks}"
+            onsets = sorted(round((n["t"] - o) * 4) / 4 for n in tracks["bass"] if o <= n["t"] < o + 4)
+            assert onsets == groove, f"{genre} bar {b + 1}: bass onsets {onsets}"
+    print("  PASS: kick and bass follow the riff groove")
 
 
 # ─── Endpoints ───────────────────────────────────────────────────────────────
@@ -173,6 +229,8 @@ def test_compose_endpoint():
         ({"chords": ["Xm"]}, "chords"),
         ({"chords": []}, "chords"),
         ({"prompt": "x" * 501}, "prompt"),
+        ({"groove": [0, 4.5]}, "groove"),
+        ({"groove": []}, "groove"),
     ]
     used = _usage(client)["used"]
     for body, field in bad:
@@ -222,6 +280,7 @@ def test_regenerate_endpoint():
         {**body, "sections": [{"id": "a", "kind": "Solo", "bars": 4, "chords": ["Am"]}]},
         {**body, "sections": [{"id": "a", "kind": "Verse", "bars": 4, "chords": ["Am", "Z"]}]},
         {k: v for k, v in body.items() if k != "seed"},
+        {**body, "groove": [-1]},
     ]
     for b in bad:
         r = client.post("/api/studio/regenerate", json=b)
@@ -244,6 +303,11 @@ def test_analyze_riff_endpoint():
         path = str(Path(tmp) / "riff.wav")
         synth_riff(path, ["Am", "F", "C", "G"], 100.0, 0.25)
         data = Path(path).read_bytes()
+    for bad in ({"tempo": "fast"}, {"tempo": "500"}, {"start": "-1"}, {"start": "99"}):
+        r = client.post("/api/studio/analyze-riff", files={"riff": ("riff.wav", io.BytesIO(data), "audio/wav")}, data=bad)
+        assert r.status_code == 400, f"{bad} -> {r.status_code} {r.text}"
+    r = client.post("/api/studio/analyze-riff", files={"riff": ("riff.wav", io.BytesIO(data), "audio/wav")}, data={"tempo": "100", "start": "0.25"})
+    assert r.status_code == 200 and r.json()["start"] == 0.25 and r.json()["tempo"] == 100.0, r.text
     r = client.post("/api/studio/analyze-riff", files={"riff": ("riff.wav", io.BytesIO(data), "audio/wav")})
     assert r.status_code == 200, r.text
     j = r.json()
@@ -256,8 +320,10 @@ if __name__ == "__main__":
     print("=" * 50)
     test_read_prompt()
     test_music_theory_ground_truth()
+    test_every_genre_feel_key()
     test_half_time_and_pinned_chords()
     test_seeded()
+    test_groove_follows_riff()
     test_compose_endpoint()
     test_regenerate_endpoint()
     test_analyze_riff_endpoint()

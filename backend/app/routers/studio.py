@@ -12,7 +12,7 @@ import uuid
 from pathlib import Path
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File, Form
 from pydantic import BaseModel, Field, ValidationError, field_validator
 from sqlalchemy import update
 from sqlalchemy.orm import Session
@@ -21,7 +21,7 @@ from database import get_db, User
 from middleware.auth import get_current_user
 from pipelines.composer import (
     GENRES, FEELS, SECTION_KINDS, TRACK_IDS, BEATS_PER_BAR,
-    compose, write_track, read_prompt, parse_key, parse_chord,
+    compose, write_track, read_prompt, parse_key, parse_chord, normalize_groove,
 )
 from .generate import UPLOAD_DIR
 
@@ -46,6 +46,12 @@ def _check_chords(v):
     return v
 
 
+def _check_groove(v):
+    if v is not None and any(not (0 <= x < BEATS_PER_BAR) for x in v):
+        raise ValueError(f"kick positions must be beats inside one bar, 0 to under {BEATS_PER_BAR}")
+    return v
+
+
 class ComposeRequest(BaseModel):
     prompt: str = Field("", max_length=500)
     genre: Optional[str] = None
@@ -54,6 +60,12 @@ class ComposeRequest(BaseModel):
     key: Optional[str] = Field(None, max_length=12)
     chords: Optional[List[str]] = Field(None, min_length=1, max_length=8)
     fills: bool = True
+    groove: Optional[List[float]] = Field(None, min_length=1, max_length=16)
+
+    @field_validator("groove")
+    @classmethod
+    def _groove(cls, v):
+        return _check_groove(v)
 
     @field_validator("genre")
     @classmethod
@@ -109,6 +121,12 @@ class RegenerateRequest(BaseModel):
     end_beat: Optional[float] = Field(None, gt=0)
     seed: int = Field(..., ge=0, le=2 ** 31 - 1)
     fills: bool = True
+    groove: Optional[List[float]] = Field(None, min_length=1, max_length=16)
+
+    @field_validator("groove")
+    @classmethod
+    def _groove(cls, v):
+        return _check_groove(v)
 
     @field_validator("track")
     @classmethod
@@ -173,6 +191,8 @@ async def studio_compose(
         seed=seed,
         chords=req.chords,
         fills=req.fills,
+        groove=req.groove,
+        mode=heard["mode"],
     )
 
     # Charge one song only if the user is under their limit, in one statement,
@@ -212,7 +232,8 @@ async def studio_regenerate(
     if end <= start:
         raise HTTPException(status_code=400, detail="end_beat must be after start_beat")
 
-    notes = write_track(req.track, sections, parse_key(req.key), req.genre, req.feel, req.seed, req.fills)
+    notes = write_track(req.track, sections, parse_key(req.key), req.genre, req.feel, req.seed, req.fills,
+                        normalize_groove(req.groove))
     notes = [n for n in notes if start <= n["t"] < end]
     return {"track": req.track, "start_beat": start, "end_beat": end, "notes": notes}
 
@@ -220,6 +241,8 @@ async def studio_regenerate(
 @router.post("/studio/analyze-riff")
 async def studio_analyze_riff(
     riff: Optional[UploadFile] = File(None),
+    tempo: Optional[str] = Form(None),
+    start: Optional[str] = Form(None),
     current_user: User = Depends(get_current_user),
 ):
     """Detect tempo, bar 1, key, per-bar chords and strum accents in a riff recording."""
@@ -228,6 +251,19 @@ async def studio_analyze_riff(
 
     if riff is None:
         raise HTTPException(status_code=400, detail="riff: an audio file is required")
+    # Optional click grid for takes recorded to the app's metronome
+    tempo_hint = start_hint = None
+    try:
+        if tempo not in (None, ""):
+            tempo_hint = float(tempo)
+        if start not in (None, ""):
+            start_hint = float(start)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="tempo and start must be numbers")
+    if tempo_hint is not None and not (40 <= tempo_hint <= 240):
+        raise HTTPException(status_code=400, detail="tempo: must be 40-240")
+    if start_hint is not None and not (0 <= start_hint <= 30):
+        raise HTTPException(status_code=400, detail="start: must be 0-30 seconds")
     data = await riff.read()
     if not data:
         raise HTTPException(status_code=400, detail="riff: the file is empty")
@@ -246,7 +282,7 @@ async def studio_analyze_riff(
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"riff: cannot read audio ({exc})")
     try:
-        result = analyze_riff(wav_path)
+        result = analyze_riff(wav_path, tempo_hint=tempo_hint, start_hint=start_hint)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     print(f"[studio] analyze-riff user={current_user.id} tempo={result['tempo']} key={result['key']} bars={result['bars']}")

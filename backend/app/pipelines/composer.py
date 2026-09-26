@@ -63,6 +63,11 @@ _GENRE_WORDS = {
     "rnb": "R&B", "drill": "Drill", "house": "House", "folk": "Folk", "acoustic": "Folk",
     "ambient": "Ambient", "jazz": "Jazz",
 }
+_MINOR_MOODS = {"sad", "dark", "moody", "melancholy", "melancholic", "gloomy", "haunting", "eerie", "somber",
+                "sombre", "lonely", "heartbreak", "heartbroken", "brooding", "tense", "sinister", "night", "rainy"}
+_MAJOR_MOODS = {"happy", "bright", "uplifting", "sunny", "joyful", "cheerful", "summer", "hopeful", "feelgood",
+                "euphoric", "upbeat", "celebration", "sunshine"}
+
 _FEEL_WORDS = {
     "half-time": "Half-time", "half time": "Half-time", "halftime": "Half-time", "driving": "Driving",
     "laid back": "Laid back", "laid-back": "Laid back", "chill": "Laid back", "sparse": "Sparse",
@@ -153,18 +158,31 @@ def read_prompt(prompt: str) -> dict:
     Only what is actually stated is returned; missing fields are None.
     """
     text = (prompt or "").lower()
-    out = {"tempo": None, "key": None, "genre": None, "feel": None}
+    out = {"tempo": None, "key": None, "genre": None, "feel": None, "mode": None}
 
     m = re.search(r"(\d{2,3})\s*(?:bpm|beats per minute)", text)
     if m and 40 <= int(m.group(1)) <= 240:
         out["tempo"] = int(m.group(1))
 
+    def key_from(root, mode):
+        root = root.replace(" ", "").replace("sharp", "#").replace("flat", "b")
+        k = parse_key(root + " " + (mode or "major"))
+        return k["name"] if k else None
+
+    # "in F# minor", "in Bb", "in c sharp minor"
     m = re.search(r"\bin\s+([a-g](?:#|b|\s?sharp|\s?flat)?)\s*(major|minor|maj|min|m)?\b", text)
     if m:
-        root = m.group(1).replace(" ", "").replace("sharp", "#").replace("flat", "b")
-        k = parse_key(root + " " + (m.group(2) or "major"))
-        if k:
-            out["key"] = k["name"]
+        out["key"] = key_from(m.group(1), m.group(2))
+    # "Bb minor", "c sharp major" anywhere
+    if out["key"] is None:
+        m = re.search(r"(?<![a-z])([a-g](?:#|b|\s?sharp|\s?flat)?)\s*(major|minor)\b", text)
+        if m and m.group(1) != "a":  # "a major hit" is an article, not A major
+            out["key"] = key_from(m.group(1), m.group(2))
+    # Chord-style "F#m", "Ebm", "Am" (case-sensitive, so the word "am" doesn't count)
+    if out["key"] is None:
+        m = re.search(r"(?<![A-Za-z])([A-G][#b]?)m(?![A-Za-z])", prompt or "")
+        if m and not (m.start() == 0 and m.group(1) == "A"):
+            out["key"] = key_from(m.group(1), "minor")
 
     for word, genre in _GENRE_WORDS.items():
         if re.search(r"(?<![a-z])" + re.escape(word) + r"(?![a-z])", text):
@@ -176,6 +194,13 @@ def read_prompt(prompt: str) -> dict:
             break
     if out["genre"] is None and any(w in text for w in ("sad", "moody", "dark", "night")):
         out["genre"] = DEFAULT_GENRE
+    # Mood picks major or minor when no key was named
+    if out["key"] is None:
+        words = set(re.findall(r"[a-z]+", text))
+        if words & _MINOR_MOODS:
+            out["mode"] = "minor"
+        elif words & _MAJOR_MOODS:
+            out["mode"] = "major"
     return out
 
 
@@ -223,7 +248,17 @@ def _jit(rng: random.Random, t: float, amt: float) -> float:
     return t + (abs(j) if t % BEATS_PER_BAR == 0 else j)
 
 
-def write_drums(sections, genre, feel, rng, fills=True) -> List[dict]:
+def normalize_groove(groove: Optional[List[float]]) -> Optional[List[float]]:
+    """Kick positions inside one bar, snapped to 16ths, always including the downbeat."""
+    if not groove:
+        return None
+    steps = sorted({round(float(x) * 4) / 4 for x in groove if 0 <= float(x) < BEATS_PER_BAR})
+    if 0.0 not in steps:
+        steps.insert(0, 0.0)
+    return steps[:8]
+
+
+def write_drums(sections, genre, feel, rng, fills=True, groove=None) -> List[dict]:
     prof = GENRES[genre]
     style = prof["drums"]
     half = feel == "Half-time" or style in ("halftime", "trap", "drill")
@@ -235,6 +270,10 @@ def write_drums(sections, genre, feel, rng, fills=True) -> List[dict]:
         "boombap": [0, 1.5, 2.5], "trap": [0, 1.75, 2.5], "drill": [0, 1.5, 3.25], "rock": [0, 2, 2.5],
         "backbeat": [0, 2], "four": [0, 1, 2, 3], "halftime": [0, 2.75], "brush": [0, 2], "sparse": [0],
     }[style]
+    # A riff's strum accents replace the style's kick pattern, so the kick
+    # plays with the player instead of against them
+    if groove:
+        kicks = groove
     out = []
     for bar, b in enumerate(bar_map(sections)):
         o = bar * BEATS_PER_BAR
@@ -297,7 +336,7 @@ def _bass_pitch(pc: int, lo: int = 28) -> int:
     return p
 
 
-def write_bass(sections, genre, feel, rng) -> List[dict]:
+def write_bass(sections, genre, feel, rng, groove=None) -> List[dict]:
     prof = GENRES[genre]
     style = prof["bass"]
     out = []
@@ -314,6 +353,12 @@ def write_bass(sections, genre, feel, rng) -> List[dict]:
             continue
         if style == "sustain" or feel == "Sparse":
             out.append(_n(root, o, 3.8, 90))
+        elif groove and style not in ("walking", "offbeat", "pulse"):
+            # Lock to the riff: one note per kick, held until the next one
+            for i, x in enumerate(groove):
+                nxt = groove[i + 1] if i + 1 < len(groove) else BEATS_PER_BAR
+                p = fifth if (big and i == len(groove) - 1 and len(groove) > 2) else root
+                out.append(_n(p, _jit(rng, o + x, 0.01), max(0.2, (nxt - x) * 0.9), rng.uniform(96, 112) if x == 0 else rng.uniform(84, 98)))
         elif style == "808":
             out.append(_n(root, _jit(rng, o, 0.01), 1.4 if big else 2.2, rng.uniform(108, 124)))
             out.append(_n(root, o + 2.5, 0.9, rng.uniform(88, 100)))
@@ -444,12 +489,12 @@ TRACK_META = {
 }
 
 
-def write_track(track_id, sections, key, genre, feel, seed, fills=True) -> List[dict]:
+def write_track(track_id, sections, key, genre, feel, seed, fills=True, groove=None) -> List[dict]:
     rng = random.Random(f"{seed}:{track_id}")
     if track_id == "drums":
-        notes = write_drums(sections, genre, feel, rng, fills)
+        notes = write_drums(sections, genre, feel, rng, fills, groove)
     elif track_id == "bass":
-        notes = write_bass(sections, genre, feel, rng)
+        notes = write_bass(sections, genre, feel, rng, groove)
     elif track_id == "chords":
         notes = write_chords(sections, genre, feel, rng)
     elif track_id == "melody":
@@ -461,7 +506,8 @@ def write_track(track_id, sections, key, genre, feel, seed, fills=True) -> List[
 
 
 def compose(genre: Optional[str], feel: Optional[str], tempo: Optional[int], key: Optional[str],
-            seed: int, chords: Optional[List[str]] = None, fills: bool = True) -> dict:
+            seed: int, chords: Optional[List[str]] = None, fills: bool = True,
+            groove: Optional[List[float]] = None, mode: Optional[str] = None) -> dict:
     """Write a whole project. Unspecified tempo/key are chosen from the genre, seeded."""
     genre = genre if genre in GENRES else DEFAULT_GENRE
     feel = feel if feel in FEELS else None
@@ -470,16 +516,19 @@ def compose(genre: Optional[str], feel: Optional[str], tempo: Optional[int], key
     tempo = int(tempo) if tempo else rng.randint(lo, hi)
     k = parse_key(key) if key else None
     if k is None:
-        k = parse_key(f"{rng.choice(NOTE_NAMES)} {'minor' if rng.random() < 0.7 else 'major'}")
+        pick = rng.random()
+        mode = mode if mode in ("major", "minor") else ("minor" if pick < 0.7 else "major")
+        k = parse_key(f"{rng.choice(NOTE_NAMES)} {mode}")
     if chords:
         chords = [spell(parse_chord(c)["root"], k["flats"]) + parse_chord(c)["quality"] for c in chords]
     sections = plan_song(k, genre, feel, rng, chords)
+    groove = normalize_groove(groove)
     tracks = []
     for tid in TRACK_IDS:
         meta = TRACK_META[tid]
         tracks.append({"id": tid, "name": meta["name"], "kind": "midi", "sound": meta["sound"],
-                       "notes": write_track(tid, sections, k, genre, feel, seed, fills)})
+                       "notes": write_track(tid, sections, k, genre, feel, seed, fills, groove)})
     return {
         "tempo": tempo, "key": k["name"], "time_signature": "4/4", "genre": genre, "feel": feel,
-        "seed": seed, "sections": sections, "tracks": tracks,
+        "seed": seed, "groove": groove, "sections": sections, "tracks": tracks,
     }

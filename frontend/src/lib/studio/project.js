@@ -96,6 +96,7 @@ export function fromServer(p) {
     genre: p.genre,
     feel: p.feel,
     seed: p.seed,
+    groove: p.groove || null,
     fills: true,
     swing: 0,
     humanize: 0,

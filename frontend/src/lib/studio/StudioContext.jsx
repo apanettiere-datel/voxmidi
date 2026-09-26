@@ -102,6 +102,13 @@ export function StudioProvider({ children }) {
     return () => clearTimeout(t)
   }, [project])
 
+  // Don't lose the last edit if the tab closes inside the save debounce
+  useEffect(() => {
+    const flush = () => save(STORE_KEY, projectRef.current)
+    window.addEventListener('pagehide', flush)
+    return () => window.removeEventListener('pagehide', flush)
+  }, [])
+
   // ── Toast ───────────────────────────────────────────────────────────────────
 
   const toast = useCallback((msg) => {
@@ -263,6 +270,7 @@ export function StudioProvider({ children }) {
         end_beat: end,
         seed: seed ?? Math.floor(Math.random() * 2 ** 31),
         fills: fills ?? p.fills,
+        groove: p.groove || null,
       }),
     })
     if (!res.ok) throw new Error(await readError(res))
@@ -280,9 +288,12 @@ export function StudioProvider({ children }) {
     return notes
   }, [regenerate, setProject])
 
-  const analyzeRiff = useCallback(async (wavBlob) => {
+  // hints: { tempo, start } for takes recorded to the click
+  const analyzeRiff = useCallback(async (wavBlob, hints = {}) => {
     const form = new FormData()
     form.append('riff', wavBlob, 'riff.wav')
+    if (hints.tempo) form.append('tempo', String(hints.tempo))
+    if (hints.start != null) form.append('start', String(hints.start))
     const res = await authFetch('/api/studio/analyze-riff', { method: 'POST', body: form })
     if (!res.ok) throw new Error(await readError(res))
     return res.json()
