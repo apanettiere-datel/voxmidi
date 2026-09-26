@@ -57,6 +57,8 @@ REPLICATE_API_TOKEN=r8_...          # your Replicate token
 VLLM_URL=http://localhost:8000      # for future MIDI-LLM self-hosting
 CLERK_SECRET_KEY=sk_live_...        # from Clerk dashboard → API Keys
 DEV_MODE=true                       # set false in production
+DRUMS_PROVIDER=auto                 # AI drums: fal when FAL_KEY is set, else a free local preview (mock)
+FAL_DRUMS_MODEL=fal-ai/stable-audio-25/audio-to-audio  # model used for AI drums (about $0.20 per render)
 ```
 
 ### `frontend/.env`

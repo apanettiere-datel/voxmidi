@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import clsx from 'clsx'
 import { ChevronLeftIcon, ChevronRightIcon, ArrowPathIcon } from '@heroicons/react/20/solid'
 import EditorFrame from '@/components/voxmidi/studio/EditorFrame'
+import AiDrumsPanel from '@/components/voxmidi/studio/AiDrumsPanel'
 import { Toggle, outlineBtn, plainBtn, panel } from '@/components/voxmidi/studio/ui'
 import { useStudio } from '@/lib/studio/StudioContext'
 import { engine } from '@/lib/studio/engine'
@@ -240,6 +241,7 @@ function DrumEditor() {
           <span className="text-xs text-zinc-400 dark:text-zinc-500">Free and unlimited.</span>
         </div>
       </div>
+      <AiDrumsPanel />
       <p className="mt-3.5 text-xs text-zinc-400 dark:text-zinc-500">
         Click a step to toggle it, or drag across steps to paint. Right-click a step to cycle it through roll and flam. Drag a velocity bar up or down.
       </p>

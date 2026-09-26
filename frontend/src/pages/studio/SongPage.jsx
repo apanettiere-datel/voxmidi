@@ -152,6 +152,7 @@ function SongTimeline() {
   }), [])
 
   async function regenTrack(track) {
+    if (track.id === 'drumsai') { navigate('/song/drums'); return }
     if (track.kind === 'audio') { toast('Audio tracks come from recording'); return }
     setBusy((b) => ({ ...b, [track.id]: true }))
     try {

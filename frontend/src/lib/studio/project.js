@@ -24,6 +24,7 @@ export const TRACK_COLORS = {
   melody: 'var(--track-5)',
   guitar: 'var(--track-8)',
   vocals: 'var(--vocals)',
+  drumsai: 'var(--track-3)',
 }
 
 export const SOUNDS = {
@@ -33,6 +34,7 @@ export const SOUNDS = {
   melody: ['Soft pad', 'Bell lead', 'Felt piano', 'Breath synth'],
   guitar: ['Dry', 'Room verb', 'Warm tape'],
   vocals: ['Dry', 'Plate verb', 'Warm tape'],
+  drumsai: ['Dry', 'Room verb', 'Warm tape'],
 }
 
 // Studio drum lanes, GM notes
@@ -221,4 +223,14 @@ export function removeSection(project, i) {
       clips: (tr.clips || []).filter((c) => c.startBeat < start || c.startBeat >= end).map((c) => (c.startBeat >= end ? { ...c, startBeat: c.startBeat - len } : c)),
     })),
   }
+}
+
+// Fingerprint of everything that changes how the drum part sounds, so an AI
+// render can tell when the pattern has moved on since it was made
+export function drumSignature(project) {
+  const d = trackById(project, 'drums')
+  const parts = [project.tempo, project.swing, project.humanize, ...(d?.notes || []).map((n) => `${n.p}:${n.t}:${n.v}:${n.roll ? 'r' : ''}${n.flam ? 'f' : ''}`)]
+  let h = 2166136261
+  for (const ch of parts.join('|')) h = Math.imul(h ^ ch.charCodeAt(0), 16777619)
+  return (h >>> 0).toString(36)
 }
