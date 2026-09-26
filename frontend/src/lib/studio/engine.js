@@ -59,6 +59,22 @@ export function audibleTracks(project) {
   return project.tracks.filter((t) => !t.mute && (!anySolo || t.solo))
 }
 
+// Master bus limiter: a full band plus vocals sums well past 0 dBFS, so catch
+// peaks before they clip, live and in the export alike
+function masterBus(ctx) {
+  const gain = ctx.createGain()
+  gain.gain.value = 0.85
+  const limiter = ctx.createDynamicsCompressor()
+  limiter.threshold.value = -6
+  limiter.knee.value = 3
+  limiter.ratio.value = 20
+  limiter.attack.value = 0.002
+  limiter.release.value = 0.12
+  gain.connect(limiter)
+  limiter.connect(ctx.destination)
+  return gain
+}
+
 // ─── Voices ──────────────────────────────────────────────────────────────────
 
 const SYNTH = {
@@ -224,9 +240,7 @@ export class Engine {
   context() {
     if (!this.ctx) {
       this.ctx = new (window.AudioContext || window.webkitAudioContext)()
-      this.master = this.ctx.createGain()
-      this.master.gain.value = 0.85
-      this.master.connect(this.ctx.destination)
+      this.master = masterBus(this.ctx)
       this.voices = new Voices(this.ctx, this.master)
     }
     if (this.ctx.state === 'suspended') this.ctx.resume()
@@ -363,9 +377,7 @@ export async function renderMix(project, takes, sampleRate = 44100) {
   const beats = totalBars(project.sections) * BEATS_PER_BAR
   const seconds = beats * spb + 2
   const ctx = new OfflineAudioContext(2, Math.ceil(seconds * sampleRate), sampleRate)
-  const master = ctx.createGain()
-  master.gain.value = 0.85
-  master.connect(ctx.destination)
+  const master = masterBus(ctx)
   const voices = new Voices(ctx, master)
   voices.setLevels(project)
   const audible = new Set(audibleTracks(project).map((t) => t.id))
@@ -380,5 +392,20 @@ export async function renderMix(project, takes, sampleRate = 44100) {
       }
     }
   }
-  return ctx.startRendering()
+  const out = await ctx.startRendering()
+  // Leave 1 dB of headroom: scale down if anything still reaches -1 dBFS
+  let peak = 0
+  for (let c = 0; c < out.numberOfChannels; c++) {
+    const d = out.getChannelData(c)
+    for (let i = 0; i < d.length; i++) { const a = Math.abs(d[i]); if (a > peak) peak = a }
+  }
+  const ceiling = 0.891
+  if (peak > ceiling) {
+    const k = ceiling / peak
+    for (let c = 0; c < out.numberOfChannels; c++) {
+      const d = out.getChannelData(c)
+      for (let i = 0; i < d.length; i++) d[i] *= k
+    }
+  }
+  return out
 }
