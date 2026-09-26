@@ -182,16 +182,19 @@ export function StudioProvider({ children }) {
   useEffect(() => {
     let alive = true
     listTakes().then(async (list) => {
-      if (!alive) return
-      setTakes(list.map(({ blob, ...meta }) => meta))
+      // Publish the list only once the audio is decoded, so a screen that
+      // reads engine.takes for a listed take always finds it
       const ctx = engine.context()
-      for (const t of list) {
+      const ready = []
+      for (const { blob, ...meta } of list) {
         try {
-          engine.takes.set(t.id, await ctx.decodeAudioData(await t.blob.arrayBuffer()))
+          engine.takes.set(meta.id, await ctx.decodeAudioData(await blob.arrayBuffer()))
+          ready.push(meta)
         } catch {
           /* a take that no longer decodes is skipped */
         }
       }
+      if (alive) setTakes((prev) => [...ready, ...prev.filter((t) => !ready.some((r) => r.id === t.id))])
     })
     return () => { alive = false }
   }, [])
