@@ -51,7 +51,7 @@ function LatencyDialog({ latency, onMeasure, onClose }) {
 
 export default function RecordPage() {
   const navigate = useNavigate()
-  const { project, setProject, selSection, takes, addTake, latency, setLatency, toast } = useStudio()
+  const { project, setProject, selSection, setSelSection, takes, addTake, latency, setLatency, toast } = useStudio()
 
   const [devices, setDevices] = useState([])
   const [deviceId, setDeviceId] = useState('')
@@ -63,6 +63,7 @@ export default function RecordPage() {
   const [takeSel, setTakeSel] = useState(null)
   const [dest, setDest] = useState('guitar')
   const [showLatency, setShowLatency] = useState(false)
+  const [clickOn, setClickOn] = useState(true)
 
   const mic = useRef(null) // { stream, source, analyser, monGain }
   const rec = useRef(null) // { cap, downbeat, startBeat, clickTimer }
@@ -150,7 +151,7 @@ export default function RecordPage() {
     const cap = await startCapture(ctx, mic.current.source)
     let clickTimer = null
     if (project) {
-      engine.play(project, { from: startBeat, at: downbeat - 0.06, metronome: true })
+      engine.play(project, { from: startBeat, at: downbeat - 0.06, metronome: clickOn })
     } else {
       // No song yet: keep the click going after the count-in
       let next = downbeat
@@ -221,6 +222,11 @@ export default function RecordPage() {
         <p className="text-sm text-zinc-500 dark:text-zinc-400 mt-1">
           Play along with the click. Your take stays audio. Nothing gets transcribed unless you ask.
         </p>
+        {project && (
+          <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-1">
+            The song plays while you record. Wear headphones so it doesn't bleed into your take.
+          </p>
+        )}
       </div>
 
       {micError && (
@@ -277,6 +283,24 @@ export default function RecordPage() {
                 {latency == null ? 'Not measured' : `${latency} ms`}
               </button>
             </div>
+            {project && (
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs text-zinc-500 dark:text-zinc-400">Start from</label>
+                <select value={selSection} disabled={recording} onChange={(e) => setSelSection(Number(e.target.value))}
+                  className="rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-2 py-1 text-sm text-zinc-900 dark:text-white">
+                  {project.sections.map((s, i) => <option key={s.id} value={i}>{s.kind} · bar {sectionRanges(project.sections)[i].start / BEATS_PER_BAR + 1}</option>)}
+                </select>
+              </div>
+            )}
+            {project && (
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs text-zinc-500 dark:text-zinc-400">Click</label>
+                <div className="flex items-center gap-2 py-1">
+                  <Toggle on={clickOn} onChange={setClickOn} label="Click while recording" />
+                  <span className="text-xs text-zinc-400 dark:text-zinc-500">{clickOn ? 'On' : 'Song only'}</span>
+                </div>
+              </div>
+            )}
             <div className="flex flex-col gap-1.5">
               <label className="text-xs text-zinc-500 dark:text-zinc-400">Tempo</label>
               {project ? (
@@ -347,6 +371,11 @@ export default function RecordPage() {
           <Button color="emerald" className={clsx(!project || takes.length === 0 ? 'mt-auto' : '')} disabled={!takeSel || recording} onClick={useTake}>
             {project ? 'Use this take' : 'Build a song from this take'}
           </Button>
+          {project && takeSel && !recording && (
+            <button type="button" onClick={() => navigate(`/riff?take=${takeSel}`)} className="text-xs text-zinc-400 hover:text-indigo-300 transition">
+              Or build a new song from this take
+            </button>
+          )}
         </section>
       </div>
 

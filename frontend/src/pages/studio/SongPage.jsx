@@ -100,6 +100,47 @@ function SongTimeline() {
   const { project, setProject, selTrack, setSelTrack, selSection, setSelSection, loopOn, play, stop, rewrite, takes, toast } = useStudio()
   const head = useRef(null)
   const [busy, setBusy] = useState({})
+  const [selClip, setSelClip] = useState(null)
+
+  // Recorded clips: press to select, drag sideways to move (snaps to beats)
+  function clipDown(e, track, clip) {
+    if (e.button !== 0) return
+    e.preventDefault()
+    e.stopPropagation()
+    setSelClip(clip.id)
+    setSelTrack(track.id)
+    const x0 = e.clientX
+    const maxBeat = totalBars(project.sections) * BEATS_PER_BAR - 1
+    let first = true
+    const move = (ev) => {
+      const beat = Math.max(0, Math.min(maxBeat, Math.round(clip.startBeat + ((ev.clientX - x0) / BW) * BEATS_PER_BAR)))
+      if (beat === clip.startBeat && first) return
+      setProject((p) => updateTrack(p, track.id, (tr) => ({ clips: tr.clips.map((c) => (c.id === clip.id ? { ...c, startBeat: beat } : c)) })), { undoable: first, what: first ? `Moved a ${track.name.toLowerCase()} clip` : undefined })
+      first = false
+    }
+    const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up) }
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', up)
+  }
+
+  function deleteClip(track, clip) {
+    setProject((p) => updateTrack(p, track.id, (tr) => ({ clips: tr.clips.filter((c) => c.id !== clip.id) })), { what: `Removed a ${track.name.toLowerCase()} clip` })
+    setSelClip(null)
+    toast('Clip removed. Undo brings it back')
+  }
+
+  useEffect(() => {
+    function onKey(e) {
+      const tag = e.target?.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || !selClip) return
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        const tr = project.tracks.find((t) => (t.clips || []).some((c) => c.id === selClip))
+        if (tr) { e.preventDefault(); deleteClip(tr, tr.clips.find((c) => c.id === selClip)) }
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  })
 
   const bars = totalBars(project.sections)
   const laneW = bars * BW
@@ -264,12 +305,26 @@ function SongTimeline() {
                 for (const c of t.clips || []) {
                   const take = takeById[c.takeId]
                   const beats = (c.duration * project.tempo) / 60
+                  const on = selClip === c.id
+                  // Only the part of the take this clip plays
+                  const peaks = take && take.peaks.slice(
+                    Math.floor((c.offset / take.duration) * take.peaks.length),
+                    Math.ceil(((c.offset + c.duration) / take.duration) * take.peaks.length),
+                  )
                   clips.push(
-                    <button key={c.id} type="button" data-clip onClick={() => navigate('/record')} className="absolute top-1 overflow-hidden rounded-[3px] text-left"
+                    <div key={c.id} data-clip onPointerDown={(e) => clipDown(e, t, c)} title="Drag to move. Delete removes it."
+                      className={clsx('absolute top-1 overflow-hidden rounded-[3px] text-left cursor-grab touch-none', on && 'ring-1 ring-white')}
                       style={{ left: (c.startBeat / 4) * BW, width: Math.max(8, (beats / 4) * BW - 2), height: RH - 9, background: `color-mix(in srgb, ${TRACK_COLORS[t.id]} 12%, transparent)`, border: `1px solid color-mix(in srgb, ${TRACK_COLORS[t.id]} 40%, transparent)` }}>
-                      <div className="h-[13px] px-1 text-[9px] leading-[13px] whitespace-nowrap overflow-hidden" style={{ color: TRACK_COLORS[t.id] }}>{t.name} · {take?.name || 'take'}</div>
-                      {take && <Wave peaks={take.peaks} stroke={TRACK_COLORS[t.id]} height={RH - 24} />}
-                    </button>
+                      <div className="flex items-center h-[13px] px-1 text-[9px] leading-[13px] whitespace-nowrap overflow-hidden" style={{ color: TRACK_COLORS[t.id] }}>
+                        <span className="truncate">{t.name} · {take?.name || 'take'}</span>
+                        {on && (
+                          <button type="button" onPointerDown={(e) => e.stopPropagation()} onClick={() => deleteClip(t, c)} title="Remove this clip" className="ml-auto shrink-0 text-zinc-200 hover:text-red-400">
+                            <TrashIcon className="size-2.5" />
+                          </button>
+                        )}
+                      </div>
+                      {peaks?.length > 1 && <Wave peaks={peaks} stroke={TRACK_COLORS[t.id]} height={RH - 24} />}
+                    </div>
                   )
                 }
               }
@@ -290,7 +345,7 @@ function SongTimeline() {
         </div>
       </div>
       <p className="px-4 py-3 text-xs text-zinc-400 dark:text-zinc-500">
-        Click a clip to edit it. Click an empty spot in the lanes to play from there. Double-click a section to duplicate it.
+        Click a MIDI clip to edit it. Drag a recorded clip to move it, Delete removes it. Click an empty spot in the lanes to play from there. Double-click a section to duplicate it.
       </p>
     </div>
   )
