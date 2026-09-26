@@ -287,3 +287,98 @@ async def studio_analyze_riff(
         raise HTTPException(status_code=400, detail=str(exc))
     print(f"[studio] analyze-riff user={current_user.id} tempo={result['tempo']} key={result['key']} bars={result['bars']}")
     return result
+
+
+# ─── AI drums ────────────────────────────────────────────────────────────────
+
+class DrumNote(BaseModel):
+    p: int
+    t: float = Field(..., ge=0)
+    d: float = Field(0.1, gt=0, le=16)
+    v: int = Field(..., ge=1, le=127)
+
+
+class AiDrumsRequest(BaseModel):
+    tempo: int = Field(..., ge=40, le=240)
+    total_beats: int = Field(..., ge=4, le=MAX_TOTAL_BARS * BEATS_PER_BAR)
+    notes: List[DrumNote] = Field(..., min_length=1, max_length=20000)
+    style: str
+    strength: float = Field(0.5, ge=0.2, le=0.9)
+
+    @field_validator("style")
+    @classmethod
+    def _style(cls, v):
+        from pipelines.drum_ai import STYLES
+        if v not in STYLES:
+            raise ValueError(f"style must be one of {list(STYLES)}")
+        return v
+
+
+def _run_ai_drums(job_id: str, req: dict, user_id: str, charged: bool):
+    from pipelines.drum_ai import make_ai_drums
+    from .generate import MIDI_STORE, _persist_files
+    from .jobs import update_job, get_job
+
+    job_dir = UPLOAD_DIR / job_id
+    job_dir.mkdir(parents=True, exist_ok=True)
+
+    def progress(pct, status):
+        if (get_job(job_id) or {}).get("status") == "cancelled":
+            raise RuntimeError("cancelled")
+        update_job(job_id, {"status": status, "progress": pct})
+
+    try:
+        result = make_ai_drums(req["notes"], req["tempo"], req["total_beats"], req["style"], req["strength"], job_dir, progress)
+        _persist_files(job_dir, MIDI_STORE / job_id)
+        result["audio_url"] = f"/api/download/{job_id}/{result.pop('file')}"
+        update_job(job_id, {"status": "complete", "progress": 100, "result": result})
+        print(f"[studio] ai drums job={job_id} provider={result['provider']} match={result['match']}% offset={result['offset_ms']}ms")
+    except Exception as exc:
+        # A failed or rejected render doesn't cost the user a song
+        if charged:
+            from database import SessionLocal
+            db = SessionLocal()
+            try:
+                db.execute(update(User).where(User.id == user_id, User.usage_count > 0).values(usage_count=User.usage_count - 1))
+                db.commit()
+            finally:
+                db.close()
+        cancelled = str(exc) == "cancelled"
+        update_job(job_id, {"status": "cancelled" if cancelled else "error", "message": None if cancelled else str(exc)})
+        print(f"[studio] ai drums job={job_id} failed: {exc}")
+
+
+@router.post("/studio/drums/ai")
+async def studio_ai_drums(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Re-skin the song's drum pattern into real drums. With a live provider this counts as one song."""
+    from pipelines.drum_ai import provider_name, DRUM_PITCHES
+    from .jobs import set_job, try_start
+
+    req = await _parse(request, AiDrumsRequest)
+    bad = [n.p for n in req.notes if n.p not in DRUM_PITCHES]
+    if bad:
+        raise HTTPException(status_code=400, detail=f"notes: unknown drum pitches {sorted(set(bad))[:5]}")
+    if any(n.t >= req.total_beats for n in req.notes):
+        raise HTTPException(status_code=400, detail="notes: every note must start before total_beats")
+
+    provider = provider_name()
+    charged = provider != "mock"
+    if charged:
+        result = db.execute(
+            update(User)
+            .where(User.id == current_user.id, User.usage_count < User.usage_limit)
+            .values(usage_count=User.usage_count + 1)
+        )
+        db.commit()
+        if result.rowcount != 1:
+            raise HTTPException(status_code=429, detail=f"Monthly limit of {current_user.usage_limit} songs reached")
+
+    job_id = str(uuid.uuid4())[:8]
+    set_job(job_id, {"status": "queued", "progress": 0})
+    payload = req.model_dump()
+    started = try_start(job_id, _run_ai_drums, (job_id, payload, current_user.id, charged))
+    return {"job_id": job_id, "status": "processing" if started else "queued", "provider": provider}
