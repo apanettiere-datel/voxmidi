@@ -2,7 +2,7 @@
 // offline renderer that uses the same voices, so an exported mix is exactly
 // what plays in the app.
 
-import { totalBars, BEATS_PER_BAR } from './project'
+import { totalBars, BEATS_PER_BAR, isDrums } from './project'
 
 // ─── Performance: swing, humanize, rolls and flams ───────────────────────────
 // Deterministic (hash-based, not random) so playback and export always match.
@@ -46,7 +46,7 @@ const performed = new WeakMap()
 
 export function performedNotes(project, track) {
   if (track.kind !== 'midi') return []
-  if (track.id !== 'drums') return track.notes
+  if (!isDrums(track)) return track.notes
   const hit = performed.get(track.notes)
   if (hit && hit.swing === project.swing && hit.humanize === project.humanize) return hit.notes
   const notes = performDrums(track.notes, project.swing, project.humanize)
@@ -194,7 +194,7 @@ export class Voices {
   }
 
   note(track, n, t, bpm) {
-    if (track.id === 'drums') return this.drum(track, n, t)
+    if (isDrums(track)) return this.drum(track, n, t)
     const ctx = this.ctx
     const [type, atk, tail, cut, base, pair, sub] = SYNTH[track.sound] || SYNTH['Felt piano']
     const dur = Math.max(0.08, (n.d * 60) / bpm)

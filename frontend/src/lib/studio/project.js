@@ -25,6 +25,7 @@ export const TRACK_COLORS = {
   guitar: 'var(--track-8)',
   vocals: 'var(--vocals)',
   drumsai: 'var(--track-3)',
+  audio: 'var(--track-4)',
 }
 
 export const SOUNDS = {
@@ -35,6 +36,7 @@ export const SOUNDS = {
   guitar: ['Dry', 'Room verb', 'Warm tape'],
   vocals: ['Dry', 'Plate verb', 'Warm tape'],
   drumsai: ['Dry', 'Room verb', 'Warm tape'],
+  audio: ['Dry', 'Room verb', 'Warm tape'],
 }
 
 // Studio drum lanes, GM notes
@@ -233,4 +235,35 @@ export function drumSignature(project) {
   let h = 2166136261
   for (const ch of parts.join('|')) h = Math.imul(h ^ ch.charCodeAt(0), 16777619)
   return (h >>> 0).toString(36)
+}
+
+// A track's role decides its color, sounds, synth and how it regenerates. The
+// four written parts and the recorded tracks use their id as their role;
+// tracks you add carry an explicit role.
+export const roleOf = (t) => t.role || t.id
+export const isDrums = (t) => t.kind === 'midi' && roleOf(t) === 'drums'
+export const colorOf = (t) => TRACK_COLORS[roleOf(t)] || TRACK_COLORS[t.kind === 'audio' ? 'audio' : 'chords']
+export const soundsOf = (t) => SOUNDS[roleOf(t)] || SOUNDS[t.kind === 'audio' ? 'audio' : 'chords']
+// Composer part that writes notes for a MIDI role
+export const composerPart = (t) => ({ drums: 'drums', bass: 'bass', chords: 'chords', melody: 'melody' })[roleOf(t)] || 'melody'
+
+export const NEW_TRACKS = [
+  { role: 'drums', label: 'Drums', kind: 'midi', sound: 'Tight kit' },
+  { role: 'bass', label: 'Bass', kind: 'midi', sound: 'Warm bass' },
+  { role: 'chords', label: 'Keys', kind: 'midi', sound: 'Rhodes' },
+  { role: 'melody', label: 'Lead', kind: 'midi', sound: 'Bell lead' },
+  { role: 'audio', label: 'Audio', kind: 'audio', sound: 'Dry' },
+]
+
+export function makeTrack(project, role) {
+  const spec = NEW_TRACKS.find((x) => x.role === role) || NEW_TRACKS[4]
+  const n = project.tracks.filter((t) => roleOf(t) === role).length + 1
+  return {
+    id: `${role}-${Date.now().toString(36)}`,
+    role,
+    name: `${spec.label} ${n}`,
+    kind: spec.kind,
+    sound: spec.sound,
+    mute: false, solo: false, vol: 75, notes: [], clips: [],
+  }
 }

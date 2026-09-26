@@ -3,6 +3,7 @@
 
 import { Midi } from '@tonejs/midi'
 import { performedNotes } from './engine'
+import { isDrums } from './project'
 
 const PPQ = 480
 
@@ -22,7 +23,7 @@ export function trackMidi(project, track) {
   midi.header.name = project.name
   const t = midi.addTrack()
   t.name = track.name
-  if (track.id === 'drums') t.channel = 9
+  if (isDrums(track)) t.channel = 9
   else t.instrument.number = PROGRAMS[track.sound] ?? 0
   for (const n of performedNotes(project, track)) {
     t.addNote({

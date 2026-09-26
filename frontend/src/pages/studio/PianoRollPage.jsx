@@ -7,13 +7,12 @@ import { outlineBtn, plainBtn } from '@/components/voxmidi/studio/ui'
 import { useStudio } from '@/lib/studio/StudioContext'
 import { engine } from '@/lib/studio/engine'
 import { scalePcs, SHARP_NAMES, FLAT_NAMES, parseKey } from '@/lib/studio/theory'
-import { TRACK_COLORS, BEATS_PER_BAR, sectionRanges, updateTrack, trackById } from '@/lib/studio/project'
+import { colorOf, isDrums, BEATS_PER_BAR, sectionRanges, updateTrack, trackById } from '@/lib/studio/project'
 
 const PPB = 28   // px per beat
 const ROW = 14   // px per semitone
 const CHORD_LANE = 26
 const VEL_LANE = 56
-const EDITABLE = ['bass', 'chords', 'melody']
 
 const q = (v, g) => Math.round(v / g) * g
 
@@ -34,9 +33,10 @@ function drag(e, onMove, onDone) {
 function RollEditor() {
   const navigate = useNavigate()
   const { project, setProject, selTrack, setSelTrack, selSection, setSelSection, rewrite, toast } = useStudio()
-  const trackId = EDITABLE.includes(selTrack) ? selTrack : 'bass'
+  const editable = project.tracks.filter((t) => t.kind === 'midi' && !isDrums(t))
+  const trackId = editable.some((t) => t.id === selTrack) ? selTrack : editable[0]?.id || 'bass'
   const track = trackById(project, trackId)
-  const color = TRACK_COLORS[trackId]
+  const color = colorOf(track)
   const secIndex = Math.min(selSection, project.sections.length - 1)
   const sec = project.sections[secIndex]
   const { start, end } = sectionRanges(project.sections)[secIndex]
@@ -169,7 +169,7 @@ function RollEditor() {
         </button>
         <span className="size-[9px] shrink-0 rounded-sm" style={{ background: color }} />
         <select value={trackId} onChange={(e) => setSelTrack(e.target.value)} className="rounded-md border border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 px-1.5 py-1 text-sm font-semibold text-zinc-900 dark:text-white">
-          {EDITABLE.map((id) => <option key={id} value={id}>{trackById(project, id).name}</option>)}
+          {editable.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
         </select>
         <div className="flex items-center gap-1">
           <button type="button" onClick={() => setSelSection(Math.max(0, secIndex - 1))} disabled={secIndex === 0} className={outlineBtn} aria-label="Previous section"><ChevronLeftIcon className="size-3.5" /></button>
@@ -269,10 +269,18 @@ function RollEditor() {
   )
 }
 
+function RollGate() {
+  const { project } = useStudio()
+  if (!project.tracks.some((t) => t.kind === 'midi' && !isDrums(t))) {
+    return <p className="p-8 text-sm text-zinc-500 dark:text-zinc-400">This song has no bass, keys or lead track. Add one from the Song screen with Add track.</p>
+  }
+  return <RollEditor />
+}
+
 export default function PianoRollPage() {
   return (
     <EditorFrame>
-      <RollEditor />
+      <RollGate />
     </EditorFrame>
   )
 }

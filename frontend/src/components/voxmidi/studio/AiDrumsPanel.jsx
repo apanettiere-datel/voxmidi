@@ -41,7 +41,7 @@ export default function AiDrumsPanel() {
   const aiTrack = trackById(project, 'drumsai')
   const usingAi = !!aiTrack && !aiTrack.mute
   const stale = ai && ai.signature !== drumSignature(project)
-  const drumNotes = trackById(project, 'drums').notes
+  const drumNotes = trackById(project, 'drums')?.notes || []
 
   // When the job finishes, pull the audio in and put it on an AI drums track
   useEffect(() => {

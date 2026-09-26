@@ -4,7 +4,7 @@ import { CheckIcon, InformationCircleIcon } from '@heroicons/react/20/solid'
 import { useStudio } from '@/lib/studio/StudioContext'
 import { engine, renderMix } from '@/lib/studio/engine'
 import { trackMidi, wavBytes, wavSize, zip, download, formatBytes } from '@/lib/studio/files'
-import { slug, totalBars, TRACK_COLORS, BEATS_PER_BAR } from '@/lib/studio/project'
+import { slug, totalBars, colorOf, BEATS_PER_BAR } from '@/lib/studio/project'
 
 function Box({ on }) {
   return (
@@ -22,12 +22,20 @@ export default function ExportDialog({ onClose }) {
   // Every row's size is exact: MIDI is built now, WAV size follows from length
   const rows = useMemo(() => {
     const out = []
+    // File names from track names, kept unique ("Keys 2", "keys-2")
+    const used = new Set()
+    const fileBase = (t) => {
+      let base = slug(t.name)
+      for (let n = 2; used.has(base); n++) base = `${slug(t.name)}-${n}`
+      used.add(base)
+      return `${name}_${base}`
+    }
     for (const t of project.tracks) {
       if (t.kind === 'midi' && t.notes.length) {
         const bytes = trackMidi(project, t)
-        out.push({ id: t.id, file: `${name}_${t.id}.mid`, meta: `MIDI · ${t.notes.length} notes · velocity kept`, size: bytes.length, bytes, color: TRACK_COLORS[t.id] })
+        out.push({ id: t.id, file: `${fileBase(t)}.mid`, meta: `MIDI · ${t.notes.length} notes · velocity kept`, size: bytes.length, bytes, color: colorOf(t) })
       } else if (t.kind === 'audio' && t.clips?.length) {
-        out.push({ id: t.id, file: `${name}_${t.id}.wav`, meta: `Audio stem · ${t.clips.length} take${t.clips.length > 1 ? 's' : ''} as placed · 16-bit`, size: wavSize(songSeconds), color: TRACK_COLORS[t.id], audio: true })
+        out.push({ id: t.id, file: `${fileBase(t)}.wav`, meta: `Audio stem · ${t.clips.length} take${t.clips.length > 1 ? 's' : ''} as placed · 16-bit`, size: wavSize(songSeconds), color: colorOf(t), audio: true })
       }
     }
     out.push({ id: 'mix', file: `${name}_mix.wav`, meta: 'Full mix · WAV · 16-bit', size: wavSize(songSeconds), color: 'var(--emerald-500)', audio: true, round: true })

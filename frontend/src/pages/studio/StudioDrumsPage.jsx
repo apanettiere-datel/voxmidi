@@ -7,7 +7,7 @@ import AiDrumsPanel from '@/components/voxmidi/studio/AiDrumsPanel'
 import { Toggle, outlineBtn, plainBtn, panel } from '@/components/voxmidi/studio/ui'
 import { useStudio } from '@/lib/studio/StudioContext'
 import { engine } from '@/lib/studio/engine'
-import { DRUM_LANES, BEATS_PER_BAR, totalBars, sectionRanges, spliceNotes, updateTrack, trackById, barMap } from '@/lib/studio/project'
+import { DRUM_LANES, BEATS_PER_BAR, isDrums, totalBars, sectionRanges, spliceNotes, updateTrack, trackById, barMap } from '@/lib/studio/project'
 
 const STEPS = 16
 const HIT = 0.12 // a note within this many beats of a step belongs to it
@@ -20,7 +20,9 @@ function DrumEditor() {
   const navigate = useNavigate()
   const [params, setParams] = useSearchParams()
   const { project, setProject, regenerate, rewrite, toast } = useStudio()
-  const drums = trackById(project, 'drums')
+  const wanted = trackById(project, params.get('track') || 'drums')
+  const trackId = wanted && isDrums(wanted) ? wanted.id : project.tracks.find(isDrums).id
+  const drums = trackById(project, trackId)
   const bars = totalBars(project.sections)
   const bar = Math.min(bars - 1, Math.max(0, parseInt(params.get('bar') || '0', 10) || 0))
   const o = bar * BEATS_PER_BAR
@@ -29,8 +31,8 @@ function DrumEditor() {
   const [busy, setBusy] = useState(null)
   const paint = useRef(null)
 
-  const setBar = (b) => setParams({ bar: String(Math.max(0, Math.min(bars - 1, b))) }, { replace: true })
-  const setNotes = (fn, what) => setProject((p) => updateTrack(p, 'drums', (t) => ({ notes: fn(t.notes) })), { what })
+  const setBar = (b) => setParams({ bar: String(Math.max(0, Math.min(bars - 1, b))), ...(trackId !== 'drums' ? { track: trackId } : {}) }, { replace: true })
+  const setNotes = (fn, what) => setProject((p) => updateTrack(p, trackId, (t) => ({ notes: fn(t.notes) })), { what })
 
   // Light up the step under the playhead when it's in this bar
   useEffect(() => engine.subscribe((b) => {
@@ -87,7 +89,7 @@ function DrumEditor() {
     let first = true
     const move = (ev) => {
       const nv = Math.round(Math.max(8, Math.min(127, (v0 || 90) - ((ev.clientY - y0) / 44) * 127)))
-      setProject((p) => updateTrack(p, 'drums', (tr) => ({ notes: tr.notes.map((n) => (Math.abs(n.t - t) < HIT ? { ...n, v: nv } : n)) })), { undoable: first, what: first ? 'Changed velocity' : undefined })
+      setProject((p) => updateTrack(p, trackId, (tr) => ({ notes: tr.notes.map((n) => (Math.abs(n.t - t) < HIT ? { ...n, v: nv } : n)) })), { undoable: first, what: first ? 'Changed velocity' : undefined })
       first = false
     }
     const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up) }
@@ -98,7 +100,7 @@ function DrumEditor() {
   async function regenBar() {
     setBusy('bar')
     try {
-      await rewrite('drums', { start: o, end: o + BEATS_PER_BAR, what: `Rewrote drums in bar ${bar + 1}` })
+      await rewrite(trackId, { start: o, end: o + BEATS_PER_BAR, what: `Rewrote drums in bar ${bar + 1}` })
       toast(`Bar ${bar + 1} rewritten`)
     } catch (err) {
       toast(err.message)
@@ -111,12 +113,12 @@ function DrumEditor() {
   async function toggleFills(on) {
     setBusy('fill')
     try {
-      const notes = await regenerate('drums', { seed: project.seed, fills: on })
+      const notes = await regenerate(trackId, { seed: project.seed, fills: on })
       const lastBars = sectionRanges(project.sections).map((r) => [r.end - BEATS_PER_BAR, r.end])
       setProject((p) => {
-        let out = trackById(p, 'drums').notes
+        let out = trackById(p, trackId).notes
         for (const [s, e] of lastBars) out = spliceNotes(out, s, e, notes.filter((n) => n.t >= s && n.t < e))
-        return { ...updateTrack(p, 'drums', { notes: out }), fills: on }
+        return { ...updateTrack(p, trackId, { notes: out }), fills: on }
       }, { what: on ? 'Turned section-end fills on' : 'Turned section-end fills off' })
       toast(on ? 'Fills added at each section end' : 'Fills removed')
     } catch (err) {
@@ -135,7 +137,7 @@ function DrumEditor() {
           <ChevronLeftIcon className="size-4" />
           Song
         </button>
-        <h2 className="text-lg font-semibold text-zinc-900 dark:text-white">Drums</h2>
+        <h2 className="text-lg font-semibold text-zinc-900 dark:text-white">{drums.name}</h2>
         <span className="font-mono tabular-nums text-xs text-zinc-400 dark:text-zinc-500">
           {drums.notes.length} hits · {drums.sound}{section ? ` · ${section.kind}` : ''}
         </span>
@@ -241,7 +243,7 @@ function DrumEditor() {
           <span className="text-xs text-zinc-400 dark:text-zinc-500">Free and unlimited.</span>
         </div>
       </div>
-      <AiDrumsPanel />
+      {trackId === 'drums' && <AiDrumsPanel />}
       <p className="mt-3.5 text-xs text-zinc-400 dark:text-zinc-500">
         Click a step to toggle it, or drag across steps to paint. Right-click a step to cycle it through roll and flam. Drag a velocity bar up or down.
       </p>
@@ -249,10 +251,18 @@ function DrumEditor() {
   )
 }
 
+function DrumGate() {
+  const { project } = useStudio()
+  if (!project.tracks.some(isDrums)) {
+    return <p className="p-8 text-sm text-zinc-500 dark:text-zinc-400">This song has no drum track. Add one from the Song screen with Add track.</p>
+  }
+  return <DrumEditor />
+}
+
 export default function StudioDrumsPage() {
   return (
     <EditorFrame>
-      <DrumEditor />
+      <DrumGate />
     </EditorFrame>
   )
 }

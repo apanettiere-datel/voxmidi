@@ -16,13 +16,18 @@ export default function TransportBar({ onExport, onToggleAsk, askOpen }) {
   const navigate = useNavigate()
   const {
     project, playing, togglePlay, stop, loopOn, setLoopOn, metro, setMetro,
-    selSection, undo, redo, canUndo, canRedo, toastMsg,
+    selSection, undo, redo, canUndo, canRedo, toastMsg, cursor, cursorRef,
   } = useStudio()
   const readout = useRef(null)
 
   useEffect(() => engine.subscribe((b) => {
-    if (readout.current) readout.current.textContent = formatBeat(b ?? 0)
+    if (readout.current) readout.current.textContent = formatBeat(b ?? cursorRef.current)
   }), [])
+
+  // Stopped: the readout shows the edit cursor
+  useEffect(() => {
+    if (!engine.playing && readout.current) readout.current.textContent = formatBeat(cursor)
+  }, [cursor])
 
   const stats = [
     ['Tempo', `${project.tempo} BPM`],

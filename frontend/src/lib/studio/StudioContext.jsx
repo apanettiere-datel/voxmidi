@@ -5,7 +5,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { useAuthFetch } from '@/lib/authFetch'
 import { engine } from './engine'
 import { listTakes, saveTake, peaksOf } from './takes'
-import { fromServer, totalBars, sectionRanges, spliceNotes, updateTrack, BEATS_PER_BAR } from './project'
+import { fromServer, totalBars, sectionRanges, spliceNotes, updateTrack, trackById, composerPart, BEATS_PER_BAR } from './project'
 import { wavBytes } from './files'
 
 const StudioContext = createContext(null)
@@ -46,6 +46,11 @@ export function StudioProvider({ children }) {
   const [usage, setUsage] = useState(null)
   const [selTrack, setSelTrack] = useState('bass')
   const [selSection, setSelSection] = useState(0)
+  // Edit cursor (beats): where play starts, paste lands and split cuts
+  const [cursor, setCursorState] = useState(0)
+  const cursorRef = useRef(0)
+  const setCursor = useCallback((b) => { cursorRef.current = Math.max(0, b); setCursorState(Math.max(0, b)) }, [])
+  const [clipboard, setClipboard] = useState(null)
   const [playing, setPlaying] = useState(false)
   const [loopOn, setLoopOn] = useState(false)
   const [metro, setMetro] = useState(false)
@@ -143,7 +148,8 @@ export function StudioProvider({ children }) {
     const p = projectRef.current
     if (!p) return
     const loop = loopRange()
-    engine.play(p, { from: from ?? loop?.[0] ?? 0, loop, metronome: metro, onEnd: () => setPlaying(false) })
+    const start = from ?? (loop ? loop[0] : cursorRef.current)
+    engine.play(p, { from: start, loop, metronome: metro, onEnd: () => setPlaying(false) })
     setPlaying(true)
   }, [loopRange, metro])
 
@@ -261,7 +267,7 @@ export function StudioProvider({ children }) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        track: trackId,
+        track: composerPart(trackById(p, trackId) || { id: trackId }),
         key: p.key,
         genre: p.genre,
         feel: p.feel,
@@ -302,14 +308,14 @@ export function StudioProvider({ children }) {
   const value = useMemo(() => ({
     project, setProject, undo, redo, canUndo: undoRef.current.length > 0, canRedo: redoRef.current.length > 0,
     usage, refreshUsage,
-    selTrack, setSelTrack, selSection, setSelSection,
+    selTrack, setSelTrack, selSection, setSelSection, cursor, setCursor, cursorRef, clipboard, setClipboard,
     playing, play, stop, togglePlay, loopOn, setLoopOn, metro, setMetro,
     takes, addTake, latency, setLatency,
     askLog, setAskLog,
     toast, toastMsg,
     compose, openProject, regenerate, rewrite, analyzeRiff,
   }), [project, setProject, undo, redo, usage, refreshUsage, selTrack, selSection, playing, play, stop, togglePlay,
-    loopOn, metro, takes, addTake, latency, setLatency, askLog, toast, toastMsg, compose, openProject, regenerate, rewrite, analyzeRiff])
+    loopOn, metro, cursor, setCursor, clipboard, takes, addTake, latency, setLatency, askLog, toast, toastMsg, compose, openProject, regenerate, rewrite, analyzeRiff])
 
   return <StudioContext.Provider value={value}>{children}</StudioContext.Provider>
 }
