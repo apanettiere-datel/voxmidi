@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 
-export default function AudioRecorder({ onRecordingComplete }) {
+export default function AudioRecorder({ onRecordingComplete, label = 'Record your voice' }) {
   const [isRecording, setIsRecording] = useState(false)
   const [audioUrl, setAudioUrl] = useState(null)
   const [duration, setDuration] = useState(0)
@@ -112,7 +112,7 @@ export default function AudioRecorder({ onRecordingComplete }) {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
-          Record your voice
+          {label}
         </h3>
         <span className="text-sm tabular-nums text-zinc-500 dark:text-zinc-400">
           {formatTime(duration)}
