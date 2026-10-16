@@ -33,3 +33,4 @@ openai>=1.30.0
 # Utilities
 pydantic>=2.8.0
 python-dotenv>=1.0.0
+anthropic>=1.0.0

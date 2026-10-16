@@ -27,3 +27,4 @@ pydantic>=2.8.0
 
 # Environment variable loading
 python-dotenv>=1.0.0
+anthropic>=1.0.0

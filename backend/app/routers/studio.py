@@ -530,6 +530,64 @@ async def studio_cover_part(
     return {"job_id": job_id, "status": "processing" if started else "queued", "provider": band_provider()}
 
 
+# ─── Ask AI: Claude edits one MIDI part from a plain-language request ─────────
+
+class AskSection(BaseModel):
+    kind: str = Field(..., max_length=20)
+    bars: int = Field(..., ge=1, le=64)
+    chords: List[str] = Field(default_factory=list, max_length=8)
+
+
+class AskTrack(BaseModel):
+    id: str = Field(..., max_length=24)
+    name: str = Field(..., max_length=40)
+    role: str = Field("", max_length=16)
+    kind: str = Field("midi", max_length=8)
+    sound: str = Field("", max_length=40)
+    notes: List[PartNote] = Field(default_factory=list, max_length=20000)
+
+
+class AskAiRequest(BaseModel):
+    text: str = Field(..., min_length=3, max_length=500)
+    tempo: int = Field(..., ge=40, le=240)
+    key: str = Field("", max_length=12)
+    time_signature: str = Field("4/4", max_length=5)
+    sections: List[AskSection] = Field(..., min_length=1, max_length=64)
+    tracks: List[AskTrack] = Field(..., min_length=1, max_length=16)
+
+
+@router.post("/studio/ask/ai")
+async def studio_ask_ai(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+):
+    """Claude rewrites one MIDI part from a plain-language request. Free-form;
+    the frontend previews the change and nothing lands without Keep."""
+    from pipelines.claude_composer import ComposerError, ask_claude, provider_name, validate_result
+
+    if provider_name() != "claude":
+        raise HTTPException(status_code=503, detail="AI ask is not set up on this server")
+    req = await _parse(request, AskAiRequest)
+    midi = [t for t in req.tracks if t.kind == "midi"]
+    if not midi:
+        raise HTTPException(status_code=400, detail="tracks: send at least one MIDI track")
+
+    max_beat = sum(s.bars for s in req.sections) * BEATS_PER_BAR
+    song = {
+        "tempo": req.tempo, "key": req.key, "time_signature": req.time_signature,
+        "total_beats": max_beat,
+        "sections": [s.model_dump() for s in req.sections],
+        "tracks": [t.model_dump() for t in midi],
+    }
+    try:
+        data = await ask_claude(song, req.text)
+        result = validate_result(data, song["tracks"], max_beat)
+    except ComposerError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    print(f"[studio] ask-ai user={current_user.id} track={result['trackId']} notes={len(result['notes'])}")
+    return result
+
+
 # ─── Band member: ACE-Step Lego stem ─────────────────────────────────────────
 
 MAX_MIX_BYTES = 50 * 1024 * 1024
