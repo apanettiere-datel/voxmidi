@@ -38,17 +38,17 @@ export default function SharePage() {
   }, [jobId])
 
   return (
-    <div className="min-h-screen bg-white dark:bg-zinc-950">
+    <div className="min-h-screen bg-panel">
       {/* Header */}
-      <div className="border-b border-zinc-100 dark:border-zinc-800 px-4 py-4">
+      <div className="border-b border-line px-4 py-4">
         <div className="max-w-2xl mx-auto flex items-center justify-between">
-          <Link to="/" className="flex items-center gap-2 text-indigo-600 font-bold text-lg">
-            <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-indigo-600 text-white text-sm">♪</span>
+          <Link to="/" className="flex items-center gap-2 text-accent-text font-bold text-lg">
+            <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-accent-strong text-white text-sm">♪</span>
             VoxMIDI
           </Link>
           <Link
             to="/"
-            className="rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 text-sm font-semibold transition"
+            className="rounded-xl bg-accent-strong hover:bg-accent-strong text-white px-4 py-2 text-sm font-semibold transition"
           >
             Make your own →
           </Link>
@@ -66,8 +66,8 @@ export default function SharePage() {
         {error && (
           <div className="text-center py-20 text-zinc-400">
             <p className="text-4xl mb-4">😕</p>
-            <p className="font-medium text-zinc-600 dark:text-zinc-400">This generation wasn't found or has been deleted.</p>
-            <Link to="/" className="mt-4 inline-block text-indigo-600 hover:underline text-sm">
+            <p className="font-medium text-muted">This generation wasn't found or has been deleted.</p>
+            <Link to="/" className="mt-4 inline-block text-accent-text hover:underline text-sm">
               Make your own →
             </Link>
           </div>
@@ -76,22 +76,22 @@ export default function SharePage() {
         {result && (
           <div className="space-y-6">
             <div>
-              <h1 className="text-xl font-bold text-zinc-900 dark:text-white">Shared Generation</h1>
-              <p className="text-sm text-zinc-500 dark:text-zinc-400 mt-1">
+              <h1 className="text-xl font-bold font-display tracking-tight text-primary">Shared Generation</h1>
+              <p className="text-sm text-muted mt-1">
                 {result.genre} · {result.tempo} BPM · {result.key}
                 {result.prompt && <span className="ml-1 italic">· "{result.prompt}"</span>}
               </p>
             </div>
             <ResultPanel result={result} />
-            <div className="rounded-xl border border-indigo-200 dark:border-indigo-800 bg-indigo-50 dark:bg-indigo-950/20 p-5 text-center space-y-3">
+            <div className="rounded-xl border border-accent bg-accent-surface p-5 text-center space-y-3">
               <p className="font-semibold text-indigo-900 dark:text-indigo-200">Create your own AI music</p>
-              <p className="text-sm text-indigo-700 dark:text-indigo-300">
+              <p className="text-sm text-accent-text">
                 Type any music description and get MIDI + audio in seconds.
               </p>
               <div className="flex items-center justify-center gap-3 flex-wrap">
                 <Link
                   to="/"
-                  className="inline-block rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2.5 font-semibold text-sm transition"
+                  className="inline-block rounded-xl bg-accent-strong hover:bg-accent-strong text-white px-6 py-2.5 font-semibold text-sm transition"
                 >
                   Try VoxMIDI →
                 </Link>
@@ -105,7 +105,7 @@ export default function SharePage() {
                     }))
                     navigate('/')
                   }}
-                  className="inline-block rounded-xl border border-indigo-400 dark:border-indigo-600 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100 dark:hover:bg-indigo-900/30 px-6 py-2.5 font-semibold text-sm transition"
+                  className="inline-block rounded-xl border border-accent text-accent-text hover:bg-indigo-100 dark:hover:bg-indigo-900/30 px-6 py-2.5 font-semibold text-sm transition"
                 >
                   🔀 Remix This
                 </button>

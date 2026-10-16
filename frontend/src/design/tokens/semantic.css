@@ -2,23 +2,25 @@
    The shipping app also supports Tailwind's light mode — those values live in
    the [data-theme="light"] scope below. Always reference the semantic name. */
 :root {
-  --bg-app: var(--zinc-950);          /* html background */
-  --bg-sidebar: var(--zinc-900);
-  --surface-panel: var(--zinc-900);   /* cards, panels, dialogs */
-  --surface-sunken: rgb(39 39 42 / 0.5);   /* zinc-800/50 — inset rows, tips */
-  --surface-canvas: var(--zinc-950);  /* piano roll / waveform / step-grid bed */
-  --surface-raised: var(--zinc-800);  /* micro-buttons, sliders, track chips */
+  /* The dark surfaces carry a quiet blue cast (studio-at-night, not admin-panel
+     zinc); every step keeps the same hue so panels read as one material. */
+  --bg-app: #0a0c12;                  /* html background */
+  --bg-sidebar: #0d0f16;
+  --surface-panel: #11141c;           /* cards, panels, dialogs */
+  --surface-sunken: rgb(148 163 184 / 0.07);  /* inset rows, tips */
+  --surface-canvas: #0a0c12;          /* piano roll / waveform / step-grid bed */
+  --surface-raised: #1b2029;          /* micro-buttons, sliders, track chips */
 
-  --border-subtle: rgb(255 255 255 / 0.05);
-  --border-default: var(--zinc-800);
-  --border-strong: var(--zinc-700);
-  --border-dashed: var(--zinc-700);
+  --border-subtle: rgb(165 180 210 / 0.07);
+  --border-default: #222736;
+  --border-strong: #303748;
+  --border-dashed: #303748;
 
-  --text-primary: var(--white);
-  --text-body: var(--zinc-300);
-  --text-muted: var(--zinc-400);
-  --text-faint: var(--zinc-500);
-  --text-disabled: var(--zinc-600);
+  --text-primary: #f2f4f8;
+  --text-body: #c7ccda;
+  --text-muted: #949cb0;
+  --text-faint: #6a7184;
+  --text-disabled: #4a5062;
   --text-on-accent: var(--white);
 
   --accent: var(--indigo-500);            /* interactive accent, dark surfaces */
@@ -48,11 +50,11 @@
   --vocals-text: var(--purple-400);
 
   /* Canvas internals (piano roll, drum grid, waveform) */
-  --grid-line: var(--zinc-800);           /* beat line */
-  --grid-line-measure: var(--zinc-700);   /* bar line */
-  --grid-lane-black: var(--zinc-900);
+  --grid-line: #181c26;                   /* beat line */
+  --grid-line-measure: #272e3e;           /* bar line */
+  --grid-lane-black: #0e1118;
   --grid-lane-white: var(--lane-white-key);
-  --grid-label: var(--zinc-500);
+  --grid-label: #6a7184;
   --playhead: rgb(255 255 255 / 0.85);
   --waveform: var(--indigo-500);
 }

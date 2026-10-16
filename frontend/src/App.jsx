@@ -111,10 +111,10 @@ function AppLayout({ children }) {
         <Sidebar>
           <SidebarHeader>
             <SidebarItem href="/">
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-600 shrink-0">
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-accent-strong shrink-0">
                 <MusicalNoteIcon className="h-5 w-5 text-white" />
               </div>
-              <SidebarLabel className="font-semibold">VoxMIDI</SidebarLabel>
+              <SidebarLabel className="font-display text-[15px] font-bold tracking-tight">VoxMIDI</SidebarLabel>
             </SidebarItem>
           </SidebarHeader>
           <SidebarBody>
@@ -149,7 +149,7 @@ function AppRoutes() {
     <StudioProvider>
       <AppLayout>
         <Routes>
-          <Route path="/" element={<Navigate to="/generate" replace />} />
+          <Route path="/" element={<Navigate to="/describe" replace />} />
           <Route path="/generate" element={<GeneratePage />} />
           <Route path="/jam" element={<JamPage />} />
           <Route path="/drums" element={<DrumGridPage />} />

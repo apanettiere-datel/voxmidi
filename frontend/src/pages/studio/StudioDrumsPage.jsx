@@ -137,23 +137,23 @@ function DrumEditor() {
           <ChevronLeftIcon className="size-4" />
           Song
         </button>
-        <h2 className="text-lg font-semibold text-zinc-900 dark:text-white">{drums.name}</h2>
-        <span className="font-mono tabular-nums text-xs text-zinc-400 dark:text-zinc-500">
+        <h2 className="text-lg font-semibold text-primary">{drums.name}</h2>
+        <span className="font-mono tabular-nums text-xs text-faint">
           {drums.notes.length} hits · {drums.sound}{section ? ` · ${section.kind}` : ''}
         </span>
         <div className="flex-1" />
         <div className="flex items-center gap-1.5">
           <button type="button" onClick={() => setBar(bar - 1)} disabled={bar === 0} className={outlineBtn} aria-label="Previous bar"><ChevronLeftIcon className="size-4" /></button>
-          <span className="font-mono tabular-nums text-sm text-zinc-900 dark:text-white min-w-[80px] text-center">Bar {bar + 1} / {bars}</span>
+          <span className="font-mono tabular-nums text-sm text-primary min-w-[80px] text-center">Bar {bar + 1} / {bars}</span>
           <button type="button" onClick={() => setBar(bar + 1)} disabled={bar >= bars - 1} className={outlineBtn} aria-label="Next bar"><ChevronRightIcon className="size-4" /></button>
         </div>
       </div>
 
-      <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-canvas overflow-hidden select-none">
-        <div className="flex gap-0.5 px-2.5 pt-2 pb-1.5 border-b border-zinc-200 dark:border-zinc-800">
+      <div className="rounded-xl border border-line bg-canvas overflow-hidden select-none">
+        <div className="flex gap-0.5 px-2.5 pt-2 pb-1.5 border-b border-line">
           <div className="w-[104px] flex-none" />
           {Array.from({ length: STEPS }, (_, i) => (
-            <div key={i} className={clsx('flex-1 min-w-0 text-center font-mono text-[10px]', i === playStep ? 'text-indigo-300' : i % 4 === 0 ? 'text-zinc-400' : 'text-zinc-600')}>
+            <div key={i} className={clsx('flex-1 min-w-0 text-center font-mono text-[10px]', i === playStep ? 'text-accent-text' : i % 4 === 0 ? 'text-faint' : 'text-muted')}>
               {i % 4 === 0 ? i / 4 + 1 : '·'}
             </div>
           ))}
@@ -163,7 +163,7 @@ function DrumEditor() {
           <div key={lane.id} className="flex items-center gap-0.5 px-2.5 py-[3px]">
             <div className="w-[104px] flex-none flex items-center gap-1.5">
               <span className="size-[7px] rounded-sm" style={{ background: lane.color }} />
-              <span className="text-xs text-zinc-500 dark:text-zinc-400">{lane.label}</span>
+              <span className="text-xs text-muted">{lane.label}</span>
             </div>
             {Array.from({ length: STEPS }, (_, step) => {
               const n = barNotes.find((x) => x.p === lane.p && Math.abs(x.t - (o + step * 0.25)) < HIT)
@@ -189,8 +189,8 @@ function DrumEditor() {
           </div>
         ))}
 
-        <div className="flex items-end gap-0.5 px-2.5 py-2.5 border-t border-zinc-200 dark:border-zinc-800">
-          <div className="w-[104px] flex-none text-xs text-zinc-400 dark:text-zinc-500">Velocity</div>
+        <div className="flex items-end gap-0.5 px-2.5 py-2.5 border-t border-line">
+          <div className="w-[104px] flex-none text-xs text-faint">Velocity</div>
           {Array.from({ length: STEPS }, (_, step) => {
             const ns = barNotes.filter((x) => Math.abs(x.t - (o + step * 0.25)) < HIT)
             const v = ns.length ? Math.max(...ns.map((x) => x.v)) : 0
@@ -212,7 +212,7 @@ function DrumEditor() {
         <div className={clsx(panel, 'flex-1 min-w-[220px] p-4 flex flex-col gap-3.5')}>
           {[['Swing', 'swing'], ['Humanize', 'humanize']].map(([label, field]) => (
             <div key={field} className="flex items-center gap-3">
-              <span className="w-16 text-xs text-zinc-500 dark:text-zinc-400">{label}</span>
+              <span className="w-16 text-xs text-muted">{label}</span>
               <input
                 type="range"
                 min={0}
@@ -221,30 +221,30 @@ function DrumEditor() {
                 onChange={(e) => setProject((p) => ({ ...p, [field]: e.target.valueAsNumber }), { undoable: false })}
                 className="flex-1 accent-indigo-500"
               />
-              <span className="w-10 text-right font-mono tabular-nums text-xs text-zinc-700 dark:text-zinc-300">{project[field]}%</span>
+              <span className="w-10 text-right font-mono tabular-nums text-xs text-body">{project[field]}%</span>
             </div>
           ))}
           <div className="flex items-center gap-2.5">
             <Toggle on={project.fills} onChange={toggleFills} label="Section-end fills" />
-            <span className="text-xs text-zinc-500 dark:text-zinc-400">
+            <span className="text-xs text-muted">
               {busy === 'fill' ? 'Rewriting section ends...' : 'Fill in the last bar of each section'}
             </span>
           </div>
-          <p className="text-xs text-zinc-400 dark:text-zinc-500">Swing and humanize apply to playback and to the exported MIDI.</p>
+          <p className="text-xs text-faint">Swing and humanize apply to playback and to the exported MIDI.</p>
         </div>
 
         <div className={clsx(panel, 'flex-none w-[260px] p-4 flex flex-col gap-2.5')}>
-          <div className="text-sm font-semibold text-zinc-900 dark:text-white">Not feeling this bar?</div>
-          <p className="text-xs leading-4 text-zinc-400 dark:text-zinc-500">Rewrites one bar only. The rest of the pattern stays exactly as you left it.</p>
-          <button type="button" onClick={regenBar} disabled={!!busy} className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 px-3 py-1.5 text-sm font-semibold text-white">
+          <div className="text-sm font-semibold text-primary">Not feeling this bar?</div>
+          <p className="text-xs leading-4 text-faint">Rewrites one bar only. The rest of the pattern stays exactly as you left it.</p>
+          <button type="button" onClick={regenBar} disabled={!!busy} className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-accent-strong hover:bg-accent disabled:opacity-50 px-3 py-1.5 text-sm font-semibold text-white">
             <ArrowPathIcon className={clsx('size-4', busy === 'bar' && 'animate-spin')} />
             Regenerate this bar
           </button>
-          <span className="text-xs text-zinc-400 dark:text-zinc-500">Free and unlimited.</span>
+          <span className="text-xs text-faint">Free and unlimited.</span>
         </div>
       </div>
       {trackId === 'drums' && <AiDrumsPanel />}
-      <p className="mt-3.5 text-xs text-zinc-400 dark:text-zinc-500">
+      <p className="mt-3.5 text-xs text-faint">
         Click a step to toggle it, or drag across steps to paint. Right-click a step to cycle it through roll and flam. Drag a velocity bar up or down.
       </p>
     </div>
@@ -254,7 +254,7 @@ function DrumEditor() {
 function DrumGate() {
   const { project } = useStudio()
   if (!project.tracks.some(isDrums)) {
-    return <p className="p-8 text-sm text-zinc-500 dark:text-zinc-400">This song has no drum track. Add one from the Song screen with Add track.</p>
+    return <p className="p-8 text-sm text-muted">This song has no drum track. Add one from the Song screen with Add track.</p>
   }
   return <DrumEditor />
 }

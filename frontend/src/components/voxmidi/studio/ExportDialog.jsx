@@ -8,7 +8,7 @@ import { slug, totalBars, colorOf, BEATS_PER_BAR } from '@/lib/studio/project'
 
 function Box({ on }) {
   return (
-    <span className={clsx('grid place-items-center size-4 shrink-0 rounded text-white', on ? 'bg-indigo-600' : 'border border-zinc-600')}>
+    <span className={clsx('grid place-items-center size-4 shrink-0 rounded text-white', on ? 'bg-accent-strong' : 'border border-zinc-600')}>
       {on && <CheckIcon className="size-3" />}
     </span>
   )
@@ -87,9 +87,9 @@ export default function ExportDialog({ onClose }) {
 
   return (
     <div onClick={onClose} className="fixed inset-0 z-50 grid place-items-center p-6 bg-zinc-950/70 backdrop-blur-[2px]">
-      <div onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="export-title" className="w-[520px] max-w-full max-h-[86vh] overflow-y-auto rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-xl p-6">
-        <h2 id="export-title" className="text-lg font-semibold text-zinc-900 dark:text-white">Export</h2>
-        <p className="mt-1.5 mb-4 text-sm text-zinc-500 dark:text-zinc-400">
+      <div onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-labelledby="export-title" className="w-[520px] max-w-full max-h-[86vh] overflow-y-auto rounded-xl border border-line bg-panel shadow-xl p-6">
+        <h2 id="export-title" className="text-lg font-semibold text-primary">Export</h2>
+        <p className="mt-1.5 mb-4 text-sm text-muted">
           Your MIDI keeps its velocity and timing exactly as it plays here. Swing, humanize, rolls and flams are baked in, nothing is snapped back to the grid.
         </p>
 
@@ -99,44 +99,44 @@ export default function ExportDialog({ onClose }) {
               key={r.id}
               type="button"
               onClick={() => setSel((s) => ({ ...s, [r.id]: !s[r.id] }))}
-              className="flex items-center gap-2.5 w-full rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950/60 px-3 py-2.5 text-left"
+              className="flex items-center gap-2.5 w-full rounded-lg border border-line bg-zinc-50 dark:bg-zinc-950/60 px-3 py-2.5 text-left"
             >
               <Box on={sel[r.id]} />
               <span className={clsx('size-2 shrink-0', r.round ? 'rounded-full' : 'rounded-sm')} style={{ background: r.color }} />
               <div className="min-w-0">
-                <div className="font-mono text-xs text-zinc-900 dark:text-white truncate">{r.file}</div>
-                <div className="mt-0.5 text-xs text-zinc-400 dark:text-zinc-500">{r.meta}</div>
+                <div className="font-mono text-xs text-primary truncate">{r.file}</div>
+                <div className="mt-0.5 text-xs text-faint">{r.meta}</div>
               </div>
-              <span className="ml-auto font-mono tabular-nums text-xs text-zinc-400 dark:text-zinc-500 whitespace-nowrap">{formatBytes(r.size)}</span>
+              <span className="ml-auto font-mono tabular-nums text-xs text-faint whitespace-nowrap">{formatBytes(r.size)}</span>
             </button>
           ))}
         </div>
 
-        <div className="h-px bg-zinc-200 dark:bg-zinc-800 my-4" />
+        <div className="h-px bg-raised my-4" />
 
-        <button type="button" onClick={() => setHistory(!history)} className="flex items-start gap-2.5 w-full rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950/60 px-3 py-2.5 text-left">
+        <button type="button" onClick={() => setHistory(!history)} className="flex items-start gap-2.5 w-full rounded-lg border border-line bg-zinc-50 dark:bg-zinc-950/60 px-3 py-2.5 text-left">
           <Box on={history} />
           <div>
-            <div className="text-sm text-zinc-900 dark:text-white">Include the project history</div>
-            <div className="mt-0.5 text-xs text-zinc-400 dark:text-zinc-500">Your prompt, sections, edits and recordings list, as a readable JSON file.</div>
+            <div className="text-sm text-primary">Include the project history</div>
+            <div className="mt-0.5 text-xs text-faint">Your prompt, sections, edits and recordings list, as a readable JSON file.</div>
           </div>
         </button>
 
         <div className="flex items-start gap-2 mt-4 rounded-lg bg-zinc-50 dark:bg-zinc-950/60 px-3 py-2.5">
-          <InformationCircleIcon className="size-4 shrink-0 mt-px text-zinc-400" />
-          <p className="text-xs leading-4 text-zinc-500 dark:text-zinc-400">
+          <InformationCircleIcon className="size-4 shrink-0 mt-px text-faint" />
+          <p className="text-xs leading-4 text-muted">
             Everything downloads as one <span className="font-mono">.zip</span>. Drag the <span className="font-mono">.mid</span> files straight onto a track in GarageBand, FL Studio, Ableton or Logic and they land with your velocities intact.
           </p>
         </div>
 
-        {error && <p className="mt-3 text-sm text-red-400">{error}</p>}
+        {error && <p className="mt-3 text-sm text-[var(--danger-text)]">{error}</p>}
 
         <div className="flex items-center gap-2.5 mt-5">
-          <span className="font-mono tabular-nums text-xs text-zinc-400 dark:text-zinc-500">
+          <span className="font-mono tabular-nums text-xs text-faint">
             {busy || `${chosen.length + (history ? 1 : 0)} files · ${formatBytes(total)}`}
           </span>
           <div className="flex-1" />
-          <button type="button" onClick={onClose} className="rounded-lg border border-zinc-200 dark:border-zinc-700 px-3 py-1.5 text-sm font-medium text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800">Cancel</button>
+          <button type="button" onClick={onClose} className="rounded-lg border border-line-strong px-3 py-1.5 text-sm font-medium text-body hover:bg-sunken">Cancel</button>
           <button
             type="button"
             onClick={doExport}

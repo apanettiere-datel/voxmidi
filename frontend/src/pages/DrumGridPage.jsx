@@ -274,8 +274,8 @@ export default function DrumGridPage() {
 
       {/* Page header */}
       <div>
-        <h1 className="text-2xl font-bold text-zinc-900 dark:text-white">Drum Grid</h1>
-        <p className="text-sm text-zinc-500 dark:text-zinc-400 mt-1">
+        <h1 className="text-2xl font-bold font-display tracking-tight text-primary">Drum Grid</h1>
+        <p className="text-sm text-muted mt-1">
           Beatbox a pattern or start from an empty grid
         </p>
       </div>
@@ -285,10 +285,10 @@ export default function DrumGridPage() {
         <section className="grid grid-cols-1 sm:grid-cols-2 gap-4">
 
           {/* Path 1: Beatbox it */}
-          <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-5 space-y-4">
+          <div className="rounded-xl border border-line bg-panel p-5 space-y-4">
             <div>
-              <h2 className="text-sm font-semibold text-zinc-800 dark:text-zinc-200">Beatbox it</h2>
-              <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
+              <h2 className="text-sm font-semibold text-body">Beatbox it</h2>
+              <p className="text-xs text-muted mt-0.5">
                 Record a beatbox take and the AI transcribes it to a step grid
               </p>
             </div>
@@ -309,16 +309,16 @@ export default function DrumGridPage() {
           </div>
 
           {/* Path 2: Start empty */}
-          <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-5 flex flex-col gap-4">
+          <div className="rounded-xl border border-line bg-panel p-5 flex flex-col gap-4">
             <div>
-              <h2 className="text-sm font-semibold text-zinc-800 dark:text-zinc-200">Start empty</h2>
-              <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
+              <h2 className="text-sm font-semibold text-body">Start empty</h2>
+              <p className="text-xs text-muted mt-0.5">
                 Open a blank grid and draw in your own hits
               </p>
             </div>
             <div className="flex-1 flex items-center">
-              <div className="w-full rounded-lg border border-zinc-100 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-800/60 px-4 py-3">
-                <p className="text-xs font-mono tabular-nums text-zinc-500 dark:text-zinc-400">
+              <div className="w-full rounded-lg border border-line bg-sunken px-4 py-3">
+                <p className="text-xs font-mono tabular-nums text-muted">
                   2 bars · 120 BPM · 1/16 steps
                 </p>
               </div>
@@ -338,7 +338,7 @@ export default function DrumGridPage() {
       {phase === 'ready' && (
         <>
           {/* Source info + controls */}
-          <section className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-5 space-y-4">
+          <section className="rounded-xl border border-line bg-panel p-5 space-y-4">
 
             {/* Source banner */}
             {sourceLabel && (
@@ -347,13 +347,13 @@ export default function DrumGridPage() {
                   <span className="inline-flex items-center rounded-full bg-emerald-100 dark:bg-emerald-950/60 px-2.5 py-0.5 text-xs font-medium text-emerald-700 dark:text-emerald-400">
                     Active
                   </span>
-                  <span className="font-mono tabular-nums text-sm text-zinc-600 dark:text-zinc-400">
+                  <span className="font-mono tabular-nums text-sm text-muted">
                     {sourceLabel}
                   </span>
                 </div>
                 <button
                   type="button"
-                  className="text-xs text-zinc-400 dark:text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-200 transition"
+                  className="text-xs text-faint hover:text-zinc-700 dark:hover:text-zinc-200 transition"
                   onClick={() => setPhase('entry')}
                 >
                   Change source
@@ -366,7 +366,7 @@ export default function DrumGridPage() {
 
               {/* Tempo */}
               <div className="flex items-center gap-1.5">
-                <label className="text-xs font-medium text-zinc-500 dark:text-zinc-400 shrink-0">
+                <label className="text-xs font-medium text-muted shrink-0">
                   Tempo
                 </label>
                 <input
@@ -375,22 +375,22 @@ export default function DrumGridPage() {
                   max={260}
                   value={tempo}
                   onChange={handleTempoChange}
-                  className="w-16 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-2 py-1 text-sm font-mono tabular-nums text-zinc-900 dark:text-white text-center focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  className="w-16 rounded-lg border border-line-strong bg-raised px-2 py-1 text-sm font-mono tabular-nums text-primary text-center focus:outline-none focus:ring-2 focus:ring-indigo-500"
                 />
-                <span className="text-xs text-zinc-500 dark:text-zinc-400">BPM</span>
+                <span className="text-xs text-muted">BPM</span>
               </div>
 
               {/* Resolution toggle */}
               <div className="flex items-center gap-1.5">
-                <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Steps</span>
-                <div className="flex rounded-lg border border-zinc-200 dark:border-zinc-700 overflow-hidden text-xs font-medium">
+                <span className="text-xs font-medium text-muted">Steps</span>
+                <div className="flex rounded-lg border border-line-strong overflow-hidden text-xs font-medium">
                   <button
                     type="button"
                     onClick={() => stepsPerBeat !== 4 && handleResolutionToggle()}
                     className={`px-3 py-1 transition ${
                       stepsPerBeat === 4
-                        ? 'bg-indigo-600 text-white'
-                        : 'bg-white dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-50 dark:hover:bg-zinc-700'
+                        ? 'bg-accent-strong text-white'
+                        : 'bg-raised text-muted hover:bg-sunken'
                     }`}
                   >
                     1/16
@@ -398,10 +398,10 @@ export default function DrumGridPage() {
                   <button
                     type="button"
                     onClick={() => stepsPerBeat !== 8 && handleResolutionToggle()}
-                    className={`px-3 py-1 transition border-l border-zinc-200 dark:border-zinc-700 ${
+                    className={`px-3 py-1 transition border-l border-line-strong ${
                       stepsPerBeat === 8
-                        ? 'bg-indigo-600 text-white'
-                        : 'bg-white dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-50 dark:hover:bg-zinc-700'
+                        ? 'bg-accent-strong text-white'
+                        : 'bg-raised text-muted hover:bg-sunken'
                     }`}
                   >
                     1/32
@@ -411,24 +411,24 @@ export default function DrumGridPage() {
 
               {/* Bars */}
               <div className="flex items-center gap-1.5">
-                <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Bars</span>
+                <span className="text-xs font-medium text-muted">Bars</span>
                 <div className="flex items-center gap-1">
                   <button
                     type="button"
                     onClick={() => handleBarsChange(-1)}
                     disabled={bars <= 1}
-                    className="flex items-center justify-center w-7 h-7 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-sm font-medium text-zinc-600 dark:text-zinc-400 hover:bg-zinc-50 dark:hover:bg-zinc-700 disabled:opacity-40 transition"
+                    className="flex items-center justify-center w-7 h-7 rounded-lg border border-line-strong bg-raised text-sm font-medium text-muted hover:bg-sunken disabled:opacity-40 transition"
                   >
                     -
                   </button>
-                  <span className="w-6 text-center font-mono tabular-nums text-sm text-zinc-900 dark:text-white select-none">
+                  <span className="w-6 text-center font-mono tabular-nums text-sm text-primary select-none">
                     {bars}
                   </span>
                   <button
                     type="button"
                     onClick={() => handleBarsChange(1)}
                     disabled={bars >= 8}
-                    className="flex items-center justify-center w-7 h-7 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-sm font-medium text-zinc-600 dark:text-zinc-400 hover:bg-zinc-50 dark:hover:bg-zinc-700 disabled:opacity-40 transition"
+                    className="flex items-center justify-center w-7 h-7 rounded-lg border border-line-strong bg-raised text-sm font-medium text-muted hover:bg-sunken disabled:opacity-40 transition"
                   >
                     +
                   </button>
@@ -439,7 +439,7 @@ export default function DrumGridPage() {
               <button
                 type="button"
                 onClick={handleClear}
-                className="rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-3 py-1 text-xs font-medium text-zinc-600 dark:text-zinc-400 hover:bg-zinc-50 dark:hover:bg-zinc-700 transition"
+                className="rounded-lg border border-line-strong bg-raised px-3 py-1 text-xs font-medium text-muted hover:bg-sunken transition"
               >
                 Clear
               </button>
@@ -447,7 +447,7 @@ export default function DrumGridPage() {
           </section>
 
           {/* Grid panel */}
-          <section className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-5 space-y-3">
+          <section className="rounded-xl border border-line bg-panel p-5 space-y-3">
             <DrumGrid
               lanes={visibleLanesData}
               stepsTotal={stepsTotal}
@@ -457,11 +457,11 @@ export default function DrumGridPage() {
             />
 
             {/* More percussion disclosure */}
-            <div className="pt-2 border-t border-zinc-100 dark:border-zinc-800">
+            <div className="pt-2 border-t border-line">
               <button
                 type="button"
                 onClick={() => setShowMore((v) => !v)}
-                className="text-xs font-medium text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 transition"
+                className="text-xs font-medium text-muted hover:text-zinc-700 dark:hover:text-zinc-200 transition"
               >
                 {showMore ? 'Fewer percussion tracks' : 'More percussion'}
               </button>
@@ -469,7 +469,7 @@ export default function DrumGridPage() {
           </section>
 
           {/* Play + download panel */}
-          <section className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-5 space-y-4">
+          <section className="rounded-xl border border-line bg-panel p-5 space-y-4">
             <div className="flex items-center gap-3 flex-wrap">
               <Button
                 color="indigo"
@@ -483,14 +483,14 @@ export default function DrumGridPage() {
                 <button
                   type="button"
                   onClick={handleStop}
-                  className="rounded-lg border border-zinc-200 dark:border-zinc-700 px-3 py-1.5 text-sm font-medium text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition"
+                  className="rounded-lg border border-line-strong px-3 py-1.5 text-sm font-medium text-body hover:bg-raised transition"
                 >
                   Stop
                 </button>
               )}
 
               {isDirty && renderResult && !isPlaying && (
-                <span className="text-xs text-zinc-400 dark:text-zinc-500">
+                <span className="text-xs text-faint">
                   Grid changed since last render
                 </span>
               )}
@@ -498,12 +498,12 @@ export default function DrumGridPage() {
 
             {/* Download links, shown after a successful render */}
             {renderResult && (
-              <div className="flex flex-wrap gap-2 pt-1 border-t border-zinc-100 dark:border-zinc-800">
+              <div className="flex flex-wrap gap-2 pt-1 border-t border-line">
                 {renderResult.audio_url && (
                   <a
                     href={renderResult.audio_url}
                     download
-                    className="rounded-lg border border-zinc-200 dark:border-zinc-700 px-3 py-1.5 text-sm font-medium text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition"
+                    className="rounded-lg border border-line-strong px-3 py-1.5 text-sm font-medium text-body hover:bg-raised transition"
                   >
                     Download audio
                   </a>
@@ -512,7 +512,7 @@ export default function DrumGridPage() {
                   <a
                     href={renderResult.midi_url}
                     download
-                    className="rounded-lg border border-zinc-200 dark:border-zinc-700 px-3 py-1.5 text-sm font-medium text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition"
+                    className="rounded-lg border border-line-strong px-3 py-1.5 text-sm font-medium text-body hover:bg-raised transition"
                   >
                     Download MIDI
                   </a>

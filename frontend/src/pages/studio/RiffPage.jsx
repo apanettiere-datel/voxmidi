@@ -227,22 +227,22 @@ export default function RiffPage() {
 
       {/* Page header */}
       <div>
-        <h1 className="text-2xl font-bold text-zinc-900 dark:text-white">Start from your recording</h1>
-        <p className="text-sm text-zinc-500 dark:text-zinc-400 mt-1">
+        <h1 className="text-2xl font-bold font-display tracking-tight text-primary">Start from your recording</h1>
+        <p className="text-sm text-muted mt-1">
           Play a riff, a bass line, a beat or sing. We listen for tempo, key and chords, then write the rest of the band around you. Your recording stays audio.
         </p>
       </div>
 
       {/* Step 1: what and the recording */}
       <section className={clsx(panel, 'p-5 space-y-3')}>
-        <StepLabel n={1} title="What did you record?" hint={inst.hint} />
+        <StepLabel title="What did you record?" hint={inst.hint} />
         <div className="flex flex-wrap gap-1.5">
           {INSTRUMENTS.map((i) => <Pill key={i.id} on={kind === i.id} onClick={() => setKind(i.id)}>{i.label}</Pill>)}
         </div>
         {takes.length > 0 && (
-          <label className="flex items-center gap-2 text-xs text-zinc-500 dark:text-zinc-400">
+          <label className="flex items-center gap-2 text-xs text-muted">
             Use a take
-            <select value={takeId || ''} onChange={(e) => setTakeId(e.target.value || null)} className="rounded-md border border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 px-1.5 py-1 text-xs text-zinc-900 dark:text-white">
+            <select value={takeId || ''} onChange={(e) => setTakeId(e.target.value || null)} className="rounded-md border border-line-strong bg-raised px-1.5 py-1 text-xs text-primary">
               <option value="">Choose one</option>
               {takes.map((t) => <option key={t.id} value={t.id}>{t.name} · {t.duration.toFixed(1)}s</option>)}
             </select>
@@ -250,28 +250,28 @@ export default function RiffPage() {
         )}
         <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-3 items-start">
           <AudioRecorder label={`Record your ${inst.noun}`} onRecordingComplete={(blob) => takeFromBlob(blob, inst.label)} />
-          <label className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 px-3 py-1.5 text-sm font-medium text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800 cursor-pointer">
+          <label className="inline-flex items-center gap-1.5 rounded-lg border border-line-strong px-3 py-1.5 text-sm font-medium text-body hover:bg-sunken cursor-pointer">
             <ArrowUpTrayIcon className="size-4" />
             Upload audio
             <input type="file" accept="audio/*" className="hidden" onChange={(e) => e.target.files[0] && takeFromBlob(e.target.files[0], e.target.files[0].name.replace(/\.[^.]+$/, ''))} />
           </label>
         </div>
-        <p className="text-xs text-zinc-400 dark:text-zinc-500">For the tightest result, record on the Record screen: playing to the click gives exact tempo and bar lines.</p>
+        <p className="text-xs text-faint">For the tightest result, record on the Record screen: playing to the click gives exact tempo and bar lines.</p>
       </section>
 
       {busy === 'analyze' && (
         <div className={clsx(panel, 'p-5')}>
-          <p className="font-medium text-zinc-900 dark:text-white animate-pulse">Listening to your {inst.noun}...</p>
+          <p className="font-medium text-primary animate-pulse">Listening to your {inst.noun}...</p>
         </div>
       )}
       {error && <Callout title={error} />}
 
       {analysis && (
         <>
-          <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-canvas px-4 py-3.5">
+          <div className="rounded-xl border border-line bg-canvas px-4 py-3.5">
             <div className="flex items-baseline gap-2.5 mb-2.5">
-              <span className="text-xs text-zinc-500 dark:text-zinc-400">{take?.name} · {analysis.bars} bars</span>
-              <span className="ml-auto font-mono tabular-nums text-xs text-zinc-400 dark:text-zinc-500">{tempo} BPM · {key} · {analysis.bars} bars{analysis.notes ? ` · ${analysis.notes.length} notes` : ''}</span>
+              <span className="text-xs text-muted">{take?.name} · {analysis.bars} bars</span>
+              <span className="ml-auto font-mono tabular-nums text-xs text-faint">{tempo} BPM · {key} · {analysis.bars} bars{analysis.notes ? ` · ${analysis.notes.length} notes` : ''}</span>
             </div>
             <div className="relative">
               <Wave peaks={analysis.peaks} height={70} />
@@ -282,7 +282,7 @@ export default function RiffPage() {
             </div>
             <div className="flex items-center gap-1.5 mt-2">
               <span className="size-2 rounded-sm bg-amber-500" />
-              <span className="text-xs text-zinc-400 dark:text-zinc-500">
+              <span className="text-xs text-faint">
                 {kind === 'drums' ? 'Kicks and snares we heard' : kind === 'harmonic' ? 'Strum accents we heard' : 'Notes we heard'}
               </span>
             </div>
@@ -292,12 +292,12 @@ export default function RiffPage() {
             {facts.map((f) => (
               <div key={f.k} className={clsx(panel, 'flex-1 min-w-[14rem] px-4 py-3.5')}>
                 <div className="flex items-baseline gap-2">
-                  <span className="text-xs text-zinc-400 dark:text-zinc-500">{f.k}</span>
-                  {f.conf != null && <span className="ml-auto font-mono tabular-nums text-xs text-zinc-400 dark:text-zinc-500">{f.conf}% sure</span>}
+                  <span className="text-xs text-faint">{f.k}</span>
+                  {f.conf != null && <span className="ml-auto font-mono tabular-nums text-xs text-faint">{f.conf}% sure</span>}
                 </div>
-                <div className="mt-0.5 font-mono tabular-nums text-lg font-medium text-zinc-900 dark:text-white">{f.v}</div>
+                <div className="mt-0.5 font-mono tabular-nums text-lg font-medium text-primary">{f.v}</div>
                 {f.select ? (
-                  <select value={key} onChange={(e) => setKey(e.target.value)} className="mt-2 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-2 py-1 font-mono text-sm text-zinc-900 dark:text-white">
+                  <select value={key} onChange={(e) => setKey(e.target.value)} className="mt-2 rounded-lg border border-line-strong bg-raised px-2 py-1 font-mono text-sm text-primary">
                     {ALL_KEYS.map((k) => <option key={k} value={k}>{k}</option>)}
                   </select>
                 ) : (
@@ -311,21 +311,21 @@ export default function RiffPage() {
 
           {kind !== 'drums' ? (
             <section className={clsx(panel, 'p-5')}>
-              <StepLabel n={2} title="Confirm chords" hint={kind === 'vocals' ? 'One per bar, under your melody. Tap to change' : 'One per bar. Tap to change'} />
+              <StepLabel title="Confirm chords" hint={kind === 'vocals' ? 'One per bar, under your melody. Tap to change' : 'One per bar. Tap to change'} />
               {inst.loops && analysis.bars > MAX_LOOP_BARS && (
-                <p className="mt-2 text-xs text-zinc-400 dark:text-zinc-500">Your {inst.noun} has {analysis.bars} bars. The first {MAX_LOOP_BARS} repeat through the song.</p>
+                <p className="mt-2 text-xs text-faint">Your {inst.noun} has {analysis.bars} bars. The first {MAX_LOOP_BARS} repeat through the song.</p>
               )}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-3.5">
                 {chords.map((c, i) => (
-                  <div key={i} className={clsx('rounded-lg border bg-zinc-50 dark:bg-zinc-950/60 p-2', confirmed ? 'border-emerald-800' : 'border-zinc-200 dark:border-zinc-800')}>
+                  <div key={i} className={clsx('rounded-lg border bg-zinc-50 dark:bg-zinc-950/60 p-2', confirmed ? 'border-emerald-800' : 'border-line')}>
                     <div className="flex items-baseline justify-between">
-                      <span className="font-mono text-[10px] text-zinc-400 dark:text-zinc-500">Bar {i + 1}</span>
+                      <span className="font-mono text-[10px] text-faint">Bar {i + 1}</span>
                       <span className="font-mono tabular-nums text-[10px] text-zinc-500">{analysis.chords[i]?.confidence}%</span>
                     </div>
                     <div className="flex flex-wrap gap-1 mt-1.5">
                       {optionsFor(i).map((o) => (
                         <button key={o} type="button" onClick={() => pickChord(i, o)}
-                          className={clsx('rounded px-1.5 py-0.5 font-mono text-xs border', c === o ? 'bg-indigo-600 border-transparent text-white' : 'bg-zinc-100 dark:bg-zinc-800 border-zinc-300 dark:border-zinc-700 text-zinc-500 dark:text-zinc-400')}>
+                          className={clsx('rounded px-1.5 py-0.5 font-mono text-xs border', c === o ? 'bg-accent-strong border-transparent text-white' : 'bg-raised border-line-strong text-muted')}>
                           {o}
                         </button>
                       ))}
@@ -338,25 +338,25 @@ export default function RiffPage() {
                   <CheckIcon data-slot="icon" />
                   Confirm chords
                 </Button>
-                <span className={clsx('text-xs', confirmed ? 'text-emerald-400' : 'text-zinc-400 dark:text-zinc-500')}>
+                <span className={clsx('text-xs', confirmed ? 'text-emerald-400' : 'text-faint')}>
                   {confirmed ? 'Confirmed. You can build now' : 'Building needs confirmed chords'}
                 </span>
               </div>
             </section>
           ) : (
             <section className={clsx(panel, 'p-5')}>
-              <StepLabel n={2} title="Chords" hint="Your beat has no pitch" />
-              <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">We'll write a progression in {key} that fits the style you pick. You can change any of it on the Song screen afterwards.</p>
+              <StepLabel title="Chords" hint="Your beat has no pitch" />
+              <p className="mt-2 text-sm text-muted">We'll write a progression in {key} that fits the style you pick. You can change any of it on the Song screen afterwards.</p>
             </section>
           )}
 
           <section className={clsx(panel, 'p-5 space-y-4 transition-opacity', !confirmed && 'opacity-50')}>
-            <StepLabel n={3} title="What should the AI add?" hint="Everything it writes is MIDI you can edit" />
+            <StepLabel title="What should the AI add?" hint="Everything it writes is MIDI you can edit" />
             <div className="flex flex-wrap gap-1.5">
               {available.map((x) => <Pill key={x.id} on={parts.has(x.id)} onClick={() => togglePart(x.id)}>{x.label}</Pill>)}
             </div>
             <div>
-              <div className="text-xs text-zinc-500 dark:text-zinc-400 mb-1.5">Style and feel</div>
+              <div className="text-xs text-muted mb-1.5">Style and feel</div>
               <div className="flex flex-wrap gap-1.5">
                 {GENRES.map((g) => <Pill key={g} on={genre === g} onClick={() => setGenre(g)}>{g}</Pill>)}
               </div>
@@ -367,12 +367,12 @@ export default function RiffPage() {
             {kind !== 'vocals' && (
               <div className="flex items-center gap-3 flex-wrap">
                 <Toggle on={followGroove} onChange={setFollowGroove} label="Follow my groove" />
-                <span className="text-xs text-zinc-500 dark:text-zinc-400">
+                <span className="text-xs text-muted">
                   {kind === 'drums' ? 'Bass locks to your kick' : kind === 'bass' ? 'Kick locks to your bass notes' : 'Kick and bass follow your strum accents'}
                 </span>
                 <div className="flex gap-0.5" aria-label="Groove">
                   {Array.from({ length: 16 }, (_, i) => (
-                    <span key={i} className={clsx('w-2.5 h-4 rounded-[2px]', groove.includes(i / 4) && followGroove ? 'bg-indigo-500' : i % 4 === 0 ? 'bg-zinc-700' : 'bg-zinc-800')} />
+                    <span key={i} className={clsx('w-2.5 h-4 rounded-[2px]', groove.includes(i / 4) && followGroove ? 'bg-accent' : i % 4 === 0 ? 'bg-zinc-700' : 'bg-zinc-800')} />
                   ))}
                 </div>
               </div>
@@ -382,7 +382,7 @@ export default function RiffPage() {
                 <SparklesIcon data-slot="icon" />
                 {busy === 'build' ? 'Building...' : 'Build the Band'}
               </Button>
-              <span className="text-xs text-zinc-400 dark:text-zinc-500">
+              <span className="text-xs text-faint">
                 {blocked ? `You've used all ${usage.limit} songs this month.` : nothingToAdd ? 'Pick at least one part to add.' : 'Counts as one song. Afterwards, make any part sound real on its editor screen.'}
               </span>
             </div>

@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "@fontsource-variable/bricolage-grotesque";
 @import "./design/tokens/colors.css";
 @import "./design/tokens/semantic.css";
 @import "./design/tokens/typography.css";
@@ -18,6 +19,8 @@
    `inline` makes utilities resolve the underlying var directly, so the
    [data-theme="light"] overrides in semantic.css cascade correctly. */
 @theme inline {
+  --font-display: "Bricolage Grotesque Variable", ui-sans-serif, system-ui, sans-serif;
+  --color-primary: var(--text-primary);
   --color-app: var(--bg-app);
   --color-sidebar: var(--bg-sidebar);
   --color-panel: var(--surface-panel);

@@ -20,20 +20,20 @@ function AccountSection() {
   const since = user.createdAt ? new Date(user.createdAt).toLocaleDateString() : '-'
   return (
     <div>
-      <h2 className="text-base font-semibold text-zinc-900 dark:text-white">Account</h2>
+      <h2 className="text-base font-semibold text-primary">Account</h2>
       <Divider className="mt-3 mb-6" />
       <dl className="space-y-3 text-sm">
         <div className="flex gap-4">
-          <dt className="w-28 text-zinc-500 dark:text-zinc-400 shrink-0">Name</dt>
-          <dd className="text-zinc-900 dark:text-white">{user.fullName || user.firstName || '-'}</dd>
+          <dt className="w-28 text-muted shrink-0">Name</dt>
+          <dd className="text-primary">{user.fullName || user.firstName || '-'}</dd>
         </div>
         <div className="flex gap-4">
-          <dt className="w-28 text-zinc-500 dark:text-zinc-400 shrink-0">Email</dt>
-          <dd className="text-zinc-900 dark:text-white">{email}</dd>
+          <dt className="w-28 text-muted shrink-0">Email</dt>
+          <dd className="text-primary">{email}</dd>
         </div>
         <div className="flex gap-4">
-          <dt className="w-28 text-zinc-500 dark:text-zinc-400 shrink-0">Member since</dt>
-          <dd className="text-zinc-900 dark:text-white">{since}</dd>
+          <dt className="w-28 text-muted shrink-0">Member since</dt>
+          <dd className="text-primary">{since}</dd>
         </div>
       </dl>
     </div>
@@ -52,33 +52,33 @@ function UsageSection({ authFetch }) {
 
   return (
     <div>
-      <h2 className="text-base font-semibold text-zinc-900 dark:text-white">Usage</h2>
+      <h2 className="text-base font-semibold text-primary">Usage</h2>
       <Divider className="mt-3 mb-6" />
       {usage ? (
         <dl className="space-y-3 text-sm">
           <div className="flex gap-4">
-            <dt className="w-28 text-zinc-500 dark:text-zinc-400 shrink-0">This month</dt>
-            <dd className="text-zinc-900 dark:text-white font-mono">{usage.used} / {usage.limit} generations</dd>
+            <dt className="w-28 text-muted shrink-0">This month</dt>
+            <dd className="text-primary font-mono">{usage.used} / {usage.limit} generations</dd>
           </div>
           <div className="flex gap-4">
-            <dt className="w-28 text-zinc-500 dark:text-zinc-400 shrink-0">Remaining</dt>
-            <dd className="text-zinc-900 dark:text-white font-mono">{usage.remaining}</dd>
+            <dt className="w-28 text-muted shrink-0">Remaining</dt>
+            <dd className="text-primary font-mono">{usage.remaining}</dd>
           </div>
           <div className="flex gap-4">
-            <dt className="w-28 text-zinc-500 dark:text-zinc-400 shrink-0">Resets</dt>
-            <dd className="text-zinc-900 dark:text-white">{usage.reset_date}</dd>
+            <dt className="w-28 text-muted shrink-0">Resets</dt>
+            <dd className="text-primary">{usage.reset_date}</dd>
           </div>
           <div className="mt-2">
-            <div className="w-full bg-zinc-100 dark:bg-zinc-800 rounded-full h-2">
+            <div className="w-full bg-raised rounded-full h-2">
               <div
-                className="bg-indigo-600 h-2 rounded-full transition-all"
+                className="bg-accent-strong h-2 rounded-full transition-all"
                 style={{ width: `${Math.min((usage.used / usage.limit) * 100, 100)}%` }}
               />
             </div>
           </div>
         </dl>
       ) : (
-        <p className="text-sm text-zinc-400 dark:text-zinc-500">Loading usage...</p>
+        <p className="text-sm text-faint">Loading usage...</p>
       )}
     </div>
   )
@@ -112,7 +112,7 @@ export default function SettingsPage() {
 
       {/* Export Defaults */}
       <div>
-        <h2 className="text-base font-semibold text-zinc-900 dark:text-white">Export Defaults</h2>
+        <h2 className="text-base font-semibold text-primary">Export Defaults</h2>
         <Divider className="mt-3 mb-6" />
         <FieldGroup>
           <Field>
@@ -140,17 +140,17 @@ export default function SettingsPage() {
 
       {/* About */}
       <div>
-        <h2 className="text-base font-semibold text-zinc-900 dark:text-white">About</h2>
+        <h2 className="text-base font-semibold text-primary">About</h2>
         <Divider className="mt-3 mb-6" />
         <dl className="space-y-3 text-sm">
           <div className="flex gap-4">
-            <dt className="w-28 text-zinc-500 dark:text-zinc-400 shrink-0">Version</dt>
-            <dd className="text-zinc-900 dark:text-white font-mono">0.2.0</dd>
+            <dt className="w-28 text-muted shrink-0">Version</dt>
+            <dd className="text-primary font-mono">0.2.0</dd>
           </div>
           <div className="flex gap-4">
-            <dt className="w-28 text-zinc-500 dark:text-zinc-400 shrink-0">GitHub</dt>
+            <dt className="w-28 text-muted shrink-0">GitHub</dt>
             <dd>
-              <a href="https://github.com" className="text-indigo-600 dark:text-indigo-400 hover:underline text-sm">
+              <a href="https://github.com" className="text-accent-text hover:underline text-sm">
                 github.com/voxmidi
               </a>
             </dd>

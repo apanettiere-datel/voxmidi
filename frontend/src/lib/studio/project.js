@@ -10,11 +10,11 @@ export const BEATS_PER_BAR = 4
 export const SECTION_KINDS = ['Intro', 'Verse', 'Chorus', 'Bridge', 'Outro']
 
 export const SECTION_COLORS = {
-  Intro: 'var(--zinc-700)',
-  Verse: 'var(--indigo-700)',
-  Chorus: 'var(--indigo-500)',
-  Bridge: 'var(--violet-500)',
-  Outro: 'var(--zinc-700)',
+  Intro: '#6a7184',
+  Verse: '#8e97f5',
+  Chorus: '#f0c35f',
+  Bridge: '#ab8df0',
+  Outro: '#6a7184',
 }
 
 export const TRACK_COLORS = {

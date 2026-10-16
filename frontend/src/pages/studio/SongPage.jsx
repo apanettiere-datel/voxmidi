@@ -22,7 +22,7 @@ const RH = 64        // track row height
 const SECTIONS_H = 52
 const BARS_H = 18
 const SNAPS = [['Bar', 4], ['Beat', 1], ['1/16', 0.25], ['Off', 0]]
-const tool = 'inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-white/5 disabled:opacity-35 disabled:hover:bg-transparent transition'
+const tool = 'inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-body hover:bg-sunken hover:text-primary disabled:opacity-35 disabled:hover:bg-transparent transition'
 
 // ── MIDI preview (not interactive: the lane handles clicks) ────────────────────
 
@@ -33,8 +33,8 @@ function MidiClip({ track, notes, start, end, label, style }) {
   const stride = notes.length > 90 ? Math.ceil(notes.length / 90) : 1
   const color = colorOf(track)
   return (
-    <div className="absolute top-1 overflow-hidden rounded-[3px] pointer-events-none" style={{ ...style, height: RH - 9, background: `color-mix(in srgb, ${color} 12%, transparent)`, border: `1px solid color-mix(in srgb, ${color} 40%, transparent)` }}>
-      <div className="h-[13px] px-1 text-[9px] leading-[13px] whitespace-nowrap overflow-hidden" style={{ color, background: `color-mix(in srgb, ${color} 15%, transparent)` }}>{label}</div>
+    <div className="absolute top-1 overflow-hidden rounded-[5px] pointer-events-none" style={{ ...style, height: RH - 9, background: `color-mix(in srgb, ${color} 16%, transparent)`, border: `1px solid color-mix(in srgb, ${color} 45%, transparent)` }}>
+      <div className="h-[13px] px-1.5 text-[9px] font-medium leading-[13px] whitespace-nowrap overflow-hidden" style={{ color: `color-mix(in srgb, ${color} 70%, white)` }}>{label}</div>
       <svg viewBox={`0 0 ${end - start} ${rows}`} preserveAspectRatio="none" className="block w-full h-[calc(100%-13px)]">
         {notes.filter((_, k) => k % stride === 0).map((n, k) => (
           <rect key={k} x={n.t - start} y={hi - n.p} width={Math.max(0.12, n.d)} height="1" rx=".4" fill={color} opacity={0.45 + (n.v / 127) * 0.55} />
@@ -65,9 +65,9 @@ function TrackHead({ track, selected, onSelect, onRegen, onDelete, busy }) {
   }
 
   return (
-    <div onClick={onSelect} className={clsx('group flex flex-col justify-center gap-1.5 px-3 border-b border-zinc-200/60 dark:border-zinc-800/60 cursor-pointer', selected && 'bg-zinc-100 dark:bg-zinc-800')} style={{ height: RH }}>
+    <div onClick={onSelect} className={clsx('group relative flex flex-col justify-center gap-1.5 pl-3.5 pr-3 border-b border-line/60 cursor-pointer', selected && 'bg-sunken')} style={{ height: RH }}>
+      <span className="absolute left-0 top-0 bottom-0 w-[3px]" style={{ background: color, opacity: selected ? 1 : 0.55 }} />
       <div className="flex items-center gap-2 min-w-0">
-        <span className="size-[9px] shrink-0 rounded-sm" style={{ background: color }} />
         {renaming ? (
           <input
             autoFocus
@@ -76,14 +76,14 @@ function TrackHead({ track, selected, onSelect, onRegen, onDelete, busy }) {
             onClick={(e) => e.stopPropagation()}
             onBlur={(e) => { const v = e.target.value.trim(); if (v) setProject((p) => updateTrack(p, track.id, { name: v }), { what: `Renamed a track to ${v}` }); setRenaming(false) }}
             onKeyDown={(e) => { if (e.key === 'Enter') e.target.blur(); if (e.key === 'Escape') setRenaming(false) }}
-            className="min-w-0 flex-1 rounded border border-indigo-500 bg-zinc-900 px-1 text-sm text-white"
+            className="min-w-0 flex-1 rounded border border-accent bg-canvas px-1 text-sm text-primary"
           />
         ) : (
-          <span onDoubleClick={(e) => { e.stopPropagation(); setRenaming(true) }} title="Double-click to rename" className="text-sm font-medium text-zinc-900 dark:text-white truncate">{track.name}</span>
+          <span onDoubleClick={(e) => { e.stopPropagation(); setRenaming(true) }} title="Double-click to rename" className="text-sm font-medium text-primary truncate">{track.name}</span>
         )}
         {track.kind === 'audio' && <span className="shrink-0 rounded-md bg-emerald-500/15 px-1.5 text-xs font-medium text-emerald-400">audio</span>}
         <button type="button" onClick={(e) => { e.stopPropagation(); onDelete() }} title="Delete this track"
-          className="ml-auto size-5 shrink-0 grid place-items-center rounded text-zinc-500 hover:text-red-400 opacity-0 group-hover:opacity-100 focus:opacity-100 transition">
+          className="ml-auto size-5 shrink-0 grid place-items-center rounded text-faint hover:text-[var(--danger-text)] opacity-0 group-hover:opacity-100 focus:opacity-100 transition">
           <TrashIcon className="size-3.5" />
         </button>
         <button
@@ -91,7 +91,7 @@ function TrackHead({ track, selected, onSelect, onRegen, onDelete, busy }) {
           onClick={(e) => { e.stopPropagation(); onRegen() }}
           disabled={busy}
           title={track.kind === 'audio' ? 'Audio tracks come from recording or importing' : 'Regenerate this part, always free'}
-          className={clsx('size-5 shrink-0 rounded text-[13px] leading-none text-zinc-400 hover:text-indigo-300 disabled:opacity-40', busy && 'animate-spin')}
+          className={clsx('size-5 shrink-0 rounded text-[13px] leading-none text-muted hover:text-accent-text disabled:opacity-40', busy && 'animate-spin')}
         >
           ↻
         </button>
@@ -100,19 +100,19 @@ function TrackHead({ track, selected, onSelect, onRegen, onDelete, busy }) {
         value={track.sound}
         onClick={(e) => e.stopPropagation()}
         onChange={(e) => set({ sound: e.target.value })}
-        className="h-6 rounded-md border border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 px-1.5 text-xs text-zinc-700 dark:text-zinc-300"
+        className="h-6 rounded-md border border-transparent bg-raised px-1.5 text-xs text-body hover:border-line-strong"
       >
         {soundsOf(track).map((s) => <option key={s} value={s}>{s}</option>)}
       </select>
       <div className="flex items-center gap-1.5">
         <button type="button" title="Mute" onClick={(e) => { e.stopPropagation(); set({ mute: !track.mute }) }}
-          className={clsx('w-5 h-[18px] rounded border font-mono text-[10px]', track.mute ? 'bg-red-600 border-red-600 text-white' : 'bg-zinc-100 dark:bg-zinc-800 border-zinc-300 dark:border-zinc-700 text-zinc-400')}>M</button>
+          className={clsx('w-[22px] h-[18px] rounded-[5px] font-mono text-[10px] transition', track.mute ? 'bg-record text-white' : 'bg-raised text-faint hover:text-body')}>M</button>
         <button type="button" title="Solo" onClick={(e) => { e.stopPropagation(); set({ solo: !track.solo }) }}
-          className={clsx('w-5 h-[18px] rounded border font-mono text-[10px]', track.solo ? 'bg-amber-500 border-amber-500 text-amber-950' : 'bg-zinc-100 dark:bg-zinc-800 border-zinc-300 dark:border-zinc-700 text-zinc-400')}>S</button>
-        <div onPointerDown={volDrag} title="Volume" className="flex-1 h-1 rounded-full bg-zinc-200 dark:bg-zinc-800 cursor-ew-resize overflow-hidden touch-none">
-          <div className="h-full" style={{ width: `${track.vol}%`, background: color }} />
+          className={clsx('w-[22px] h-[18px] rounded-[5px] font-mono text-[10px] transition', track.solo ? 'bg-solo text-amber-950' : 'bg-raised text-faint hover:text-body')}>S</button>
+        <div onPointerDown={volDrag} title="Volume" className="flex-1 h-1.5 rounded-full bg-raised cursor-ew-resize overflow-hidden touch-none">
+          <div className="h-full rounded-full" style={{ width: `${track.vol}%`, background: color }} />
         </div>
-        <span className="font-mono tabular-nums text-[10px] text-zinc-400 dark:text-zinc-500 min-w-[26px] text-right">{track.vol}</span>
+        <span className="font-mono tabular-nums text-[10px] text-faint min-w-[26px] text-right">{track.vol}</span>
       </div>
     </div>
   )
@@ -138,6 +138,7 @@ function SongTimeline() {
   const [addOpen, setAddOpen] = useState(false)
   const [bandOpen, setBandOpen] = useState(false)
   const [dropAt, setDropAt] = useState(null)
+  const [shortcutsOpen, setShortcutsOpen] = useState(false)
 
   const bars = totalBars(project.sections)
   const maxBeat = bars * BEATS_PER_BAR
@@ -515,43 +516,43 @@ function SongTimeline() {
   return (
     <div className="flex-1 min-h-0 flex flex-col">
       {/* Edit toolbar */}
-      <div className="flex-none flex flex-wrap items-center gap-x-1 gap-y-1 px-3 py-1.5 border-b border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900">
+      <div className="flex-none flex flex-wrap items-center gap-x-1 gap-y-1 px-3 py-1.5 border-b border-line bg-panel">
         <button type="button" className={tool} onClick={split} title="Split at the cursor (S)"><ScissorsIcon className="size-3.5" />Split</button>
         <button type="button" className={tool} onClick={cut} disabled={!tg} title="Cut (Ctrl+X)"><ScissorsIcon className="size-3.5 rotate-90" />Cut</button>
         <button type="button" className={tool} onClick={() => copy()} disabled={!tg} title="Copy (Ctrl+C)"><ClipboardDocumentIcon className="size-3.5" />Copy</button>
         <button type="button" className={tool} onClick={() => paste()} disabled={!clipboard} title="Paste at the cursor (Ctrl+V)"><ClipboardIcon className="size-3.5" />Paste</button>
         <button type="button" className={tool} onClick={duplicate} disabled={!tg} title="Duplicate right after (Ctrl+D)"><DocumentDuplicateIcon className="size-3.5" />Duplicate</button>
         <button type="button" className={tool} onClick={() => del()} disabled={!tg} title="Delete (Del)"><TrashIcon className="size-3.5" />Delete</button>
-        <span className="mx-1 h-4 w-px bg-zinc-200 dark:bg-zinc-700" />
-        <button type="button" className={clsx(tool, 'text-indigo-300')} onClick={regenSelection} disabled={!tg || !tg.tracks.some((t) => t.kind === 'midi')} title="Have the AI rewrite the selected range on MIDI tracks, free">
+        <span className="mx-1 h-4 w-px bg-line" />
+        <button type="button" className={clsx(tool, 'text-accent-text')} onClick={regenSelection} disabled={!tg || !tg.tracks.some((t) => t.kind === 'midi')} title="Have the AI rewrite the selected range on MIDI tracks, free">
           <ArrowPathIcon className="size-3.5" />Regenerate selection
         </button>
-        <span className="mx-1 h-4 w-px bg-zinc-200 dark:bg-zinc-700" />
+        <span className="mx-1 h-4 w-px bg-line" />
         <button type="button" className={tool} onClick={() => fileInput.current.click()} title="Import an audio file at the cursor, or drop one on a lane"><ArrowUpTrayIcon className="size-3.5" />Import audio</button>
         <input ref={fileInput} type="file" accept="audio/*" className="hidden" onChange={(e) => { e.target.files.length && importFiles(e.target.files); e.target.value = '' }} />
         <div className="relative">
           <button type="button" className={tool} onClick={() => setAddOpen((v) => !v)} aria-expanded={addOpen}><PlusIcon className="size-3.5" />Add track</button>
           {addOpen && (
-            <div className="absolute left-0 top-full mt-1 z-30 w-40 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 shadow-lg p-1">
+            <div className="absolute left-0 top-full mt-1 z-30 w-40 rounded-lg border border-line-strong bg-raised shadow-lg p-1">
               {NEW_TRACKS.map((n) => (
-                <button key={n.role} type="button" onClick={() => addTrack(n.role)} className="w-full text-left rounded-md px-2 py-1.5 text-sm text-zinc-700 dark:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-white/5">
+                <button key={n.role} type="button" onClick={() => addTrack(n.role)} className="w-full text-left rounded-md px-2 py-1.5 text-sm text-body hover:bg-sunken hover:text-primary">
                   {n.label}{n.kind === 'audio' ? ' (audio)' : ''}
                 </button>
               ))}
             </div>
           )}
         </div>
-        <button type="button" className={clsx(tool, bandOpen && 'bg-indigo-600/20 text-indigo-300')} onClick={() => setBandOpen((v) => !v)} title="Generate an instrument stem that fits your mix, free">
+        <button type="button" className={clsx(tool, 'text-accent-text', bandOpen && 'bg-accent-surface')} onClick={() => setBandOpen((v) => !v)} title="Generate an instrument stem that fits your mix, free">
           <SparklesIcon className="size-3.5" />+ Band
         </button>
         <div className="flex-1" />
-        <span className="font-mono tabular-nums text-xs text-zinc-400 dark:text-zinc-500 mr-2 whitespace-nowrap">
+        <span className="font-mono tabular-nums text-xs text-faint mr-2 whitespace-nowrap">
           {sel && sel.end > sel.start ? `${fmtPos(sel.start)} to ${fmtPos(sel.end)} · ${sel.tracks.length} track${sel.tracks.length > 1 ? 's' : ''}` : `Cursor ${fmtPos(cursor)}`}
         </span>
         {sel && <button type="button" className={tool} onClick={() => setSel(null)} title="Clear selection (Esc)"><XMarkIcon className="size-3.5" /></button>}
-        <label className="flex items-center gap-1 text-xs text-zinc-500 dark:text-zinc-400">
+        <label className="flex items-center gap-1 text-xs text-muted">
           Snap
-          <select value={snap} onChange={(e) => setSnap(Number(e.target.value))} className="rounded-md border border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 px-1 py-0.5 font-mono text-xs text-zinc-700 dark:text-zinc-300">
+          <select value={snap} onChange={(e) => setSnap(Number(e.target.value))} className="rounded-md border border-transparent bg-raised px-1 py-0.5 font-mono text-xs text-body hover:border-line-strong">
             {SNAPS.map(([l, v]) => <option key={l} value={v}>{l}</option>)}
           </select>
         </label>
@@ -563,10 +564,10 @@ function SongTimeline() {
         <div className="flex min-w-min">
 
           {/* Track heads */}
-          <div className="flex-none w-[248px] sticky left-0 z-10 bg-sidebar border-r border-zinc-200 dark:border-zinc-800">
-            <div className="sticky top-0 z-10 flex items-center gap-1.5 px-3 border-b border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900" style={{ height: SECTIONS_H + BARS_H }}>
-              <span className="text-xs text-zinc-400 dark:text-zinc-500">Song plan</span>
-              <button type="button" onClick={addBridge} title="Add an 8-bar bridge at the end" className="ml-auto rounded-md px-1.5 py-0.5 text-zinc-400 hover:text-white hover:bg-white/5">
+          <div className="flex-none w-[248px] sticky left-0 z-10 bg-sidebar border-r border-line">
+            <div className="sticky top-0 z-10 flex items-center gap-1.5 px-3 border-b border-line bg-panel" style={{ height: SECTIONS_H + BARS_H }}>
+              <span className="text-xs text-faint">Song plan</span>
+              <button type="button" onClick={addBridge} title="Add an 8-bar bridge at the end" className="ml-auto rounded-md px-1.5 py-0.5 text-muted hover:text-primary hover:bg-sunken">
                 <PlusIcon className="size-3.5" />
               </button>
             </div>
@@ -577,22 +578,27 @@ function SongTimeline() {
 
           {/* Ruler + lanes */}
           <div className="flex-none relative">
-            <div className="sticky top-0 z-[7] border-b border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900" style={{ width: laneW }}>
+            <div className="sticky top-0 z-[7] border-b border-line bg-panel" style={{ width: laneW }}>
               <div className="flex items-stretch gap-0.5 py-1.5" style={{ height: SECTIONS_H }}>
                 {project.sections.map((s, i) => {
                   const on = i === selSection
+                  const c = SECTION_COLORS[s.kind]
                   return (
                     <div
                       key={s.id}
                       onClick={() => { setSelSection(i); setSel({ start: ranges[i].start, end: ranges[i].end, tracks: project.tracks.map((t) => t.id) }) }}
                       onDoubleClick={() => dupSection(i)}
                       title="Click to select this section on every track. Double-click to duplicate it"
-                      className={clsx('flex-none min-w-0 px-1.5 py-1 rounded-[3px] cursor-pointer overflow-hidden border transition', on ? 'border-indigo-300' : 'border-transparent')}
-                      style={{ width: s.bars * BW - 2, background: on ? SECTION_COLORS[s.kind] : `color-mix(in srgb, ${SECTION_COLORS[s.kind]} 60%, transparent)` }}
+                      className="flex-none min-w-0 px-1.5 py-1 rounded-[5px] cursor-pointer overflow-hidden border transition"
+                      style={{
+                        width: s.bars * BW - 2,
+                        background: `color-mix(in srgb, ${c} ${on ? 26 : 13}%, transparent)`,
+                        borderColor: on ? `color-mix(in srgb, ${c} 65%, transparent)` : 'transparent',
+                      }}
                     >
                       <div className="flex items-center gap-1.5 min-w-0">
-                        <span className="text-xs font-semibold text-white whitespace-nowrap">{s.kind}</span>
-                        <span className="font-mono tabular-nums text-xs text-zinc-300">{s.bars}</span>
+                        <span className="text-xs font-semibold whitespace-nowrap" style={{ color: `color-mix(in srgb, ${c} 60%, white)` }}>{s.kind}</span>
+                        <span className="font-mono tabular-nums text-[10px] text-faint">{s.bars}</span>
                         {on && s.bars * BW > 110 && (
                           <span className="ml-auto flex gap-0.5">
                             {[
@@ -601,7 +607,7 @@ function SongTimeline() {
                               [ChevronRightIcon, 'Move later', () => moveSection(i, 1)],
                               [TrashIcon, 'Remove', () => removeSec(i)],
                             ].map(([Icon, title, fn]) => (
-                              <button key={title} type="button" title={title} onClick={(e) => { e.stopPropagation(); fn() }} className="grid place-items-center size-4 rounded-[3px] bg-white/10 text-zinc-200 hover:bg-white/20">
+                              <button key={title} type="button" title={title} onClick={(e) => { e.stopPropagation(); fn() }} className="grid place-items-center size-4 rounded-[3px] bg-white/10 text-body hover:bg-white/20 hover:text-primary">
                                 <Icon className="size-3" />
                               </button>
                             ))}
@@ -609,8 +615,8 @@ function SongTimeline() {
                         )}
                       </div>
                       <div className="flex gap-[3px] mt-1 overflow-hidden">
-                        {s.chords.slice(0, 4).map((c, k) => (
-                          <span key={k} className="font-mono text-[9px] px-1 py-px rounded-[3px] bg-white/10 text-zinc-200 whitespace-nowrap">{c}</span>
+                        {s.chords.slice(0, 4).map((ch, k) => (
+                          <span key={k} className="font-mono text-[9px] px-1 py-px rounded-[3px] bg-white/[0.07] text-muted whitespace-nowrap">{ch}</span>
                         ))}
                       </div>
                     </div>
@@ -618,12 +624,12 @@ function SongTimeline() {
                 })}
               </div>
               {/* Bar numbers: click for the cursor, drag to select every track */}
-              <div onPointerDown={barsDown} className="relative cursor-text select-none border-t border-zinc-200 dark:border-zinc-800" style={{ height: BARS_H }} title="Click to move the cursor, drag to select">
+              <div onPointerDown={barsDown} className="relative cursor-text select-none border-t border-line" style={{ height: BARS_H }} title="Click to move the cursor, drag to select">
                 {Array.from({ length: bars }, (_, b) => ((BW >= 18 || b % 4 === 0) && (
-                  <span key={b} className="absolute top-0.5 font-mono tabular-nums text-[9px] text-zinc-500" style={{ left: b * BW + 2 }}>{b + 1}</span>
+                  <span key={b} className="absolute top-0.5 font-mono tabular-nums text-[9px] text-faint" style={{ left: b * BW + 2 }}>{b + 1}</span>
                 )))}
-                {sel && sel.end > sel.start && <div className="absolute bottom-0 h-1 bg-indigo-500/70" style={{ left: sel.start * ppb, width: (sel.end - sel.start) * ppb }} />}
-                <div className="absolute top-0 bottom-0 w-0 border-l-[5px] border-r-[5px] border-t-[7px] border-transparent border-t-amber-400 -translate-x-[5px]" style={{ left: cursor * ppb }} />
+                {sel && sel.end > sel.start && <div className="absolute bottom-0 h-1 bg-accent/70" style={{ left: sel.start * ppb, width: (sel.end - sel.start) * ppb }} />}
+                <div className="absolute top-0 bottom-0 w-0 border-l-[5px] border-r-[5px] border-t-[7px] border-transparent border-t-indigo-400 -translate-x-[5px]" style={{ left: cursor * ppb }} />
               </div>
             </div>
 
@@ -640,7 +646,7 @@ function SongTimeline() {
               {Array.from({ length: bars + 1 }, (_, b) => (
                 <div key={b} className="absolute top-0 bottom-0 w-px pointer-events-none" style={{ left: b * BW, background: b % 4 === 0 ? 'var(--grid-line-measure)' : 'var(--grid-line)' }} />
               ))}
-              {loop && <div className="absolute top-0 h-0.5 bg-indigo-400 z-[5]" style={{ left: loop.start * ppb, width: (loop.end - loop.start) * ppb }} />}
+              {loop && <div className="absolute top-0 h-0.5 bg-accent z-[5]" style={{ left: loop.start * ppb, width: (loop.end - loop.start) * ppb }} />}
 
               {project.tracks.map((t) => {
                 const color = colorOf(t)
@@ -665,9 +671,9 @@ function SongTimeline() {
                     const w = Math.max(8, (c.duration / spb) * ppb - 1)
                     clips.push(
                       <div key={c.id} data-clip onPointerDown={(e) => clipDown(e, t, c, 'move')} title="Drag to move, drag an edge to trim. S splits at the cursor, Del removes it"
-                        className={clsx('absolute top-1 overflow-hidden rounded-[3px] cursor-grab touch-none', on && 'ring-1 ring-white z-[3]')}
-                        style={{ left: c.startBeat * ppb, width: w, height: RH - 9, background: `color-mix(in srgb, ${color} 12%, transparent)`, border: `1px solid color-mix(in srgb, ${color} 40%, transparent)` }}>
-                        <div className="h-[13px] px-1.5 text-[9px] leading-[13px] whitespace-nowrap overflow-hidden" style={{ color }}>{t.name} · {take?.name || 'take'}</div>
+                        className={clsx('absolute top-1 overflow-hidden rounded-[5px] cursor-grab touch-none', on && 'ring-1 ring-white z-[3]')}
+                        style={{ left: c.startBeat * ppb, width: w, height: RH - 9, background: `color-mix(in srgb, ${color} 16%, transparent)`, border: `1px solid color-mix(in srgb, ${color} 45%, transparent)` }}>
+                        <div className="h-[13px] px-1.5 text-[9px] font-medium leading-[13px] whitespace-nowrap overflow-hidden" style={{ color: `color-mix(in srgb, ${color} 70%, white)` }}>{t.name} · {take?.name || 'take'}</div>
                         {peaks?.length > 1 && <Wave peaks={peaks} stroke={color} height={RH - 24} />}
                         <div onPointerDown={(e) => clipDown(e, t, c, 'start')} className="absolute left-0 top-0 h-full w-1.5 cursor-ew-resize hover:bg-white/30" title="Drag to trim the start" />
                         <div onPointerDown={(e) => clipDown(e, t, c, 'end')} className="absolute right-0 top-0 h-full w-1.5 cursor-ew-resize hover:bg-white/30" title="Drag to trim the end" />
@@ -676,11 +682,11 @@ function SongTimeline() {
                   }
                 }
                 return (
-                  <div key={t.id} className={clsx('relative border-b border-zinc-200/60 dark:border-zinc-800/60', t.id === selTrack && 'bg-white/[0.02]')} style={{ height: RH }}>
+                  <div key={t.id} className={clsx('relative border-b border-line/60', t.id === selTrack && 'bg-white/[0.02]')} style={{ height: RH }}>
                     {clips}
                     {!clips.length && (
-                      <span className="absolute left-1 top-2 rounded-[3px] border border-dashed border-zinc-300 dark:border-zinc-700 px-2.5 py-1.5 text-xs text-zinc-400 dark:text-zinc-500 pointer-events-none">
-                        {t.kind === 'audio' ? 'Empty. Record, import, or drop an audio file here' : 'Empty. Press ↻ to write a part, or double-click to draw one'}
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-faint pointer-events-none">
+                        {t.kind === 'audio' ? 'Record, import, or drop audio here' : 'Press ↻ to write a part, or double-click to draw one'}
                       </span>
                     )}
                   </div>
@@ -689,20 +695,64 @@ function SongTimeline() {
 
               {/* Range selection */}
               {sel && sel.end > sel.start && selRows.map((i) => (
-                <div key={i} className="absolute pointer-events-none bg-indigo-500/15 border-x border-indigo-400/70 z-[4]" style={{ left: sel.start * ppb, width: (sel.end - sel.start) * ppb, top: i * RH, height: RH }} />
+                <div key={i} className="absolute pointer-events-none bg-accent/15 border-x border-accent/70 z-[4]" style={{ left: sel.start * ppb, width: (sel.end - sel.start) * ppb, top: i * RH, height: RH }} />
               ))}
               {dropAt && <div className="absolute pointer-events-none border-2 border-dashed border-emerald-400 rounded z-[8]" style={{ left: dropAt.beat * ppb, top: dropAt.row * RH, width: 4 * ppb, height: RH }} />}
               {/* Edit cursor and playhead */}
-              <div className="absolute top-0 h-full w-px pointer-events-none z-[5] bg-amber-400/70" style={{ left: cursor * ppb }} />
+              <div className="absolute top-0 h-full w-px pointer-events-none z-[5] bg-indigo-400/70" style={{ left: cursor * ppb }} />
               <div ref={head} className="absolute left-0 top-0 w-px h-full pointer-events-none z-[6] opacity-0" style={{ background: 'var(--playhead)' }} />
             </div>
           </div>
         </div>
-        <p className="px-4 py-3 text-xs text-zinc-400 dark:text-zinc-500">
-          Click to place the cursor, drag across lanes to select. Double-click a MIDI lane to edit its notes. Drag recorded clips to move them and their edges to trim. S splits, Ctrl+C / X / V / D copy, cut, paste and duplicate, Del deletes. Drop audio files on a lane to import them.
-        </p>
+        <div className="px-4 py-2.5 flex items-center gap-3 text-xs text-faint">
+          <span>Click to place the cursor, drag to select, double-click a part to edit its notes.</span>
+          <button type="button" onClick={() => setShortcutsOpen(true)} className="rounded-md border border-line px-2 py-0.5 text-muted hover:text-primary hover:border-line-strong transition">
+            Keyboard shortcuts
+          </button>
+        </div>
       </div>
       {bandOpen && <BandPanel />}
+      {shortcutsOpen && <ShortcutsDialog onClose={() => setShortcutsOpen(false)} />}
+    </div>
+  )
+}
+
+const SHORTCUTS = [
+  ['Space', 'Play / pause'],
+  ['S', 'Split at the cursor'],
+  ['Ctrl C / X / V', 'Copy, cut, paste'],
+  ['Ctrl D', 'Duplicate right after'],
+  ['Ctrl A', 'Select everything'],
+  ['Del', 'Delete the selection or clip'],
+  ['+ / -', 'Zoom in and out'],
+  ['Ctrl scroll', 'Zoom at the pointer'],
+  ['Esc', 'Clear the selection'],
+  ['Home', 'Cursor to the start'],
+]
+
+function ShortcutsDialog({ onClose }) {
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
+  return (
+    <div className="fixed inset-0 z-40 grid place-items-center bg-black/60" onClick={onClose}>
+      <div className="w-[340px] rounded-xl border border-line bg-panel p-5 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="font-display text-base font-semibold text-primary">Keyboard shortcuts</h2>
+          <button type="button" onClick={onClose} className="rounded p-1 text-muted hover:text-primary"><XMarkIcon className="size-4" /></button>
+        </div>
+        <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5">
+          {SHORTCUTS.map(([keys, what]) => (
+            <div key={keys} className="contents">
+              <dt className="font-mono text-xs text-body bg-raised rounded px-1.5 py-0.5 justify-self-start">{keys}</dt>
+              <dd className="text-xs text-muted self-center">{what}</dd>
+            </div>
+          ))}
+        </dl>
+        <p className="mt-3 text-xs text-faint">Drag a clip to move it, drag its edges to trim. Drop audio files on any lane.</p>
+      </div>
     </div>
   )
 }

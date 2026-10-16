@@ -3,6 +3,7 @@ import { useAuthFetch } from '@/lib/authFetch'
 import { useJobs } from '@/lib/JobsContext'
 import AudioRecorder from '@/components/voxmidi/AudioRecorder'
 import { Button } from '@/components/catalyst/button'
+import { StepLabel } from '@/components/voxmidi/studio/ui'
 
 export const JAM_PARTS = [
   { id: 'drums',  label: 'Drums',          sub: 'Tight room kit, brushed hats' },
@@ -44,19 +45,19 @@ function PartCard({ part, active, onToggle }) {
       onClick={onToggle}
       className={`rounded-xl border p-3 text-left transition flex flex-col gap-1 ${
         active
-          ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-950/30 dark:border-indigo-600'
-          : 'border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 hover:border-zinc-300 dark:hover:border-zinc-700'
+          ? 'border-accent bg-accent-surface'
+          : 'border-line bg-panel hover:border-zinc-300 dark:hover:border-zinc-700'
       }`}
     >
       <div className="flex items-center justify-between gap-1">
-        <span className="text-sm font-medium text-zinc-900 dark:text-white leading-snug">{part.label}</span>
+        <span className="text-sm font-medium text-primary leading-snug">{part.label}</span>
         {part.texture && (
           <span className="shrink-0 text-[10px] font-medium rounded-full px-1.5 py-0.5 bg-violet-100 dark:bg-violet-950/50 text-violet-700 dark:text-violet-400 border border-violet-200 dark:border-violet-800">
             loop
           </span>
         )}
       </div>
-      <span className="text-xs text-zinc-500 dark:text-zinc-400 leading-snug">{part.sub}</span>
+      <span className="text-xs text-muted leading-snug">{part.sub}</span>
     </button>
   )
 }
@@ -69,11 +70,11 @@ const KIND_COLORS = {
   guitar: 'bg-lime-100 dark:bg-lime-950/50 text-lime-700 dark:text-lime-400 border-lime-200 dark:border-lime-800',
   pads:   'bg-cyan-100 dark:bg-cyan-950/50 text-cyan-700 dark:text-cyan-400 border-cyan-200 dark:border-cyan-800',
   synth:  'bg-violet-100 dark:bg-violet-950/50 text-violet-700 dark:text-violet-400 border-violet-200 dark:border-violet-800',
-  fx:     'bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 border-zinc-200 dark:border-zinc-700',
+  fx:     'bg-raised text-muted border-line-strong',
 }
 
 function KindBadge({ kind }) {
-  const cls = KIND_COLORS[kind] || 'bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 border-zinc-200 dark:border-zinc-700'
+  const cls = KIND_COLORS[kind] || 'bg-raised text-muted border-line-strong'
   return (
     <span className={`text-[10px] font-medium rounded-full px-2 py-0.5 border ${cls}`}>{kind}</span>
   )
@@ -87,7 +88,7 @@ function CapturedPill({ label }) {
       <span className="inline-flex items-center rounded-full bg-emerald-100 dark:bg-emerald-950/60 px-2.5 py-0.5 text-xs font-medium text-emerald-700 dark:text-emerald-400">
         Captured
       </span>
-      {label && <span className="text-xs text-zinc-400 dark:text-zinc-500">{label}</span>}
+      {label && <span className="text-xs text-faint">{label}</span>}
     </div>
   )
 }
@@ -107,20 +108,20 @@ function JamResult({ result }) {
     <section className="space-y-4">
       <div className="flex items-center gap-2">
         <span className="flex items-center justify-center w-6 h-6 rounded-full bg-emerald-600 text-white text-xs font-bold">4</span>
-        <h2 className="text-sm font-semibold text-zinc-800 dark:text-zinc-200">Result</h2>
+        <h2 className="text-sm font-semibold text-body">Result</h2>
       </div>
 
-      <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-5 space-y-5">
+      <div className="rounded-xl border border-line bg-panel p-5 space-y-5">
 
         {/* Tempo / key / duration */}
         {metaLine && (
-          <p className="font-mono text-sm text-zinc-600 dark:text-zinc-400">{metaLine}</p>
+          <p className="font-mono text-sm text-muted">{metaLine}</p>
         )}
 
         {/* Full mix player */}
         {mix_url && (
           <div className="space-y-1.5">
-            <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Full mix</p>
+            <p className="text-xs font-medium text-muted">Full mix</p>
             <audio controls src={mix_url} className="w-full" />
           </div>
         )}
@@ -128,7 +129,7 @@ function JamResult({ result }) {
         {/* Original riff */}
         {original?.audio_url && (
           <div className="space-y-1.5">
-            <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
+            <p className="text-xs font-medium text-muted">
               {original.label || 'Your riff'}
             </p>
             <audio controls src={original.audio_url} className="w-full" />
@@ -140,19 +141,19 @@ function JamResult({ result }) {
             Rendering a simple per-track list with audio element + label + kind badge instead. */}
         {tracks.length > 0 && (
           <div className="space-y-2">
-            <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
+            <p className="text-xs font-medium text-muted">
               Tracks
-              <span className="ml-1.5 text-zinc-400 dark:text-zinc-600 font-normal">
+              <span className="ml-1.5 text-faint font-normal">
                 {tracks.length} stem{tracks.length !== 1 ? 's' : ''}
               </span>
             </p>
             {tracks.map((track) => (
               <div
                 key={track.id}
-                className="rounded-lg border border-zinc-100 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-800/50 p-3 space-y-2"
+                className="rounded-lg border border-line bg-sunken p-3 space-y-2"
               >
                 <div className="flex items-center gap-2 flex-wrap">
-                  <span className="text-sm font-medium text-zinc-900 dark:text-white flex-1 min-w-0 truncate">
+                  <span className="text-sm font-medium text-primary flex-1 min-w-0 truncate">
                     {track.label}
                   </span>
                   {track.kind && <KindBadge kind={track.kind} />}
@@ -160,7 +161,7 @@ function JamResult({ result }) {
                     <a
                       href={track.midi_url}
                       download
-                      className="text-xs font-medium text-indigo-600 dark:text-indigo-400 hover:underline shrink-0"
+                      className="text-xs font-medium text-accent-text hover:underline shrink-0"
                     >
                       MIDI
                     </a>
@@ -176,12 +177,12 @@ function JamResult({ result }) {
 
         {/* Download row */}
         {(mix_url || midi_url) && (
-          <div className="flex flex-wrap gap-2 pt-1 border-t border-zinc-100 dark:border-zinc-800">
+          <div className="flex flex-wrap gap-2 pt-1 border-t border-line">
             {mix_url && (
               <a
                 href={mix_url}
                 download
-                className="rounded-lg border border-zinc-200 dark:border-zinc-700 px-3 py-1.5 text-sm font-medium text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition"
+                className="rounded-lg border border-line-strong px-3 py-1.5 text-sm font-medium text-body hover:bg-raised transition"
               >
                 Download mix
               </a>
@@ -190,7 +191,7 @@ function JamResult({ result }) {
               <a
                 href={midi_url}
                 download
-                className="rounded-lg border border-zinc-200 dark:border-zinc-700 px-3 py-1.5 text-sm font-medium text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition"
+                className="rounded-lg border border-line-strong px-3 py-1.5 text-sm font-medium text-body hover:bg-raised transition"
               >
                 Download MIDI
               </a>
@@ -328,31 +329,28 @@ export default function JamPage() {
 
       {/* Page header */}
       <div>
-        <h1 className="text-2xl font-bold text-zinc-900 dark:text-white">Jam</h1>
-        <p className="text-sm text-zinc-500 dark:text-zinc-400 mt-1">
+        <h1 className="text-2xl font-bold font-display tracking-tight text-primary">Jam</h1>
+        <p className="text-sm text-muted mt-1">
           Record a riff, pick the parts the AI should add, then mix
         </p>
       </div>
 
       {/* Step 1: Lay down your riff */}
       <section className="space-y-3">
-        <div className="flex items-center gap-2">
-          <span className="flex items-center justify-center w-6 h-6 rounded-full bg-indigo-600 text-white text-xs font-bold">1</span>
-          <h2 className="text-sm font-semibold text-zinc-800 dark:text-zinc-200">Lay down your riff</h2>
-        </div>
+        <StepLabel title="Lay down your riff" />
 
-        <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-5 space-y-3">
+        <div className="rounded-xl border border-line bg-panel p-5 space-y-3">
           {riffBlob && <CapturedPill label="Riff recorded and ready" />}
           <AudioRecorder onRecordingComplete={setRiffBlob} />
         </div>
 
         {/* Beatbox option — only meaningful when drums is selected */}
         {parts.has('drums') && (
-          <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-4 space-y-3">
+          <div className="rounded-xl border border-line bg-panel p-4 space-y-3">
             <label className="flex items-center justify-between cursor-pointer">
               <div>
-                <p className="text-sm font-medium text-zinc-800 dark:text-zinc-200">Beatbox it</p>
-                <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
+                <p className="text-sm font-medium text-body">Beatbox it</p>
+                <p className="text-xs text-muted mt-0.5">
                   Record a beatbox take to guide the drum rhythm
                 </p>
               </div>
@@ -364,7 +362,7 @@ export default function JamPage() {
               />
             </label>
             {showBeatbox && (
-              <div className="space-y-2 pt-1 border-t border-zinc-100 dark:border-zinc-800">
+              <div className="space-y-2 pt-1 border-t border-line">
                 {beatboxBlob && <CapturedPill label="Beatbox recorded" />}
                 <AudioRecorder onRecordingComplete={setBeatboxBlob} />
               </div>
@@ -375,15 +373,11 @@ export default function JamPage() {
 
       {/* Step 2: Pick parts */}
       <section className="space-y-3">
-        <div className="flex items-center gap-2">
-          <span className="flex items-center justify-center w-6 h-6 rounded-full bg-indigo-600 text-white text-xs font-bold">2</span>
-          <h2 className="text-sm font-semibold text-zinc-800 dark:text-zinc-200">Pick the parts to add</h2>
-          <span className="text-xs text-zinc-400 dark:text-zinc-500">AI fills in around you</span>
-        </div>
+        <StepLabel title="Pick the parts to add" hint="AI fills in around you" />
 
         {/* Full band shortcut */}
-        <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-4 py-3 flex items-center gap-3 flex-wrap">
-          <span className="flex-1 min-w-[14rem] text-sm text-zinc-500 dark:text-zinc-400">
+        <div className="rounded-xl border border-line bg-panel px-4 py-3 flex items-center gap-3 flex-wrap">
+          <span className="flex-1 min-w-[14rem] text-sm text-muted">
             In a hurry? Drop in a full band and adjust after.
           </span>
           <button
@@ -411,13 +405,13 @@ export default function JamPage() {
         {JAM_PARTS.filter((p) => p.texture && parts.has(p.id)).map((p) => (
           <div
             key={p.id}
-            className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-4 space-y-3"
+            className="rounded-xl border border-line bg-panel p-4 space-y-3"
           >
             <div className="flex items-center justify-between">
-              <span className="text-sm font-medium text-zinc-800 dark:text-zinc-200">
+              <span className="text-sm font-medium text-body">
                 {p.label} prompt
               </span>
-              <span className="text-xs text-zinc-400 dark:text-zinc-500">30s loop</span>
+              <span className="text-xs text-faint">30s loop</span>
             </div>
 
             {/* Preset chips */}
@@ -429,8 +423,8 @@ export default function JamPage() {
                   onClick={() => selectTexturePreset(p.id, preset)}
                   className={`rounded-full px-3 py-1 text-xs font-medium transition ${
                     texturePresetIds[p.id] === preset.id
-                      ? 'bg-indigo-600 text-white'
-                      : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-700'
+                      ? 'bg-accent-strong text-white'
+                      : 'bg-raised text-body hover:bg-sunken'
                   }`}
                 >
                   {preset.label}
@@ -444,36 +438,33 @@ export default function JamPage() {
               onChange={(e) => setTexturePrompts((prev) => ({ ...prev, [p.id]: e.target.value }))}
               rows={2}
               placeholder={`Describe the ${p.label.toLowerCase()} sound...`}
-              className="w-full rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-3 py-2 text-sm text-zinc-900 dark:text-white placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none"
+              className="w-full rounded-lg border border-line-strong bg-raised px-3 py-2 text-sm text-primary placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none"
             />
           </div>
         ))}
 
         {/* Style prompt */}
         <div className="space-y-1.5">
-          <label className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
+          <label className="text-xs font-medium text-muted">
             Style prompt{' '}
-            <span className="font-normal text-zinc-400 dark:text-zinc-600">optional</span>
+            <span className="font-normal text-faint">optional</span>
           </label>
           <textarea
             value={stylePrompt}
             onChange={(e) => setStylePrompt(e.target.value)}
             rows={2}
             placeholder="e.g., dark synthwave, heavy reverb, 80s analog warmth"
-            className="w-full rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-4 py-3 text-sm text-zinc-900 dark:text-white placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none shadow-sm"
+            className="w-full rounded-xl border border-line-strong bg-panel px-4 py-3 text-sm text-primary placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none shadow-sm"
           />
         </div>
       </section>
 
       {/* Step 3: Generate */}
       <section className="space-y-3">
-        <div className="flex items-center gap-2">
-          <span className="flex items-center justify-center w-6 h-6 rounded-full bg-indigo-600 text-white text-xs font-bold">3</span>
-          <h2 className="text-sm font-semibold text-zinc-800 dark:text-zinc-200">Generate parts</h2>
-        </div>
+        <StepLabel title="Generate parts" />
 
         {!riffBlob && (
-          <p className="text-xs text-zinc-400 dark:text-zinc-500">
+          <p className="text-xs text-faint">
             Record a riff above first.
           </p>
         )}
@@ -492,21 +483,21 @@ export default function JamPage() {
 
       {/* Progress */}
       {isGenerating && jobStatus && (
-        <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-6 space-y-3">
+        <div className="rounded-xl border border-line bg-panel p-6 space-y-3">
           <div className="flex items-center justify-between gap-3">
-            <p className="font-medium text-zinc-900 dark:text-white animate-pulse">
+            <p className="font-medium text-primary animate-pulse">
               {STATUS_LABELS[jobStatus.status] || 'Processing...'}
             </p>
             <button
               onClick={handleCancel}
-              className="text-xs text-zinc-400 hover:text-red-500 border border-zinc-200 dark:border-zinc-700 rounded-lg px-2.5 py-1 transition"
+              className="text-xs text-faint hover:text-red-500 border border-line-strong rounded-lg px-2.5 py-1 transition"
             >
               Cancel
             </button>
           </div>
-          <div className="w-full bg-zinc-100 dark:bg-zinc-800 rounded-full h-2">
+          <div className="w-full bg-raised rounded-full h-2">
             <div
-              className="bg-indigo-600 h-2 rounded-full transition-all duration-700"
+              className="bg-accent-strong h-2 rounded-full transition-all duration-700"
               style={{ width: `${jobStatus.progress || 0}%` }}
             />
           </div>

@@ -1,8 +1,10 @@
-/* VoxMIDI ships no webfonts. The app renders in the Tailwind v4 default stacks —
-   system UI sans for everything, and ui-monospace for anything numeric/musical
-   (BPM, timecode, note names, key labels, lyric sheets). Keep it that way. */
+/* VoxMIDI ships one webfont: Bricolage Grotesque, display only (wordmark, page
+   titles, panel headings). Body text stays on the system UI stack, and
+   ui-monospace covers anything numeric/musical (BPM, timecode, note names,
+   key labels, lyric sheets). */
 :root {
   --font-sans: ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+  --font-display: "Bricolage Grotesque Variable", ui-sans-serif, system-ui, sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
 
   --text-2xs: 0.625rem;   /* 10px — M/S buttons, tiny meter caps */

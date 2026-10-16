@@ -137,8 +137,8 @@ export default function RealPartPanel({ trackId }) {
   }
 
   return (
-    <div className="flex-none border-t border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900">
-      <button type="button" onClick={() => setOpen(!open)} className="w-full flex items-center gap-2 px-4 py-2.5 text-left text-sm font-medium text-zinc-800 dark:text-zinc-200 hover:bg-white/[0.03]">
+    <div className="flex-none border-t border-line bg-panel">
+      <button type="button" onClick={() => setOpen(!open)} className="w-full flex items-center gap-2 px-4 py-2.5 text-left text-sm font-medium text-body hover:bg-white/[0.03]">
         {open ? <ChevronDownIcon className="size-4" /> : <ChevronRightIcon className="size-4" />}
         Make {track.name} sound real
         {info && <span className="ml-2 rounded-md bg-emerald-500/15 px-1.5 text-xs text-emerald-400">{usingReal ? 'playing real' : 'playing MIDI'}</span>}
@@ -150,7 +150,7 @@ export default function RealPartPanel({ trackId }) {
               <div className="flex rounded-full bg-zinc-800 p-0.5">
                 {parts.map((pt) => (
                   <button key={pt} type="button" onClick={() => { setPart(pt); setStyle(STYLES[pt][0][0]) }}
-                    className={clsx('rounded-full px-3 py-0.5 text-xs', part === pt ? 'bg-indigo-600 text-white' : 'text-zinc-400')}>{PART_LABEL[pt]}</button>
+                    className={clsx('rounded-full px-3 py-0.5 text-xs', part === pt ? 'bg-accent-strong text-white' : 'text-faint')}>{PART_LABEL[pt]}</button>
                 ))}
               </div>
             )}
@@ -161,7 +161,7 @@ export default function RealPartPanel({ trackId }) {
               <div className="ml-auto flex rounded-full bg-zinc-800 p-0.5">
                 {[['real', 'Real'], ['midi', 'MIDI']].map(([k, label]) => (
                   <button key={k} type="button" onClick={() => hear(k)}
-                    className={clsx('rounded-full px-3 py-0.5 text-xs', (k === 'real') === usingReal ? 'bg-indigo-600 text-white' : 'text-zinc-400')}>{label}</button>
+                    className={clsx('rounded-full px-3 py-0.5 text-xs', (k === 'real') === usingReal ? 'bg-accent-strong text-white' : 'text-faint')}>{label}</button>
                 ))}
               </div>
             )}
@@ -172,40 +172,40 @@ export default function RealPartPanel({ trackId }) {
               <MusicalNoteIcon data-slot="icon" />
               {mode === 'samples' ? 'Rendering...' : 'Real Instrument'}
             </Button>
-            <span className="text-xs text-zinc-400 dark:text-zinc-500">Free. Recorded instrument samples play your exact notes.</span>
+            <span className="text-xs text-faint">Free. Recorded instrument samples play your exact notes.</span>
           </div>
           <div className="flex items-center gap-3 flex-wrap">
             <Button color="indigo" disabled={!!mode || !track.notes.length} onClick={() => start('cover')}>
               <SparklesIcon data-slot="icon" />
               {mode === 'cover' ? 'Covering...' : 'AI Cover'}
             </Button>
-            <span className="text-xs text-zinc-400 dark:text-zinc-500">Free. The AI on this server plays your part with real-recording sound; slide left to keep your exact notes.</span>
+            <span className="text-xs text-faint">Free. The AI on this server plays your part with real-recording sound; slide left to keep your exact notes.</span>
           </div>
           <div className="flex items-center gap-3 flex-wrap">
             <Button outline disabled={!!mode || !track.notes.length} onClick={() => start('polish')}>
               <SparklesIcon data-slot="icon" />
               {mode === 'polish' ? 'Polishing...' : 'Polish with AI'}
             </Button>
-            <span className="text-xs text-zinc-400 dark:text-zinc-500">Counts as one song. The AI adds a played feel; if it changes your notes, nothing is placed and it isn't counted.</span>
+            <span className="text-xs text-faint">Counts as one song. The AI adds a played feel; if it changes your notes, nothing is placed and it isn't counted.</span>
           </div>
           <div className="flex items-center gap-3 flex-wrap">
-            <span className="text-xs text-zinc-500 dark:text-zinc-400 w-40">Stay close to my part</span>
+            <span className="text-xs text-muted w-40">Stay close to my part</span>
             <input type="range" min={0} max={0.7} step={0.05} value={strength} onChange={(e) => setStrength(e.target.valueAsNumber)} className="flex-1 min-w-[8rem] max-w-xs accent-indigo-500" />
-            <span className="text-xs text-zinc-500 dark:text-zinc-400">Let the AI play</span>
-            <span className="font-mono tabular-nums text-xs text-zinc-400 w-10 text-right">{Math.round(strength * 100)}%</span>
+            <span className="text-xs text-muted">Let the AI play</span>
+            <span className="font-mono tabular-nums text-xs text-faint w-10 text-right">{Math.round(strength * 100)}%</span>
           </div>
 
           {mode && (
             <div className="space-y-1.5">
-              <p className="text-sm text-zinc-900 dark:text-white animate-pulse">{STATUS[job?.status] || 'Starting...'}</p>
+              <p className="text-sm text-primary animate-pulse">{STATUS[job?.status] || 'Starting...'}</p>
               <div className="w-full bg-zinc-800 rounded-full h-1.5">
-                <div className="bg-indigo-600 h-1.5 rounded-full transition-all duration-700" style={{ width: `${job?.progress || 5}%` }} />
+                <div className="bg-accent-strong h-1.5 rounded-full transition-all duration-700" style={{ width: `${job?.progress || 5}%` }} />
               </div>
             </div>
           )}
           {error && <Callout title={error}>Your part is untouched.</Callout>}
           {info && !mode && (
-            <p className="text-xs text-zinc-500 dark:text-zinc-400">
+            <p className="text-xs text-muted">
               Last render: {STYLES[info.part]?.find(([id]) => id === info.style)?.[1]}
               {info.cover ? (info.provider === 'mock'
                 ? ' · preview cover (no GPU on this server)'

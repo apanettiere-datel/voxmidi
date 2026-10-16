@@ -121,8 +121,8 @@ export default function AiDrumsPanel() {
     <section className={clsx(panel, 'p-5 mt-4 space-y-4')}>
       <div className="flex items-start gap-3 flex-wrap">
         <div className="flex-1 min-w-[16rem]">
-          <h3 className="text-sm font-semibold text-zinc-900 dark:text-white">Real drums with AI</h3>
-          <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
+          <h3 className="text-sm font-semibold text-primary">Real drums with AI</h3>
+          <p className="text-xs text-muted mt-0.5">
             Your pattern gets played on a real-sounding kit. The hits stay where you put them; the AI changes the sound, then we check every kick and snare still lines up.
           </p>
         </div>
@@ -130,7 +130,7 @@ export default function AiDrumsPanel() {
           <div className="flex rounded-full bg-zinc-800 p-0.5 self-start">
             {[['ai', 'AI drums'], ['pattern', 'Pattern']].map(([k, label]) => (
               <button key={k} type="button" onClick={() => hear(k)}
-                className={clsx('rounded-full px-3 py-1 text-xs transition', (k === 'ai') === usingAi ? 'bg-indigo-600 text-white' : 'text-zinc-400')}>
+                className={clsx('rounded-full px-3 py-1 text-xs transition', (k === 'ai') === usingAi ? 'bg-accent-strong text-white' : 'text-faint')}>
                 {label}
               </button>
             ))}
@@ -143,17 +143,17 @@ export default function AiDrumsPanel() {
       </div>
 
       <div className="flex items-center gap-3 flex-wrap">
-        <span className="text-xs text-zinc-500 dark:text-zinc-400 w-40">Stay close to my pattern</span>
+        <span className="text-xs text-muted w-40">Stay close to my pattern</span>
         <input type="range" min={0.2} max={0.9} step={0.05} value={strength} onChange={(e) => setStrength(e.target.valueAsNumber)} className="flex-1 min-w-[8rem] accent-indigo-500" />
-        <span className="text-xs text-zinc-500 dark:text-zinc-400 w-32 text-right">Let the AI play</span>
-        <span className="font-mono tabular-nums text-xs text-zinc-400 w-10 text-right">{Math.round(strength * 100)}%</span>
+        <span className="text-xs text-muted w-32 text-right">Let the AI play</span>
+        <span className="font-mono tabular-nums text-xs text-faint w-10 text-right">{Math.round(strength * 100)}%</span>
       </div>
 
       {busy && (
         <div className="space-y-2">
-          <p className="text-sm font-medium text-zinc-900 dark:text-white animate-pulse">{STATUS[job?.status] || 'Starting...'}</p>
-          <div className="w-full bg-zinc-100 dark:bg-zinc-800 rounded-full h-2">
-            <div className="bg-indigo-600 h-2 rounded-full transition-all duration-700" style={{ width: `${job?.progress || 5}%` }} />
+          <p className="text-sm font-medium text-primary animate-pulse">{STATUS[job?.status] || 'Starting...'}</p>
+          <div className="w-full bg-raised rounded-full h-2">
+            <div className="bg-accent-strong h-2 rounded-full transition-all duration-700" style={{ width: `${job?.progress || 5}%` }} />
           </div>
         </div>
       )}
@@ -161,7 +161,7 @@ export default function AiDrumsPanel() {
       {error && <Callout title={error}>Your pattern is untouched.</Callout>}
 
       {ai && !busy && (
-        <p className="text-xs text-zinc-500 dark:text-zinc-400">
+        <p className="text-xs text-muted">
           {ai.provider === 'mock'
             ? 'Preview only: the AI drum service isn\'t set up on this server, so this is your pattern with some room on it. Nothing was counted.'
             : <>Last render: {STYLES.find((s) => s.id === ai.style)?.label} · <span className="font-mono tabular-nums">{ai.match}%</span> of kicks and snares on your pattern · <span className="font-mono tabular-nums">{ai.offsetMs} ms</span> alignment shift.</>}
@@ -174,7 +174,7 @@ export default function AiDrumsPanel() {
           <SparklesIcon data-slot="icon" />
           {aiTrack ? 'Make Real Drums Again' : 'Make Real Drums'}
         </Button>
-        <span className="text-xs text-zinc-400 dark:text-zinc-500">Counts as one song. If it doesn't line up, nothing is placed and it's not counted.</span>
+        <span className="text-xs text-faint">Counts as one song. If it doesn't line up, nothing is placed and it's not counted.</span>
       </div>
     </section>
   )

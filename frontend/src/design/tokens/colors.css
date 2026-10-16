@@ -17,7 +17,7 @@
   --white: #ffffff;
 
   /* piano-roll lane fill — the one off-scale neutral in the codebase */
-  --lane-white-key: #1c1c20;
+  --lane-white-key: #141823;
 
   --indigo-50: #eef2ff;
   --indigo-100: #e0e7ff;
@@ -74,23 +74,25 @@
   --blue-800: #1e40af;
   --blue-950: #172554;
 
-  /* Track/stem colors, in the order TrackMixer + PianoRoll assign them */
-  --track-1: #6366f1;
-  --track-2: #f43f5e;
-  --track-3: #10b981;
-  --track-4: #f59e0b;
-  --track-5: #8b5cf6;
-  --track-6: #06b6d4;
-  --track-7: #ec4899;
-  --track-8: #84cc16;
+  /* Track/stem colors, in the order TrackMixer + PianoRoll assign them.
+     Curated lane palette: desaturated to similar luminance (Ableton-style) so
+     eight lanes side by side identify instantly without shouting. */
+  --track-1: #8e97f5;
+  --track-2: #e27d84;
+  --track-3: #55b597;
+  --track-4: #d9a362;
+  --track-5: #ab8df0;
+  --track-6: #5cb3d9;
+  --track-7: #d489b9;
+  --track-8: #a0b865;
 
   /* Note-body fills used by the piano roll canvas (70% alpha of the track color) */
-  --track-1-fill: rgba(99, 102, 241, 0.7);
-  --track-2-fill: rgba(244, 63, 94, 0.7);
-  --track-3-fill: rgba(16, 185, 129, 0.7);
-  --track-4-fill: rgba(245, 158, 11, 0.7);
-  --track-5-fill: rgba(139, 92, 246, 0.7);
-  --track-6-fill: rgba(6, 182, 212, 0.7);
-  --track-7-fill: rgba(236, 72, 153, 0.7);
-  --track-8-fill: rgba(132, 204, 22, 0.7);
+  --track-1-fill: rgba(142, 151, 245, 0.7);
+  --track-2-fill: rgba(226, 125, 132, 0.7);
+  --track-3-fill: rgba(85, 181, 151, 0.7);
+  --track-4-fill: rgba(217, 163, 98, 0.7);
+  --track-5-fill: rgba(171, 141, 240, 0.7);
+  --track-6-fill: rgba(92, 179, 217, 0.7);
+  --track-7-fill: rgba(212, 137, 185, 0.7);
+  --track-8-fill: rgba(160, 184, 101, 0.7);
 }

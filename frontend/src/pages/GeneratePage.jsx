@@ -4,6 +4,7 @@ import { useAuthFetch } from '@/lib/authFetch'
 import { useJobs } from '@/lib/JobsContext'
 import ResultPanel from '@/components/voxmidi/ResultPanel'
 import AudioRecorder from '@/components/voxmidi/AudioRecorder'
+import { StepLabel } from '@/components/voxmidi/studio/ui'
 
 const GENRES = [
   { id: 'pop', label: 'Pop' },
@@ -214,36 +215,33 @@ export default function GeneratePage() {
 
       {/* Page header */}
       <div>
-        <h1 className="text-2xl font-bold text-zinc-900 dark:text-white">Song Generator</h1>
-        <p className="text-sm text-zinc-500 dark:text-zinc-400 mt-1">
+        <h1 className="text-2xl font-bold font-display tracking-tight text-primary">Song Generator</h1>
+        <p className="text-sm text-muted mt-1">
           Describe your song, refine with AI, and generate a finished track
         </p>
       </div>
 
       {/* Step 1: Describe your song */}
       <section className="space-y-3">
-        <div className="flex items-center gap-2">
-          <span className="flex items-center justify-center w-6 h-6 rounded-full bg-indigo-600 text-white text-xs font-bold">1</span>
-          <h2 className="text-sm font-semibold text-zinc-800 dark:text-zinc-200">Describe your song</h2>
-        </div>
+        <StepLabel title="Describe your song" />
 
         <textarea
           value={roughPrompt}
           onChange={(e) => { setRoughPrompt(e.target.value); if (useEnhanced) setUseEnhanced(false) }}
           rows={3}
           placeholder="e.g., A chill summer vibe with acoustic guitar and soft vocals, something you'd hear at a beach bonfire"
-          className="w-full rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-4 py-3 text-base text-zinc-900 dark:text-white placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none shadow-sm"
+          className="w-full rounded-xl border border-line-strong bg-panel px-4 py-3 text-base text-primary placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none shadow-sm"
         />
 
         <div className="flex items-center gap-3">
           <button
             onClick={handleEnhance}
             disabled={enhancing || !roughPrompt.trim()}
-            className="rounded-lg bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800 text-indigo-700 dark:text-indigo-300 px-4 py-2 text-sm font-medium hover:bg-indigo-100 dark:hover:bg-indigo-900/60 disabled:opacity-50 disabled:cursor-not-allowed transition"
+            className="rounded-lg bg-accent-surface border border-accent text-accent-text px-4 py-2 text-sm font-medium hover:bg-indigo-100 dark:hover:bg-indigo-900/60 disabled:opacity-50 disabled:cursor-not-allowed transition"
           >
             {enhancing ? 'Enhancing...' : 'Enhance with AI'}
           </button>
-          <span className="text-xs text-zinc-400 dark:text-zinc-500">
+          <span className="text-xs text-faint">
             AI refines your description into a detailed music prompt
           </span>
         </div>
@@ -252,15 +250,15 @@ export default function GeneratePage() {
         {enhancedPrompt && (
           <div className="space-y-2">
             <div className="flex items-center justify-between">
-              <label className="text-xs font-medium text-indigo-600 dark:text-indigo-400">
+              <label className="text-xs font-medium text-accent-text">
                 Enhanced prompt {useEnhanced ? '(active)' : '(not used)'}
               </label>
               <button
                 onClick={() => setUseEnhanced(!useEnhanced)}
                 className={`text-xs px-2.5 py-1 rounded-lg border transition font-medium ${
                   useEnhanced
-                    ? 'bg-indigo-600 text-white border-indigo-600'
-                    : 'bg-white dark:bg-zinc-900 text-zinc-500 border-zinc-200 dark:border-zinc-700 hover:border-indigo-400'
+                    ? 'bg-accent-strong text-white border-accent'
+                    : 'bg-panel text-zinc-500 border-line-strong hover:border-indigo-400'
                 }`}
               >
                 {useEnhanced ? 'Using enhanced' : 'Use enhanced'}
@@ -270,10 +268,10 @@ export default function GeneratePage() {
               value={enhancedPrompt}
               onChange={(e) => setEnhancedPrompt(e.target.value)}
               rows={4}
-              className={`w-full rounded-xl border px-4 py-3 text-sm text-zinc-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none transition ${
+              className={`w-full rounded-xl border px-4 py-3 text-sm text-primary focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none transition ${
                 useEnhanced
-                  ? 'border-indigo-300 dark:border-indigo-700 bg-indigo-50/50 dark:bg-indigo-950/20'
-                  : 'border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800/50 opacity-60'
+                  ? 'border-accent bg-accent-surface'
+                  : 'border-line-strong bg-sunken opacity-60'
               }`}
             />
           </div>
@@ -283,12 +281,9 @@ export default function GeneratePage() {
       {/* Step 2: Lyrics */}
       <section className="space-y-3">
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <span className="flex items-center justify-center w-6 h-6 rounded-full bg-indigo-600 text-white text-xs font-bold">2</span>
-            <h2 className="text-sm font-semibold text-zinc-800 dark:text-zinc-200">Lyrics</h2>
-          </div>
+          <StepLabel title="Lyrics" />
           <label className="flex items-center gap-2 cursor-pointer">
-            <span className="text-xs text-zinc-500 dark:text-zinc-400">Instrumental only</span>
+            <span className="text-xs text-muted">Instrumental only</span>
             <input
               type="checkbox"
               checked={instrumental}
@@ -299,20 +294,20 @@ export default function GeneratePage() {
         </div>
 
         {!instrumental && (
-          <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-5 space-y-3">
+          <div className="rounded-xl border border-line bg-panel p-5 space-y-3">
             <div className="space-y-1">
-              <label className="text-xs font-medium text-zinc-500 dark:text-zinc-400">What should the song be about?</label>
+              <label className="text-xs font-medium text-muted">What should the song be about?</label>
               <div className="flex gap-2">
                 <input
                   value={lyricsTheme}
                   onChange={(e) => setLyricsTheme(e.target.value)}
                   placeholder="e.g., chasing dreams, a rainy night in Tokyo, falling out of love"
-                  className="flex-1 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-3 py-2 text-sm text-zinc-900 dark:text-white placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  className="flex-1 rounded-lg border border-line-strong bg-raised px-3 py-2 text-sm text-primary placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
                 />
                 <button
                   onClick={handleGenerateLyrics}
                   disabled={generatingLyrics}
-                  className="rounded-lg bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800 text-indigo-700 dark:text-indigo-300 px-4 py-2 text-sm font-medium hover:bg-indigo-100 dark:hover:bg-indigo-900/60 disabled:opacity-50 transition whitespace-nowrap"
+                  className="rounded-lg bg-accent-surface border border-accent text-accent-text px-4 py-2 text-sm font-medium hover:bg-indigo-100 dark:hover:bg-indigo-900/60 disabled:opacity-50 transition whitespace-nowrap"
                 >
                   {generatingLyrics ? 'Writing...' : 'Write lyrics'}
                 </button>
@@ -324,7 +319,7 @@ export default function GeneratePage() {
               onChange={(e) => setLyrics(e.target.value)}
               rows={10}
               placeholder={`[Verse 1]\nYour verse here...\n\n[Chorus]\nYour chorus here...\n\nTip: Use [Verse], [Chorus], [Bridge], [Outro] tags for song structure`}
-              className="w-full rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-3 py-2 text-sm font-mono text-zinc-900 dark:text-white placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none"
+              className="w-full rounded-lg border border-line-strong bg-raised px-3 py-2 text-sm font-mono text-primary placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none"
             />
             {lyrics && (
               <p className="text-xs text-zinc-400">{lyrics.split('\n').filter(l => l.trim()).length} lines</p>
@@ -336,30 +331,26 @@ export default function GeneratePage() {
       {/* Step 3: Voice reference (optional) */}
       {!instrumental && (
         <section className="space-y-3">
-          <div className="flex items-center gap-2">
-            <span className="flex items-center justify-center w-6 h-6 rounded-full bg-indigo-600 text-white text-xs font-bold">3</span>
-            <h2 className="text-sm font-semibold text-zinc-800 dark:text-zinc-200">Voice reference</h2>
-            <span className="text-xs text-zinc-400 dark:text-zinc-500 ml-1">optional</span>
-          </div>
+          <StepLabel title="Voice reference" hint="optional" />
 
           {!showVoiceRecorder ? (
             <button
               type="button"
               onClick={() => setShowVoiceRecorder(true)}
-              className="w-full rounded-xl border-2 border-dashed border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-6 text-center hover:border-indigo-400 dark:hover:border-indigo-600 transition group"
+              className="w-full rounded-xl border-2 border-dashed border-line-strong bg-panel p-6 text-center hover:border-accent transition group"
             >
               <div className="text-3xl mb-2">🎤</div>
-              <p className="text-sm font-medium text-zinc-700 dark:text-zinc-300 group-hover:text-indigo-600 dark:group-hover:text-indigo-400">
+              <p className="text-sm font-medium text-body group-hover:text-indigo-600 dark:group-hover:text-indigo-400">
                 Sing or hum to set the vocal style
               </p>
-              <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-1">
+              <p className="text-xs text-faint mt-1">
                 Record a sample — AI will match your voice and generate lyrics from what you sing
               </p>
             </button>
           ) : (
-            <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-5 space-y-3">
+            <div className="rounded-xl border border-line bg-panel p-5 space-y-3">
               <div className="flex items-center justify-between">
-                <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                <p className="text-xs text-muted">
                   Sing or hum — AI will use your voice style and can generate lyrics from your singing
                 </p>
                 {voiceBlob && (
@@ -384,19 +375,14 @@ export default function GeneratePage() {
 
       {/* Step 4: Generate */}
       <section className="space-y-3">
-        <div className="flex items-center gap-2">
-          <span className="flex items-center justify-center w-6 h-6 rounded-full bg-indigo-600 text-white text-xs font-bold">
-            {!instrumental ? '4' : '3'}
-          </span>
-          <h2 className="text-sm font-semibold text-zinc-800 dark:text-zinc-200">Generate</h2>
-        </div>
+        <StepLabel title="Generate" />
 
         {/* Genre selector */}
         <div>
           <div className="flex items-center justify-between mb-2">
-            <label className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Genre</label>
+            <label className="text-xs font-medium text-muted">Genre</label>
             {!genre && (
-              <span className="text-xs text-zinc-400 dark:text-zinc-500">
+              <span className="text-xs text-faint">
                 Auto-detected from your prompt
               </span>
             )}
@@ -409,8 +395,8 @@ export default function GeneratePage() {
                 onClick={() => handleGenreClick(g)}
                 className={`rounded-full px-3 py-1 text-sm font-medium transition ${
                   genre === g.id
-                    ? 'bg-indigo-600 text-white'
-                    : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-700'
+                    ? 'bg-accent-strong text-white'
+                    : 'bg-raised text-body hover:bg-sunken'
                 }`}
               >
                 {g.label}
@@ -422,7 +408,7 @@ export default function GeneratePage() {
               value={customGenreText}
               onChange={(e) => setCustomGenreText(e.target.value)}
               placeholder="e.g., tropical house, afrobeats, bossa nova..."
-              className="mt-2 w-full rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-3 py-2 text-sm text-zinc-900 dark:text-white placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              className="mt-2 w-full rounded-lg border border-line-strong bg-raised px-3 py-2 text-sm text-primary placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
               autoFocus
             />
           )}
@@ -432,7 +418,7 @@ export default function GeneratePage() {
         <button
           type="button"
           onClick={() => setShowFineTune((v) => !v)}
-          className="text-xs text-zinc-400 dark:text-zinc-500 hover:text-zinc-600 dark:hover:text-zinc-300 transition flex items-center gap-1"
+          className="text-xs text-faint hover:text-zinc-600 dark:hover:text-zinc-300 transition flex items-center gap-1"
         >
           <span>{showFineTune ? 'Hide' : 'Fine-tune'} tempo & key</span>
           <span>{showFineTune ? '▲' : '▼'}</span>
@@ -442,10 +428,10 @@ export default function GeneratePage() {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <div className="flex items-center justify-between mb-1">
-                <label className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
+                <label className="text-xs font-medium text-muted">
                   Tempo {!tempoTouched && <span className="text-zinc-300 dark:text-zinc-600">(auto)</span>}
                 </label>
-                <span className="text-xs font-mono text-zinc-900 dark:text-white">{tempo} BPM</span>
+                <span className="text-xs font-mono text-primary">{tempo} BPM</span>
               </div>
               <input
                 type="range" min={60} max={200} value={tempo}
@@ -463,13 +449,13 @@ export default function GeneratePage() {
               </div>
             </div>
             <div>
-              <label className="block text-xs font-medium text-zinc-500 dark:text-zinc-400 mb-1">
+              <label className="block text-xs font-medium text-muted mb-1">
                 Key {!keyTouched && <span className="text-zinc-300 dark:text-zinc-600">(auto)</span>}
               </label>
               <select
                 value={musicalKey}
                 onChange={(e) => { setMusicalKey(e.target.value); setKeyTouched(true) }}
-                className="w-full rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-3 py-2 text-sm text-zinc-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                className="w-full rounded-lg border border-line-strong bg-raised px-3 py-2 text-sm text-primary focus:outline-none focus:ring-2 focus:ring-indigo-500"
               >
                 {KEYS.map((k) => <option key={k} value={k}>{k}</option>)}
               </select>
@@ -487,7 +473,7 @@ export default function GeneratePage() {
           type="button"
           onClick={handleGenerate}
           disabled={!canGenerate}
-          className="w-full rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:bg-zinc-200 dark:disabled:bg-zinc-800 disabled:text-zinc-400 dark:disabled:text-zinc-600 disabled:cursor-not-allowed text-white font-semibold py-4 text-base transition-colors shadow-sm"
+          className="w-full rounded-xl bg-accent-strong hover:bg-accent-strong disabled:bg-raised dark:disabled:bg-raised disabled:text-zinc-400 dark:disabled:text-zinc-600 disabled:cursor-not-allowed text-white font-semibold py-4 text-base transition-colors shadow-sm"
         >
           {isGenerating
             ? 'Generating...'
@@ -504,21 +490,21 @@ export default function GeneratePage() {
 
       {/* Progress */}
       {isGenerating && jobStatus && (
-        <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-6 space-y-3">
+        <div className="rounded-xl border border-line bg-panel p-6 space-y-3">
           <div className="flex items-center justify-between gap-3">
-            <p className="font-medium text-zinc-900 dark:text-white animate-pulse">
+            <p className="font-medium text-primary animate-pulse">
               {STEPS.find((s) => s.key === jobStatus.status)?.label || 'Processing...'}
             </p>
             <button
               onClick={handleCancel}
-              className="text-xs text-zinc-400 hover:text-red-500 border border-zinc-200 dark:border-zinc-700 rounded-lg px-2.5 py-1 transition"
+              className="text-xs text-faint hover:text-red-500 border border-line-strong rounded-lg px-2.5 py-1 transition"
             >
               Cancel
             </button>
           </div>
-          <div className="w-full bg-zinc-100 dark:bg-zinc-800 rounded-full h-2">
+          <div className="w-full bg-raised rounded-full h-2">
             <div
-              className="bg-indigo-600 h-2 rounded-full transition-all duration-700"
+              className="bg-accent-strong h-2 rounded-full transition-all duration-700"
               style={{ width: `${jobStatus.progress || 0}%` }}
             />
           </div>

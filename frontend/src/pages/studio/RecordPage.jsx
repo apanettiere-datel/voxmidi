@@ -23,16 +23,16 @@ function LatencyDialog({ latency, onMeasure, onClose }) {
   }
   return (
     <div onClick={onClose} className="fixed inset-0 z-[60] grid place-items-center p-6 bg-zinc-950/70 backdrop-blur-[2px]">
-      <div onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" className="w-[440px] max-w-full rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-xl p-6">
-        <h2 className="text-lg font-semibold text-zinc-900 dark:text-white">Let's measure your delay</h2>
-        <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">
+      <div onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" className="w-[440px] max-w-full rounded-xl border border-line bg-panel shadow-xl p-6">
+        <h2 className="text-lg font-semibold text-primary">Let's measure your delay</h2>
+        <p className="mt-2 text-sm text-muted">
           Hold your mic near your speakers and turn them up. We'll play five clicks, time how long each takes to come back, then line your takes up by that much.
         </p>
-        <div className="my-5 rounded-lg bg-canvas border border-zinc-200 dark:border-zinc-800 p-5 text-center">
+        <div className="my-5 rounded-lg bg-canvas border border-line p-5 text-center">
           <div className={clsx('font-mono tabular-nums text-[2rem] font-semibold', state === 'running' && 'animate-pulse', latency == null ? 'text-zinc-600' : 'text-emerald-400')}>
             {state === 'running' ? '...' : latency == null ? '- ms' : `${latency} ms`}
           </div>
-          <div className="mt-1.5 text-xs text-zinc-400 dark:text-zinc-500">
+          <div className="mt-1.5 text-xs text-faint">
             {state === 'running' ? 'Listening for the clicks...'
               : state === 'failed' ? "Didn't hear the clicks. Turn the speakers up or move the mic closer, then try again."
               : latency == null ? 'Round-trip delay' : "We'll shift every take back by this much"}
@@ -233,19 +233,19 @@ export default function RecordPage() {
 
       {/* Page header */}
       <div>
-        <h1 className="text-2xl font-bold text-zinc-900 dark:text-white">Record</h1>
-        <p className="text-sm text-zinc-500 dark:text-zinc-400 mt-1">
+        <h1 className="text-2xl font-bold font-display tracking-tight text-primary">Record</h1>
+        <p className="text-sm text-muted mt-1">
           Play along with the click. Your take stays audio. Nothing gets transcribed unless you ask.
         </p>
         {project && (
-          <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-1">
+          <p className="text-xs text-faint mt-1">
             The song plays while you record. Wear headphones so it doesn't bleed into your take.
           </p>
         )}
       </div>
 
       <div className="flex items-center gap-2 flex-wrap">
-        <span className="text-xs text-zinc-500 dark:text-zinc-400">What are you recording?</span>
+        <span className="text-xs text-muted">What are you recording?</span>
         {INSTRUMENTS.map((i) => <Pill key={i.id} on={instrument === i.id} onClick={() => { setInstrument(i.id); if (project) setDest(i.id === 'vocals' ? 'vocals' : i.id === 'harmonic' ? 'guitar' : '__new') }}>{i.label}</Pill>)}
       </div>
 
@@ -258,12 +258,12 @@ export default function RecordPage() {
       <div className="grid grid-cols-1 md:grid-cols-[1fr_240px] gap-4">
         <section className={clsx(panel, 'p-5 flex flex-col gap-4')}>
           <div className="flex flex-col gap-1.5">
-            <label className="text-xs text-zinc-500 dark:text-zinc-400">Input</label>
+            <label className="text-xs text-muted">Input</label>
             <select
               value={deviceId}
               onChange={(e) => changeDevice(e.target.value)}
               onFocus={() => ensureMic()}
-              className="rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-2 py-1.5 text-sm text-zinc-900 dark:text-white"
+              className="rounded-lg border border-line-strong bg-raised px-2 py-1.5 text-sm text-primary"
             >
               {devices.length ? devices.map((d) => <option key={d.id} value={d.id}>{d.label}</option>)
                 : <option value="">Default input. Allow mic access to list devices</option>}
@@ -272,10 +272,10 @@ export default function RecordPage() {
 
           <div className="flex flex-col gap-2">
             <div className="flex items-baseline justify-between">
-              <label className="text-xs text-zinc-500 dark:text-zinc-400">Level</label>
-              <span ref={levelText} className="font-mono tabular-nums text-xs text-zinc-400 dark:text-zinc-500">−∞ dB</span>
+              <label className="text-xs text-muted">Level</label>
+              <span ref={levelText} className="font-mono tabular-nums text-xs text-faint">−∞ dB</span>
             </div>
-            <div className="relative h-2.5 rounded-full bg-zinc-200 dark:bg-zinc-800 overflow-hidden">
+            <div className="relative h-2.5 rounded-full bg-raised overflow-hidden">
               <div ref={level} className="h-full w-0 bg-emerald-500 transition-[width] duration-75" />
               <div className="absolute top-0 bottom-0 left-[82%] w-px bg-amber-500" />
             </div>
@@ -283,7 +283,7 @@ export default function RecordPage() {
 
           <div className="flex flex-wrap gap-5">
             <div className="flex flex-col gap-1.5">
-              <label className="text-xs text-zinc-500 dark:text-zinc-400">Count-in</label>
+              <label className="text-xs text-muted">Count-in</label>
               <div className="flex gap-1">
                 {COUNT_INS.map((c) => (
                   <Pill key={c} on={countIn === c} onClick={() => setCountIn(c)} className="font-mono text-xs">{c} bar{c > 1 ? 's' : ''}</Pill>
@@ -291,44 +291,44 @@ export default function RecordPage() {
               </div>
             </div>
             <div className="flex flex-col gap-1.5">
-              <label className="text-xs text-zinc-500 dark:text-zinc-400">Monitoring</label>
+              <label className="text-xs text-muted">Monitoring</label>
               <div className="flex items-center gap-2">
                 <Toggle on={monitor} onChange={toggleMonitor} label="Monitoring" />
-                <span className="text-xs text-zinc-400 dark:text-zinc-500">{monitor ? "On. You'll hear yourself" : 'Off'}</span>
+                <span className="text-xs text-faint">{monitor ? "On. You'll hear yourself" : 'Off'}</span>
               </div>
             </div>
             <div className="flex flex-col gap-1.5">
-              <label className="text-xs text-zinc-500 dark:text-zinc-400">Latency</label>
+              <label className="text-xs text-muted">Latency</label>
               <button type="button" onClick={() => setShowLatency(true)} className={clsx(outlineBtn, 'font-mono')}>
                 {latency == null ? 'Not measured' : `${latency} ms`}
               </button>
             </div>
             {project && (
               <div className="flex flex-col gap-1.5">
-                <label className="text-xs text-zinc-500 dark:text-zinc-400">Start from</label>
+                <label className="text-xs text-muted">Start from</label>
                 <select value={selSection} disabled={recording} onChange={(e) => setSelSection(Number(e.target.value))}
-                  className="rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-2 py-1 text-sm text-zinc-900 dark:text-white">
+                  className="rounded-lg border border-line-strong bg-raised px-2 py-1 text-sm text-primary">
                   {project.sections.map((s, i) => <option key={s.id} value={i}>{s.kind} · bar {sectionRanges(project.sections)[i].start / BEATS_PER_BAR + 1}</option>)}
                 </select>
               </div>
             )}
             {project && (
               <div className="flex flex-col gap-1.5">
-                <label className="text-xs text-zinc-500 dark:text-zinc-400">Click</label>
+                <label className="text-xs text-muted">Click</label>
                 <div className="flex items-center gap-2 py-1">
                   <Toggle on={clickOn} onChange={setClickOn} label="Click while recording" />
-                  <span className="text-xs text-zinc-400 dark:text-zinc-500">{clickOn ? 'On' : 'Song only'}</span>
+                  <span className="text-xs text-faint">{clickOn ? 'On' : 'Song only'}</span>
                 </div>
               </div>
             )}
             <div className="flex flex-col gap-1.5">
-              <label className="text-xs text-zinc-500 dark:text-zinc-400">Tempo</label>
+              <label className="text-xs text-muted">Tempo</label>
               {project ? (
-                <span className="py-1.5 font-mono tabular-nums text-sm text-zinc-700 dark:text-zinc-300">{bpm} BPM</span>
+                <span className="py-1.5 font-mono tabular-nums text-sm text-body">{bpm} BPM</span>
               ) : (
                 <div className="flex items-center gap-1.5">
                   <input type="number" min={40} max={240} value={tempo} onChange={(e) => { const v = e.target.valueAsNumber; if (v >= 40 && v <= 240) setTempo(v) }}
-                    className="w-16 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-2 py-1 text-center font-mono tabular-nums text-sm text-zinc-900 dark:text-white" />
+                    className="w-16 rounded-lg border border-line-strong bg-raised px-2 py-1 text-center font-mono tabular-nums text-sm text-primary" />
                   <span className="text-xs text-zinc-500">BPM</span>
                 </div>
               )}
@@ -340,13 +340,13 @@ export default function RecordPage() {
               type="button"
               onClick={recording ? stopRecording : startRecording}
               aria-label={recording ? 'Stop recording' : 'Record'}
-              className={clsx('flex items-center justify-center size-14 rounded-full text-white shadow-sm transition active:scale-95', recording ? 'bg-red-600 animate-pulse' : 'bg-red-600 hover:bg-red-500')}
+              className={clsx('flex items-center justify-center size-14 rounded-full text-white shadow-sm transition active:scale-95', recording ? 'bg-record animate-pulse' : 'bg-record hover:bg-red-500')}
             >
               {recording ? <StopIcon className="size-6" /> : <MicrophoneIcon className="size-6" />}
             </button>
             <div className="flex flex-col gap-0.5">
-              <span className="text-sm font-medium text-zinc-900 dark:text-white">{recording ? 'Recording' : 'Arm and record'}</span>
-              <span ref={timer} className="font-mono tabular-nums text-xs text-zinc-400 dark:text-zinc-500">
+              <span className="text-sm font-medium text-primary">{recording ? 'Recording' : 'Arm and record'}</span>
+              <span ref={timer} className="font-mono tabular-nums text-xs text-faint">
                 {recording ? '' : `${countIn} bar count-in at ${bpm} BPM${project ? ` · plays from the ${sectionName}` : ''}`}
               </span>
             </div>
@@ -355,19 +355,19 @@ export default function RecordPage() {
 
         <section className={clsx(panel, 'p-4 flex flex-col gap-2.5')}>
           <div className="flex items-center justify-between">
-            <span className="text-sm font-semibold text-zinc-900 dark:text-white">Takes</span>
-            <span className="font-mono tabular-nums text-xs text-zinc-400 dark:text-zinc-500">{takes.length} saved</span>
+            <span className="text-sm font-semibold text-primary">Takes</span>
+            <span className="font-mono tabular-nums text-xs text-faint">{takes.length} saved</span>
           </div>
           <div className="flex flex-col gap-2 max-h-80 overflow-y-auto">
             {takes.map((t) => {
               const on = t.id === takeSel
               return (
                 <button key={t.id} type="button" onClick={() => setTakeSel(t.id)}
-                  className={clsx('w-full text-left rounded-lg border px-2.5 py-2', on ? 'border-emerald-800 bg-emerald-500/10' : 'border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950/60')}>
+                  className={clsx('w-full text-left rounded-lg border px-2.5 py-2', on ? 'border-emerald-800 bg-emerald-500/10' : 'border-line bg-zinc-50 dark:bg-zinc-950/60')}>
                   <div className="flex items-center gap-2">
                     <span className={clsx('size-2 rounded-full', on ? 'bg-emerald-500' : 'bg-zinc-600')} />
-                    <span className="text-xs text-zinc-900 dark:text-white">{t.name}</span>
-                    <span className="ml-auto font-mono tabular-nums text-[10px] text-zinc-400 dark:text-zinc-500">{t.duration.toFixed(1)}s</span>
+                    <span className="text-xs text-primary">{t.name}</span>
+                    <span className="ml-auto font-mono tabular-nums text-[10px] text-faint">{t.duration.toFixed(1)}s</span>
                   </div>
                   <Wave peaks={t.peaks} stroke={on ? 'var(--emerald-400)' : 'var(--zinc-600)'} className="mt-1.5" />
                 </button>
@@ -375,14 +375,14 @@ export default function RecordPage() {
             })}
           </div>
           {takes.length === 0 && (
-            <div className="rounded-lg border-2 border-dashed border-zinc-300 dark:border-zinc-700 p-3 text-xs text-zinc-400 dark:text-zinc-500">
+            <div className="rounded-lg border-2 border-dashed border-line-strong p-3 text-xs text-faint">
               No takes yet. Hit record and play four bars.
             </div>
           )}
           {project && takes.length > 0 && (
-            <label className="flex items-center gap-2 text-xs text-zinc-500 dark:text-zinc-400 mt-auto">
+            <label className="flex items-center gap-2 text-xs text-muted mt-auto">
               Put it on
-              <select value={dest} onChange={(e) => setDest(e.target.value)} className="rounded-md border border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 px-1.5 py-1 text-xs text-zinc-900 dark:text-white">
+              <select value={dest} onChange={(e) => setDest(e.target.value)} className="rounded-md border border-line-strong bg-raised px-1.5 py-1 text-xs text-primary">
                 {project.tracks.filter((t) => t.kind === 'audio' && t.id !== 'drumsai').map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
                 <option value="__new">New audio track</option>
               </select>
@@ -392,7 +392,7 @@ export default function RecordPage() {
             {project ? 'Use this take' : 'Build a song from this take'}
           </Button>
           {project && takeSel && !recording && (
-            <button type="button" onClick={() => navigate(`/riff?take=${takeSel}`)} className="text-xs text-zinc-400 hover:text-indigo-300 transition">
+            <button type="button" onClick={() => navigate(`/riff?take=${takeSel}`)} className="text-xs text-faint hover:text-accent-text transition">
               Or build a new song from this take
             </button>
           )}

@@ -163,26 +163,26 @@ function RollEditor() {
 
   return (
     <div className="flex-1 min-h-0 flex flex-col">
-      <div className="flex-none flex flex-wrap items-center gap-x-2.5 gap-y-2 px-4 py-2.5 border-b border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900">
+      <div className="flex-none flex flex-wrap items-center gap-x-2.5 gap-y-2 px-4 py-2.5 border-b border-line bg-panel">
         <button type="button" onClick={() => navigate('/song')} className={plainBtn}>
           <ChevronLeftIcon className="size-4" />
           Song
         </button>
         <span className="size-[9px] shrink-0 rounded-sm" style={{ background: color }} />
-        <select value={trackId} onChange={(e) => setSelTrack(e.target.value)} className="rounded-md border border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 px-1.5 py-1 text-sm font-semibold text-zinc-900 dark:text-white">
+        <select value={trackId} onChange={(e) => setSelTrack(e.target.value)} className="rounded-md border border-line-strong bg-raised px-1.5 py-1 text-sm font-semibold text-primary">
           {editable.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
         </select>
         <div className="flex items-center gap-1">
           <button type="button" onClick={() => setSelSection(Math.max(0, secIndex - 1))} disabled={secIndex === 0} className={outlineBtn} aria-label="Previous section"><ChevronLeftIcon className="size-3.5" /></button>
-          <span className="text-sm font-semibold text-zinc-900 dark:text-white min-w-[60px] text-center">{sec.kind}</span>
+          <span className="text-sm font-semibold text-primary min-w-[60px] text-center">{sec.kind}</span>
           <button type="button" onClick={() => setSelSection(Math.min(project.sections.length - 1, secIndex + 1))} disabled={secIndex >= project.sections.length - 1} className={outlineBtn} aria-label="Next section"><ChevronRightIcon className="size-3.5" /></button>
         </div>
-        <span className="font-mono tabular-nums text-xs text-zinc-400 dark:text-zinc-500 whitespace-nowrap">{inSec.length} notes · {sec.bars} bars · {track.sound}</span>
+        <span className="font-mono tabular-nums text-xs text-faint whitespace-nowrap">{inSec.length} notes · {sec.bars} bars · {track.sound}</span>
         <div className="flex-1" />
         {tools.map(([label, fn, disabled]) => (
           <button key={label} type="button" onClick={fn} disabled={disabled} className={clsx(outlineBtn, 'whitespace-nowrap', /\d/.test(label) && 'font-mono')}>{label}</button>
         ))}
-        <button type="button" onClick={regenSelection} disabled={busy} className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 px-3 py-1.5 text-xs font-semibold text-white whitespace-nowrap">
+        <button type="button" onClick={regenSelection} disabled={busy} className="inline-flex items-center gap-1.5 rounded-lg bg-accent-strong hover:bg-accent disabled:opacity-50 px-3 py-1.5 text-xs font-semibold text-white whitespace-nowrap">
           <ArrowPathIcon className={clsx('size-3.5', busy && 'animate-spin')} />
           Regenerate selection
         </button>
@@ -198,7 +198,7 @@ function RollEditor() {
               const pc = p % 12
               const black = [1, 3, 6, 8, 10].includes(pc)
               return (
-                <div key={p} className={clsx('flex items-center justify-end pr-1.5 font-mono text-[8px] border-b border-white/[0.04]', scale.has(pc) ? 'text-indigo-300' : 'text-zinc-600')}
+                <div key={p} className={clsx('flex items-center justify-end pr-1.5 font-mono text-[8px] border-b border-white/[0.04]', scale.has(pc) ? 'text-accent-text' : 'text-muted')}
                   style={{ height: ROW, background: black ? 'var(--grid-lane-black)' : 'var(--grid-lane-white)' }}>
                   {pc === 0 ? `C${Math.floor(p / 12) - 1}` : names[pc]}
                 </div>
@@ -211,7 +211,7 @@ function RollEditor() {
             {/* Chord lane */}
             <div className="relative border-b border-zinc-800 bg-zinc-900" style={{ height: CHORD_LANE, width: beats * PPB }}>
               {chordCells.map((c, b) => (
-                <div key={b} className="absolute top-1 h-[18px] flex items-center pl-1.5 rounded-[3px] bg-indigo-500/15 text-indigo-300 font-mono text-xs"
+                <div key={b} className="absolute top-1 h-[18px] flex items-center pl-1.5 rounded-[3px] bg-accent-surface text-accent-text font-mono text-xs"
                   style={{ left: b * 4 * PPB, width: 4 * PPB - 2 }}>
                   {c}
                 </div>
@@ -264,7 +264,7 @@ function RollEditor() {
         </div>
       </div>
       <RealPartPanel key={trackId} trackId={trackId} />
-      <p className="flex-none px-4 py-2 text-xs text-zinc-400 dark:text-zinc-500 border-t border-zinc-200 dark:border-zinc-800">
+      <p className="flex-none px-4 py-2 text-xs text-faint border-t border-line">
         Click the grid to add a note. Drag a note to move it, drag its right edge to change length, drag a velocity bar to change how hard it plays. Delete removes the selected note.
       </p>
     </div>
@@ -274,7 +274,7 @@ function RollEditor() {
 function RollGate() {
   const { project } = useStudio()
   if (!project.tracks.some((t) => t.kind === 'midi' && !isDrums(t))) {
-    return <p className="p-8 text-sm text-zinc-500 dark:text-zinc-400">This song has no bass, keys or lead track. Add one from the Song screen with Add track.</p>
+    return <p className="p-8 text-sm text-muted">This song has no bass, keys or lead track. Add one from the Song screen with Add track.</p>
   }
   return <RollEditor />
 }

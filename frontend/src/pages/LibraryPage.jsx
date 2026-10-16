@@ -175,16 +175,16 @@ export default function LibraryPage() {
 
       {/* Full result modal */}
       {(viewResult || viewLoading) && (
-        <div className="fixed inset-0 z-50 bg-white dark:bg-zinc-950 overflow-y-auto">
-          <div className="sticky top-0 z-10 bg-white dark:bg-zinc-950 border-b border-zinc-200 dark:border-zinc-800 px-4 py-3 flex items-center gap-3">
+        <div className="fixed inset-0 z-50 bg-panel overflow-y-auto">
+          <div className="sticky top-0 z-10 bg-panel border-b border-line px-4 py-3 flex items-center gap-3">
             <button
               onClick={() => setViewResult(null)}
-              className="flex items-center gap-1.5 text-sm text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white transition"
+              className="flex items-center gap-1.5 text-sm text-muted hover:text-primary transition"
             >
               ← Back to Library
             </button>
             {viewResult && (
-              <span className="text-sm text-zinc-400 dark:text-zinc-500 truncate">
+              <span className="text-sm text-faint truncate">
                 {viewResult.genre?.replace(/-/g, ' ')} · {viewResult.tempo} BPM · {viewResult.key}
               </span>
             )}
@@ -221,7 +221,7 @@ export default function LibraryPage() {
                   setToasts((p) => p.filter((t) => t.jobId !== toast.jobId))
                   navigate('/')
                 }}
-                className="w-full rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold py-1.5 transition"
+                className="w-full rounded-lg bg-accent-strong hover:bg-accent-strong text-white text-xs font-semibold py-1.5 transition"
               >
                 View on Create →
               </button>
@@ -241,13 +241,13 @@ export default function LibraryPage() {
         <div className="flex gap-2">
           <button onClick={() => setFilter('all')}
             className={`rounded-full px-3 py-1 text-sm font-medium transition ${
-              filter === 'all' ? 'bg-indigo-600 text-white' : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-700'
+              filter === 'all' ? 'bg-accent-strong text-white' : 'bg-raised text-muted hover:bg-sunken'
             }`}>
             All ({entries.length})
           </button>
           <button onClick={() => setFilter('favorites')}
             className={`rounded-full px-3 py-1 text-sm font-medium transition ${
-              filter === 'favorites' ? 'bg-amber-500 text-white' : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-700'
+              filter === 'favorites' ? 'bg-amber-500 text-white' : 'bg-raised text-muted hover:bg-sunken'
             }`}>
             ⭐ Favorites ({entries.filter((e) => e.is_favorite).length})
           </button>
@@ -256,18 +256,18 @@ export default function LibraryPage() {
 
       {/* Compare bar */}
       {compareIds.size > 0 && (
-        <div className="rounded-xl border border-indigo-200 dark:border-indigo-800 bg-indigo-50 dark:bg-indigo-950/20 px-4 py-3 flex items-center justify-between gap-3">
-          <p className="text-sm text-indigo-700 dark:text-indigo-300 font-medium">
+        <div className="rounded-xl border border-accent bg-accent-surface px-4 py-3 flex items-center justify-between gap-3">
+          <p className="text-sm text-accent-text font-medium">
             {compareIds.size === 2 ? '2 tracks selected for compare' : `${compareIds.size} of 2 selected`}
           </p>
           <div className="flex gap-2">
             <button onClick={() => setCompareIds(new Set())}
-              className="text-xs text-indigo-500 hover:text-indigo-700 dark:hover:text-indigo-300 underline">
+              className="text-xs text-accent-text hover:text-indigo-700 dark:hover:text-indigo-300 underline">
               Clear
             </button>
             {compareIds.size === 2 && (
               <button onClick={handleCompare} disabled={compareLoading}
-                className="rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1 text-xs font-semibold transition disabled:opacity-50">
+                className="rounded-lg bg-accent-strong hover:bg-accent-strong text-white px-3 py-1 text-xs font-semibold transition disabled:opacity-50">
                 {compareLoading ? 'Loading...' : 'Compare side-by-side'}
               </button>
             )}
@@ -277,10 +277,10 @@ export default function LibraryPage() {
 
       {/* Side-by-side compare view */}
       {compareResults.length === 2 && (
-        <div className="fixed inset-0 z-50 bg-white dark:bg-zinc-950 overflow-y-auto">
-          <div className="sticky top-0 z-10 bg-white dark:bg-zinc-950 border-b border-zinc-200 dark:border-zinc-800 px-4 py-3 flex items-center gap-3">
+        <div className="fixed inset-0 z-50 bg-panel overflow-y-auto">
+          <div className="sticky top-0 z-10 bg-panel border-b border-line px-4 py-3 flex items-center gap-3">
             <button onClick={() => setCompareResults([])}
-              className="text-sm text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white transition">
+              className="text-sm text-muted hover:text-primary transition">
               - Back to Library
             </button>
             <span className="text-sm text-zinc-400">Side-by-side compare</span>
@@ -299,11 +299,11 @@ export default function LibraryPage() {
       )}
 
       {sorted.length === 0 && !error ? (
-        <div className="rounded-xl border-2 border-dashed border-zinc-200 dark:border-zinc-800 p-16 text-center">
-          <p className="text-zinc-500 dark:text-zinc-400 text-sm">
+        <div className="rounded-xl border-2 border-dashed border-line p-16 text-center">
+          <p className="text-muted text-sm">
             {filter === 'favorites' ? 'No favorites yet. Star a generation to save it here.' : 'No generations yet.'}
           </p>
-          <Link to="/" className="mt-4 inline-block text-sm text-indigo-600 dark:text-indigo-400 hover:underline">
+          <Link to="/" className="mt-4 inline-block text-sm text-accent-text hover:underline">
             Go to Create →
           </Link>
         </div>
@@ -311,16 +311,16 @@ export default function LibraryPage() {
         <div className="space-y-3">
           {sorted.map((entry) => (
             <div key={entry.id}
-              className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 overflow-hidden"
+              className="rounded-xl border border-line bg-panel overflow-hidden"
             >
               <div className="p-4">
                 {/* Top: genre badge + tempo + key */}
                 <div className="flex items-center gap-2 mb-1.5 flex-wrap">
-                  <span className="rounded-full bg-indigo-100 dark:bg-indigo-900/40 px-2 py-0.5 text-xs font-medium text-indigo-700 dark:text-indigo-300 capitalize">
+                  <span className="rounded-full bg-accent-surface px-2 py-0.5 text-xs font-medium text-accent-text capitalize">
                     {entry.genre?.replace(/-/g, ' ') || '-'}
                   </span>
-                  <span className="text-xs text-zinc-500 dark:text-zinc-400">{entry.tempo} BPM</span>
-                  <span className="text-xs text-zinc-500 dark:text-zinc-400">{entry.key}</span>
+                  <span className="text-xs text-muted">{entry.tempo} BPM</span>
+                  <span className="text-xs text-muted">{entry.key}</span>
                   {newBadges.has(entry.id) && (
                     <span className="inline-flex items-center rounded-full bg-emerald-100 dark:bg-emerald-900/40 px-1.5 py-0.5 text-xs font-bold text-emerald-700 dark:text-emerald-300 animate-pulse">NEW</span>
                   )}
@@ -328,13 +328,13 @@ export default function LibraryPage() {
 
                 {/* Prompt — 2 line clamp */}
                 {entry.prompt && entry.mode !== 'source' && (
-                  <p className="text-sm text-zinc-700 dark:text-zinc-300 mb-1.5 line-clamp-2">
+                  <p className="text-sm text-body mb-1.5 line-clamp-2">
                     {entry.prompt}
                   </p>
                 )}
 
                 {/* Meta: date · duration */}
-                <p className="text-xs text-zinc-400 dark:text-zinc-500 mb-3">
+                <p className="text-xs text-faint mb-3">
                   {new Date(entry.date).toLocaleDateString()} · {Math.round(entry.duration || 0)}s
                 </p>
 
@@ -346,8 +346,8 @@ export default function LibraryPage() {
                     title="Compare"
                     className={`rounded-lg px-2 py-1.5 text-xs font-medium border transition ${
                       compareIds.has(entry.id)
-                        ? 'bg-indigo-600 text-white border-indigo-600'
-                        : 'text-zinc-500 border-zinc-200 dark:border-zinc-700 hover:border-indigo-400 hover:text-indigo-600 dark:hover:text-indigo-400'
+                        ? 'bg-accent-strong text-white border-accent'
+                        : 'text-muted border-line-strong hover:border-indigo-400 hover:text-indigo-600 dark:hover:text-indigo-400'
                     }`}
                   >
                     ⚖
@@ -356,7 +356,7 @@ export default function LibraryPage() {
                   <button
                     onClick={() => handleToggleFavorite(entry.id)}
                     title={entry.is_favorite ? 'Remove from favorites' : 'Add to favorites'}
-                    className="rounded-lg px-2 py-1.5 text-base transition hover:scale-110 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                    className="rounded-lg px-2 py-1.5 text-base transition hover:scale-110 hover:bg-raised"
                   >
                     {entry.is_favorite ? '⭐' : '☆'}
                   </button>
@@ -364,7 +364,7 @@ export default function LibraryPage() {
                   {/* View */}
                   <button
                     onClick={() => handleView(entry)}
-                    className="flex-1 rounded-lg px-2.5 py-1.5 text-xs font-medium text-zinc-600 dark:text-zinc-400 border border-zinc-200 dark:border-zinc-700 hover:border-indigo-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition text-center"
+                    className="flex-1 rounded-lg px-2.5 py-1.5 text-xs font-medium text-muted border border-line-strong hover:border-indigo-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition text-center"
                   >
                     <span className="hidden sm:inline">View</span>
                     <span className="sm:hidden">👁️</span>
@@ -374,7 +374,7 @@ export default function LibraryPage() {
                   <button
                     onClick={() => handleRemix(entry)}
                     title="Remix"
-                    className="rounded-lg px-2.5 py-1.5 text-xs font-medium text-zinc-600 dark:text-zinc-400 border border-zinc-200 dark:border-zinc-700 hover:border-indigo-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition"
+                    className="rounded-lg px-2.5 py-1.5 text-xs font-medium text-muted border border-line-strong hover:border-indigo-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition"
                   >
                     <span className="hidden sm:inline">🔀 Remix</span>
                     <span className="sm:hidden">🔀</span>
@@ -384,7 +384,7 @@ export default function LibraryPage() {
                   <button
                     onClick={() => handleShare(entry.id)}
                     title="Share"
-                    className="rounded-lg px-2.5 py-1.5 text-xs font-medium text-zinc-600 dark:text-zinc-400 border border-zinc-200 dark:border-zinc-700 hover:border-indigo-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition"
+                    className="rounded-lg px-2.5 py-1.5 text-xs font-medium text-muted border border-line-strong hover:border-indigo-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition"
                   >
                     <span className="hidden sm:inline">🔗 Share</span>
                     <span className="sm:hidden">🔗</span>
@@ -394,7 +394,7 @@ export default function LibraryPage() {
                   {entry.midi_url && (
                     <a href={entry.midi_url} download
                       title="Download MIDI"
-                      className="rounded-lg px-2.5 py-1.5 text-xs font-medium text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-50 dark:hover:bg-indigo-950/20 transition"
+                      className="rounded-lg px-2.5 py-1.5 text-xs font-medium text-accent-text border border-accent hover:bg-accent-surface transition"
                     >
                       <span className="hidden sm:inline">🎹 MIDI</span>
                       <span className="sm:hidden">🎹</span>
@@ -420,7 +420,7 @@ export default function LibraryPage() {
                         {deleting === entry.id ? '...' : 'Yes'}
                       </button>
                       <button onClick={() => setConfirmDelete(null)}
-                        className="rounded px-2 py-1 text-xs bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition">
+                        className="rounded px-2 py-1 text-xs bg-raised text-muted hover:bg-sunken transition">
                         No
                       </button>
                     </div>

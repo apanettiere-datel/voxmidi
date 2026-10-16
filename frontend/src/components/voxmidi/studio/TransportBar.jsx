@@ -37,20 +37,20 @@ export default function TransportBar({ onExport, onToggleAsk, askOpen }) {
   ]
 
   return (
-    <div className="flex-none flex items-center gap-4 px-4 py-2.5 border-b border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 overflow-x-auto">
+    <div className="flex-none flex items-center gap-4 px-4 py-2.5 border-b border-line bg-panel overflow-x-auto">
       <div className="flex items-center gap-1.5">
         <button
           type="button"
           onClick={togglePlay}
           title="Play (space)"
-          className={clsx(ghost, 'w-[38px] h-[38px] text-white shadow-sm', playing ? 'bg-indigo-700' : 'bg-indigo-600 hover:bg-indigo-500')}
+          className={clsx(ghost, 'w-[38px] h-[38px] text-white shadow-sm', playing ? 'bg-accent-hover' : 'bg-accent-strong hover:bg-accent')}
         >
           {playing ? <PauseIcon className="size-[18px]" /> : <PlayIcon className="size-[18px]" />}
         </button>
-        <button type="button" onClick={stop} title="Stop" className={clsx(ghost, 'text-zinc-400 hover:text-white hover:bg-white/5')}>
+        <button type="button" onClick={stop} title="Stop" className={clsx(ghost, 'text-muted hover:text-primary hover:bg-sunken')}>
           <StopIcon className="size-[18px]" />
         </button>
-        <button type="button" onClick={() => { stop(); navigate('/record') }} title="Record" className={clsx(ghost, 'text-red-400 hover:bg-red-500/10')}>
+        <button type="button" onClick={() => { stop(); navigate('/record') }} title="Record" className={clsx(ghost, 'text-[var(--danger-text)] hover:bg-[var(--danger-surface)]')}>
           <MicrophoneIcon className="size-[18px]" />
         </button>
         <button
@@ -58,7 +58,7 @@ export default function TransportBar({ onExport, onToggleAsk, askOpen }) {
           onClick={() => setLoopOn(!loopOn)}
           title="Loop the selected section"
           aria-pressed={loopOn}
-          className={clsx(ghost, loopOn ? 'text-indigo-300 bg-indigo-500/20' : 'text-zinc-400 hover:bg-white/5')}
+          className={clsx(ghost, loopOn ? 'text-accent-text bg-accent-surface' : 'text-muted hover:bg-sunken')}
         >
           <ArrowPathIcon className="size-[18px]" />
         </button>
@@ -67,38 +67,38 @@ export default function TransportBar({ onExport, onToggleAsk, askOpen }) {
           onClick={() => setMetro(!metro)}
           title="Metronome"
           aria-pressed={metro}
-          className={clsx(ghost, metro ? 'text-indigo-300 bg-indigo-500/20' : 'text-zinc-400 hover:bg-white/5')}
+          className={clsx(ghost, metro ? 'text-accent-text bg-accent-surface' : 'text-muted hover:bg-sunken')}
         >
           <SignalIcon className="size-[18px]" />
         </button>
       </div>
 
-      <div className="flex items-baseline gap-2.5 px-3 py-1.5 rounded-lg bg-canvas border border-zinc-200 dark:border-zinc-800">
-        <span ref={readout} className="font-mono tabular-nums text-lg font-medium text-zinc-900 dark:text-white min-w-[76px]">001.1.00</span>
-        <span className="font-mono text-xs text-zinc-400 dark:text-zinc-500">bar.beat</span>
+      <div className="flex items-baseline gap-2.5 px-3 py-1.5 rounded-lg bg-canvas border border-line shadow-[inset_0_1px_4px_rgb(0_0_0/0.45)]">
+        <span ref={readout} className="font-mono tabular-nums text-lg font-medium text-primary tracking-wide min-w-[76px]">001.1.00</span>
+        <span className="font-mono text-xs text-faint">bar.beat</span>
       </div>
 
       <div className="flex items-center gap-3.5">
         {stats.map(([k, v]) => (
           <div key={k} className="flex flex-col">
-            <span className="text-xs text-zinc-400 dark:text-zinc-500">{k}</span>
-            <span className="font-mono tabular-nums text-sm font-medium text-zinc-700 dark:text-zinc-300 whitespace-nowrap">{v}</span>
+            <span className="text-xs text-faint">{k}</span>
+            <span className="font-mono tabular-nums text-sm font-medium text-body whitespace-nowrap">{v}</span>
           </div>
         ))}
       </div>
 
       <div className="flex items-center gap-1">
-        <button type="button" onClick={undo} disabled={!canUndo} title="Undo" className={clsx(ghost, 'text-zinc-400 hover:bg-white/5 disabled:opacity-30')}>
+        <button type="button" onClick={undo} disabled={!canUndo} title="Undo" className={clsx(ghost, 'text-muted hover:bg-sunken disabled:opacity-30')}>
           <ArrowUturnLeftIcon className="size-4" />
         </button>
-        <button type="button" onClick={redo} disabled={!canRedo} title="Redo" className={clsx(ghost, 'text-zinc-400 hover:bg-white/5 disabled:opacity-30')}>
+        <button type="button" onClick={redo} disabled={!canRedo} title="Redo" className={clsx(ghost, 'text-muted hover:bg-sunken disabled:opacity-30')}>
           <ArrowUturnRightIcon className="size-4" />
         </button>
       </div>
 
       <div className="flex-1" />
       <span
-        className={clsx('rounded-md bg-indigo-500/15 px-2 py-0.5 text-xs font-medium text-indigo-300 whitespace-nowrap transition-opacity', toastMsg ? 'opacity-100' : 'opacity-0')}
+        className={clsx('rounded-md bg-accent-surface px-2 py-0.5 text-xs font-medium text-accent-text whitespace-nowrap transition-opacity', toastMsg ? 'opacity-100' : 'opacity-0')}
         aria-live="polite"
       >
         {toastMsg || ' '}
@@ -108,7 +108,7 @@ export default function TransportBar({ onExport, onToggleAsk, askOpen }) {
           type="button"
           onClick={onToggleAsk}
           aria-pressed={askOpen}
-          className={clsx('inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition', askOpen ? 'bg-indigo-500/20 text-indigo-300' : 'text-zinc-400 hover:bg-white/5')}
+          className={clsx('inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition', askOpen ? 'bg-accent-surface text-accent-text' : 'text-muted hover:bg-sunken')}
         >
           <SparklesIcon className="size-4" />
           Ask
@@ -117,7 +117,7 @@ export default function TransportBar({ onExport, onToggleAsk, askOpen }) {
       <button
         type="button"
         onClick={onExport}
-        className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 px-3 py-1.5 text-sm font-semibold text-white shadow-sm transition"
+        className="inline-flex items-center gap-1.5 rounded-lg bg-success hover:bg-emerald-500 px-3 py-1.5 text-sm font-semibold text-white shadow-sm transition"
       >
         <ArrowDownTrayIcon className="size-4" />
         Export

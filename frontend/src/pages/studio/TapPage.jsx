@@ -169,22 +169,22 @@ export default function TapPage() {
 
       {/* Page header */}
       <div>
-        <h1 className="text-2xl font-bold text-zinc-900 dark:text-white">Tap a groove</h1>
-        <p className="text-sm text-zinc-500 dark:text-zinc-400 mt-1">
-          Tap the pads or use <span className="font-mono text-zinc-700 dark:text-zinc-300">K</span> / <span className="font-mono text-zinc-700 dark:text-zinc-300">S</span> / <span className="font-mono text-zinc-700 dark:text-zinc-300">H</span> while the click runs. Hits get snapped to the nearest 16th.
+        <h1 className="text-2xl font-bold font-display tracking-tight text-primary">Tap a groove</h1>
+        <p className="text-sm text-muted mt-1">
+          Tap the pads or use <span className="font-mono text-body">K</span> / <span className="font-mono text-body">S</span> / <span className="font-mono text-body">H</span> while the click runs. Hits get snapped to the nearest 16th.
         </p>
       </div>
 
-      <div className="flex items-center gap-5 flex-wrap text-xs text-zinc-500 dark:text-zinc-400">
+      <div className="flex items-center gap-5 flex-wrap text-xs text-muted">
         <label className="flex items-center gap-1.5">
           Tempo
           {project ? (
-            <span className="font-mono tabular-nums text-sm text-zinc-700 dark:text-zinc-300">{bpm} BPM</span>
+            <span className="font-mono tabular-nums text-sm text-body">{bpm} BPM</span>
           ) : (
             <>
               <input type="number" min={40} max={240} value={tempo} disabled={running}
                 onChange={(e) => { const v = e.target.valueAsNumber; if (v >= 40 && v <= 240) setTempo(v) }}
-                className="w-16 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-2 py-1 text-center font-mono tabular-nums text-sm text-zinc-900 dark:text-white disabled:opacity-50" />
+                className="w-16 rounded-lg border border-line-strong bg-raised px-2 py-1 text-center font-mono tabular-nums text-sm text-primary disabled:opacity-50" />
               BPM
             </>
           )}
@@ -192,11 +192,11 @@ export default function TapPage() {
         <label className="flex items-center gap-1.5">
           Loop
           <select value={loopBars} disabled={running} onChange={(e) => setLoopBars(Number(e.target.value))}
-            className="rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-2 py-1 font-mono text-sm text-zinc-900 dark:text-white disabled:opacity-50">
+            className="rounded-lg border border-line-strong bg-raised px-2 py-1 font-mono text-sm text-primary disabled:opacity-50">
             {[1, 2, 4].map((b) => <option key={b} value={b}>{b} bar{b > 1 ? 's' : ''}</option>)}
           </select>
         </label>
-        {running && <button type="button" onClick={stopClick} className="rounded-lg border border-zinc-700 px-2.5 py-1 text-xs text-zinc-300 hover:bg-zinc-800">Stop the click</button>}
+        {running && <button type="button" onClick={stopClick} className="rounded-lg border border-zinc-700 px-2.5 py-1 text-xs text-body hover:bg-zinc-800">Stop the click</button>}
       </div>
 
       <div className="grid grid-cols-3 gap-2.5">
@@ -205,16 +205,16 @@ export default function TapPage() {
             key={pad.p}
             type="button"
             onPointerDown={(e) => { e.preventDefault(); tap(pad) }}
-            className={clsx(panel, 'flex flex-col items-center gap-1 py-6 px-2 transition active:scale-95 touch-none', flash === pad.p && 'border-indigo-500 bg-indigo-500/10')}
+            className={clsx(panel, 'flex flex-col items-center gap-1 py-6 px-2 transition active:scale-95 touch-none', flash === pad.p && 'border-accent bg-accent-surface')}
           >
-            <span className="text-base font-semibold text-zinc-900 dark:text-white">{pad.name}</span>
-            <span className="font-mono text-xs text-zinc-400 dark:text-zinc-500">{pad.key} · {pad.band}</span>
+            <span className="text-base font-semibold text-primary">{pad.name}</span>
+            <span className="font-mono text-xs text-faint">{pad.key} · {pad.band}</span>
           </button>
         ))}
       </div>
 
-      <div className="relative h-[92px] rounded-xl border border-zinc-200 dark:border-zinc-800 bg-canvas px-3 py-2.5 overflow-hidden">
-        <span className="text-xs text-zinc-400 dark:text-zinc-500">Captured onsets: <span className="font-mono tabular-nums">{hits.length}</span></span>
+      <div className="relative h-[92px] rounded-xl border border-line bg-canvas px-3 py-2.5 overflow-hidden">
+        <span className="text-xs text-faint">Captured onsets: <span className="font-mono tabular-nums">{hits.length}</span></span>
         {Array.from({ length: loopBars }, (_, b) => (
           <div key={b} className="absolute top-8 bottom-2 w-px bg-zinc-800" style={{ left: `${3 + (b / loopBars) * 94}%` }} />
         ))}
@@ -231,16 +231,16 @@ export default function TapPage() {
         <Button outline onClick={() => commit(true)}>Elaborate pattern</Button>
         <Button outline onClick={() => { setHits([]); stopClick() }}>Clear</Button>
       </div>
-      <p className="text-xs text-zinc-400 dark:text-zinc-500">
+      <p className="text-xs text-faint">
         Both repeat your loop across the {project ? 'whole song, replacing its drum part' : 'new song'}. Elaborate keeps every hit where you put it and fills in 8th hats, ghost snares, an open hat and a fill at each section end.
       </p>
 
-      <div className="h-px bg-zinc-200 dark:bg-zinc-800" />
+      <div className="h-px bg-raised" />
 
       <section className={clsx(panel, 'p-5 space-y-3')}>
         <div>
-          <h2 className="text-sm font-semibold text-zinc-800 dark:text-zinc-200">Or beatbox it</h2>
-          <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
+          <h2 className="text-sm font-semibold text-body">Or beatbox it</h2>
+          <p className="text-xs text-muted mt-0.5">
             Record a beatbox take. Each hit is sorted into kick, snare or hat by how much low and high energy it has.
           </p>
         </div>

@@ -21,21 +21,21 @@ function Generating({ result, error, onRetry, onOpen, onBack }) {
   return (
     <div className="max-w-2xl mx-auto px-4 py-8 space-y-5">
       <div>
-        <h1 className="text-2xl font-bold text-zinc-900 dark:text-white">{done ? 'Your song is ready' : 'Writing your song'}</h1>
-        <p className="text-sm text-zinc-500 dark:text-zinc-400 mt-1">
+        <h1 className="text-2xl font-bold font-display tracking-tight text-primary">{done ? 'Your song is ready' : 'Writing your song'}</h1>
+        <p className="text-sm text-muted mt-1">
           You're getting a song you can edit, not an audio file. Every part below lands as MIDI you can open and change.
         </p>
       </div>
-      <div className="w-full bg-zinc-100 dark:bg-zinc-800 rounded-full h-2">
-        <div className="bg-indigo-600 h-2 rounded-full transition-all duration-700" style={{ width: done ? '100%' : error ? '0%' : '45%' }} />
+      <div className="w-full bg-raised rounded-full h-2">
+        <div className="bg-accent-strong h-2 rounded-full transition-all duration-700" style={{ width: done ? '100%' : error ? '0%' : '45%' }} />
       </div>
 
       <div className={clsx(panel, 'p-5 space-y-4')}>
         <div className="flex items-center gap-5">
           {[['Tempo', done && `${result.tempo} BPM`], ['Key', done && result.key], ['Time', done && result.time_signature]].map(([k, v]) => (
             <div key={k} className="flex flex-col gap-0.5">
-              <span className="text-xs text-zinc-400 dark:text-zinc-500">{k}</span>
-              <span className={clsx('font-mono tabular-nums text-lg', v ? 'text-zinc-900 dark:text-white' : skeleton)}>{v || '...'}</span>
+              <span className="text-xs text-faint">{k}</span>
+              <span className={clsx('font-mono tabular-nums text-lg', v ? 'text-primary' : skeleton)}>{v || '...'}</span>
             </div>
           ))}
         </div>
@@ -44,10 +44,10 @@ function Generating({ result, error, onRetry, onOpen, onBack }) {
           {(done ? result.sections : Array.from({ length: 6 }, (_, i) => ({ id: i, bars: 1 }))).map((s) => (
             <div
               key={s.id}
-              className={clsx('min-w-0 flex flex-col gap-0.5 rounded-md px-2 py-2', !done && 'animate-pulse bg-zinc-200 dark:bg-zinc-800')}
+              className={clsx('min-w-0 flex flex-col gap-0.5 rounded-md px-2 py-2', !done && 'animate-pulse bg-raised')}
               style={{ flex: s.bars, background: done ? `color-mix(in srgb, ${SECTION_COLORS[s.kind]} 60%, transparent)` : undefined }}
             >
-              <span className="text-xs font-semibold text-zinc-900 dark:text-white truncate">{done ? s.kind : ' '}</span>
+              <span className="text-xs font-semibold text-primary truncate">{done ? s.kind : ' '}</span>
               <span className="font-mono tabular-nums text-xs text-zinc-500 dark:text-zinc-300">{done ? s.bars : ' '}</span>
             </div>
           ))}
@@ -59,9 +59,9 @@ function Generating({ result, error, onRetry, onOpen, onBack }) {
             return (
               <div key={id} className={clsx('flex items-center gap-2.5 rounded-lg bg-zinc-50 dark:bg-zinc-950/60 px-2.5 py-2', !done && 'animate-pulse')}>
                 <span className="size-2 shrink-0 rounded-sm" style={{ background: done ? TRACK_COLORS[id] : 'var(--zinc-700)' }} />
-                <span className="text-sm text-zinc-700 dark:text-zinc-300 min-w-[88px]">{GEN_NAMES[id]}</span>
+                <span className="text-sm text-body min-w-[88px]">{GEN_NAMES[id]}</span>
                 <span className="flex-1 h-1.5 rounded-full" style={{ background: done ? `color-mix(in srgb, ${TRACK_COLORS[id]} 60%, transparent)` : 'var(--zinc-800)' }} />
-                <span className="font-mono tabular-nums text-xs text-zinc-400 dark:text-zinc-500">{tr ? `${tr.notes.length} notes` : 'writing...'}</span>
+                <span className="font-mono tabular-nums text-xs text-faint">{tr ? `${tr.notes.length} notes` : 'writing...'}</span>
               </div>
             )
           })}
@@ -83,7 +83,7 @@ function Generating({ result, error, onRetry, onOpen, onBack }) {
       {done && (
         <div className="flex items-center gap-3">
           <Button color="indigo" onClick={onOpen}>Open the song</Button>
-          <span className="font-mono tabular-nums text-xs text-zinc-400 dark:text-zinc-500">
+          <span className="font-mono tabular-nums text-xs text-faint">
             {result.sections.reduce((a, s) => a + s.bars, 0)} bars · {result.genre}{result.feel ? ` · ${result.feel}` : ''}
           </span>
         </div>
@@ -167,31 +167,31 @@ export default function DescribePage() {
 
       {/* Page header */}
       <div>
-        <h1 className="text-2xl font-bold text-zinc-900 dark:text-white">Describe a beat</h1>
-        <p className="text-sm text-zinc-500 dark:text-zinc-400 mt-1">
+        <h1 className="text-2xl font-bold font-display tracking-tight text-primary">Describe a beat</h1>
+        <p className="text-sm text-muted mt-1">
           You get a whole song back: drums, bass, chords and melody laid out in sections. Every part is MIDI you can edit or ask to change.
         </p>
       </div>
 
       {/* Step 1: Description */}
       <section className="space-y-3">
-        <StepLabel n={1} title="Your description" />
+        <StepLabel title="Your description" />
         <textarea
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
           maxLength={500}
           rows={3}
           placeholder="e.g., late night drive, sad piano, hard drums, around 90 BPM"
-          className="w-full rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-4 py-3 text-base text-zinc-900 dark:text-white placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none shadow-sm"
+          className="w-full rounded-xl border border-line-strong bg-panel px-4 py-3 text-base text-primary placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none shadow-sm"
         />
-        <p className="text-xs text-zinc-400 dark:text-zinc-500">
+        <p className="text-xs text-faint">
           Tempo, key, genre and feel are read from what you write. Anything you pick below wins.
         </p>
       </section>
 
       {/* Step 2: Genre */}
       <section className="space-y-2.5">
-        <StepLabel n={2} title="Genre" hint="Optional. Otherwise it's read from your description" />
+        <StepLabel title="Genre" hint="Optional. Otherwise it's read from your description" />
         <div className="flex flex-wrap gap-1.5">
           {GENRES.map((g) => <Pill key={g} on={genre === g} onClick={() => setGenre(genre === g ? null : g)}>{g}</Pill>)}
         </div>
@@ -199,7 +199,7 @@ export default function DescribePage() {
 
       {/* Step 3: Feel */}
       <section className="space-y-2.5">
-        <StepLabel n={3} title="Feel" hint="Optional" />
+        <StepLabel title="Feel" hint="Optional" />
         <div className="flex flex-wrap gap-1.5">
           {FEELS.map((f) => <Pill key={f} on={feel === f} onClick={() => setFeel(feel === f ? null : f)}>{f}</Pill>)}
         </div>
@@ -210,16 +210,16 @@ export default function DescribePage() {
         <button
           type="button"
           onClick={() => setFineOpen(!fineOpen)}
-          className="w-full flex items-center gap-2 px-4 py-3.5 text-left text-sm text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-white/[0.03] transition"
+          className="w-full flex items-center gap-2 px-4 py-3.5 text-left text-sm text-body hover:bg-sunken transition"
         >
           {fineOpen ? <ChevronDownIcon className="size-4" /> : <ChevronRightIcon className="size-4" />}
           <span className="font-medium">Fine-tune tempo &amp; key</span>
-          <span className="ml-auto font-mono tabular-nums text-xs text-zinc-400 dark:text-zinc-500">{fineSummary}</span>
+          <span className="ml-auto font-mono tabular-nums text-xs text-faint">{fineSummary}</span>
         </button>
         {fineOpen && (
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 px-4 pb-4">
             <div className="flex flex-col gap-1.5">
-              <label className="text-xs text-zinc-500 dark:text-zinc-400">Tempo</label>
+              <label className="text-xs text-muted">Tempo</label>
               <div className="flex items-center gap-2.5">
                 <input
                   type="range"
@@ -229,24 +229,24 @@ export default function DescribePage() {
                   onChange={(e) => setTempo(e.target.valueAsNumber)}
                   className="flex-1 accent-indigo-500"
                 />
-                <span className="font-mono tabular-nums text-sm text-zinc-900 dark:text-white min-w-[58px] text-right">{tempo ? `${tempo} BPM` : 'Auto'}</span>
+                <span className="font-mono tabular-nums text-sm text-primary min-w-[58px] text-right">{tempo ? `${tempo} BPM` : 'Auto'}</span>
               </div>
-              {tempo && <button type="button" onClick={() => setTempo(null)} className="self-start text-xs text-zinc-400 hover:text-zinc-200">Back to auto</button>}
+              {tempo && <button type="button" onClick={() => setTempo(null)} className="self-start text-xs text-faint hover:text-body">Back to auto</button>}
             </div>
             <div className="flex flex-col gap-1.5">
-              <label className="text-xs text-zinc-500 dark:text-zinc-400">Key</label>
+              <label className="text-xs text-muted">Key</label>
               <select
                 value={key ?? ''}
                 onChange={(e) => setKey(e.target.value || null)}
-                className="rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 px-2 py-1.5 font-mono text-sm text-zinc-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                className="rounded-lg border border-line-strong bg-raised px-2 py-1.5 font-mono text-sm text-primary focus:outline-none focus:ring-2 focus:ring-indigo-500"
               >
                 <option value="">Auto</option>
                 {ALL_KEYS.map((k) => <option key={k} value={k}>{k}</option>)}
               </select>
             </div>
             <div className="flex flex-col gap-1.5">
-              <label className="text-xs text-zinc-500 dark:text-zinc-400">Time signature</label>
-              <span className="rounded-lg border border-zinc-200 dark:border-zinc-800 px-2 py-1.5 font-mono text-sm text-zinc-500 dark:text-zinc-400">4/4</span>
+              <label className="text-xs text-muted">Time signature</label>
+              <span className="rounded-lg border border-line px-2 py-1.5 font-mono text-sm text-muted">4/4</span>
             </div>
           </div>
         )}
@@ -269,15 +269,15 @@ export default function DescribePage() {
           <SparklesIcon data-slot="icon" />
           Generate Beat
         </Button>
-        <span className="text-xs text-zinc-400 dark:text-zinc-500">Takes a second or two · counts as one song · regenerating parts afterwards is free</span>
+        <span className="text-xs text-faint">Takes a second or two · counts as one song · regenerating parts afterwards is free</span>
       </div>
 
-      <div className="h-px bg-zinc-200 dark:bg-zinc-800" />
+      <div className="h-px bg-raised" />
 
       {/* Other starting points */}
       <section>
-        <h2 className="text-sm font-semibold text-zinc-900 dark:text-white">Or start from something you play</h2>
-        <p className="mt-1 mb-3.5 text-xs text-zinc-400 dark:text-zinc-500">Your recording stays audio. VoxMIDI writes the parts around it.</p>
+        <h2 className="text-sm font-semibold text-primary">Or start from something you play</h2>
+        <p className="mt-1 mb-3.5 text-xs text-faint">Your recording stays audio. VoxMIDI writes the parts around it.</p>
         <div className="flex flex-wrap gap-2.5">
           <ToolCard icon={SparklesIcon} title="Describe a beat" sub="Text to a full arrangement" active />
           <ToolCard icon={MicrophoneIcon} title="Record a riff" sub="Guitar or keys through your mic" onClick={() => navigate('/record')} />

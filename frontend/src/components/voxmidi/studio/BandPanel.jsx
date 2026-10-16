@@ -106,8 +106,8 @@ export default function BandPanel() {
   return (
     <section className={clsx(panel, 'p-5 mt-4 space-y-4')}>
       <div>
-        <h3 className="text-sm font-semibold text-zinc-900 dark:text-white">Add a band member</h3>
-        <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
+        <h3 className="text-sm font-semibold text-primary">Add a band member</h3>
+        <p className="text-xs text-muted mt-0.5">
           Renders your current mix and asks the local GPU to generate one new instrument stem that fits it.
           Each run adds one player to the song.
         </p>
@@ -125,14 +125,14 @@ export default function BandPanel() {
         onChange={(e) => setStyle(e.target.value)}
         maxLength={300}
         placeholder="Style words (optional): clean electric, warm fingerpicked, bright staccato..."
-        className="w-full rounded-lg border border-zinc-300 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900 px-3 py-2 text-sm text-zinc-900 dark:text-white placeholder:text-zinc-400 dark:placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+        className="w-full rounded-lg border border-line-strong bg-panel px-3 py-2 text-sm text-primary placeholder:text-zinc-400 dark:placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
       />
 
       {busy && (
         <div className="space-y-2">
-          <p className="text-sm font-medium text-zinc-900 dark:text-white animate-pulse">{STATUS[job?.status] || 'Rendering mix...'}</p>
-          <div className="w-full bg-zinc-100 dark:bg-zinc-800 rounded-full h-2">
-            <div className="bg-indigo-600 h-2 rounded-full transition-all duration-700" style={{ width: `${job?.progress || 5}%` }} />
+          <p className="text-sm font-medium text-primary animate-pulse">{STATUS[job?.status] || 'Rendering mix...'}</p>
+          <div className="w-full bg-raised rounded-full h-2">
+            <div className="bg-accent-strong h-2 rounded-full transition-all duration-700" style={{ width: `${job?.progress || 5}%` }} />
           </div>
         </div>
       )}
@@ -144,7 +144,7 @@ export default function BandPanel() {
           <SparklesIcon data-slot="icon" />
           Add {PART_LABELS[part]}
         </Button>
-        <span className="text-xs text-zinc-400 dark:text-zinc-500">Runs on the local GPU. Always free, never counted against your song limit.</span>
+        <span className="text-xs text-faint">Runs on the local GPU. Always free, never counted against your song limit.</span>
       </div>
     </section>
   )
