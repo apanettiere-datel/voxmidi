@@ -1,0 +1,43 @@
+# Workstation (ap-wsl) deploy behind the voxmidi Cloudflare tunnel. nginx binds
+# 127.0.0.1:8081 (8080 belongs to Recap), serves frontend/dist from the host and
+# proxies /api to the backend container; the tunnel points at 8081, so nothing
+# is exposed beyond localhost.
+services:
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "127.0.0.1:8081:80"
+      # Tailscale IP of this box, so the Mac can reach it over the tailnet
+      - "100.118.155.25:8081:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./frontend/dist:/usr/share/nginx/html:ro
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.prod
+    ports:
+      - "127.0.0.1:3002:8080"
+    env_file: ./backend/.env
+    volumes:
+      - ./backend/data:/app/data
+      - upload_tmp:/tmp/voxmidi
+    environment:
+      - PYTHONUNBUFFERED=1
+    restart: unless-stopped
+
+volumes:
+  upload_tmp:
+
+# Fixed subnet so the host-side ACE-Step API can bind the gateway IP
+# (172.28.0.1) and stay reachable from the backend container only.
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: 172.28.0.0/24
+          gateway: 172.28.0.1

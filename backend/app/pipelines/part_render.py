@@ -18,17 +18,19 @@ Two levels, both starting from the notes the user wrote or edited:
    If too little survives, the render is rejected.
 """
 
+import io
 import os
 import shutil
 import subprocess
 import tempfile
+import time
 from pathlib import Path
 from typing import Callable, List, Optional
 
 import numpy as np
 import soundfile as sf
 
-from pipelines import drum_ai
+from pipelines import band, drum_ai
 
 SR = 44100
 MIN_NOTE_MATCH = 0.8
@@ -256,3 +258,44 @@ def make_real_part(part: str, style: str, notes: List[dict], tempo: float, total
     return {"file": path.name, "provider": provider, "part": part, "style": style, "polish": polish,
             "match": match, "offset_ms": offset_ms, "duration": round(len(out) / SR, 3),
             "renderer": "fluidsynth" if soundfont_path() and shutil.which("fluidsynth") else "synth"}
+
+
+def make_cover_part(part: str, style: str, notes: List[dict], tempo: float, total_beats: float, strength: float,
+                    job_dir: Path, progress: Callable[[int, str], None] = lambda p, s: None,
+                    http=None, sleep=time.sleep) -> dict:
+    """Render the part with samples, then re-play that render through ACE-Step cover
+    on the local GPU. Free, no usage charge.
+
+    strength is ACE-Step's audio_cover_strength: 1.0 keeps the written notes, lower
+    lets the AI drift. Drifting is the user's choice here, so the pitch match is
+    reported but never rejects the result; only silence does.
+    """
+    progress(10, "rendering_part")
+    reference = render_part(notes, tempo, total_beats, part, style)
+    provider = band.provider_name()
+    match = 100
+    out = reference
+
+    if provider != "mock":
+        buf = io.BytesIO()
+        sf.write(buf, reference, SR, format="WAV", subtype="PCM_16")
+        progress(25, "generating_audio")
+        prompt = f"{PART_STYLES[part][style][1]}, {int(round(tempo))} BPM, solo {PART_LABEL[part]} only"
+        raw = band._acestep_generate(buf.getvalue(), part, prompt, http=http, sleep=sleep,
+                                     task_type="cover", strength=strength)
+        progress(80, "decoding_audio")
+        out = band._decode(raw)
+        out = out[: len(reference)] if len(out) >= len(reference) else np.pad(out, (0, len(reference) - len(out)))
+        peak = float(np.max(np.abs(out)))
+        if peak < 1e-4:
+            raise RuntimeError("The AI returned silence. Nothing was placed.")
+        out = out / peak * 0.89
+        progress(90, "checking_pitch")
+        rate = note_match(notes, tempo, out, octave_ok=part == "bass") if part in MONO_PARTS \
+            else chord_match(reference, out, tempo, total_beats)
+        match = int(round(100 * rate))
+
+    path = job_dir / f"{part}_cover.wav"
+    sf.write(str(path), out.astype(np.float32), SR, subtype="PCM_16")
+    return {"file": path.name, "provider": provider, "part": part, "style": style, "cover": True,
+            "strength": strength, "match": match, "duration": round(len(out) / SR, 3)}

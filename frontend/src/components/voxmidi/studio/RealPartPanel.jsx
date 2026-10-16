@@ -24,8 +24,9 @@ const STATUS = {
   queued: 'Waiting in queue...',
   processing: 'Starting...',
   rendering_part: 'Playing your part on a real instrument...',
-  generating_audio: 'AI polish... this takes up to a minute',
-  checking_pitch: 'Checking every note is still yours...',
+  generating_audio: 'The AI is playing your part... this takes up to a minute',
+  decoding_audio: 'Loading the result...',
+  checking_pitch: 'Checking how many notes are still yours...',
 }
 
 function signature(notes) {
@@ -46,7 +47,7 @@ export default function RealPartPanel({ trackId }) {
   const [style, setStyle] = useState(info?.style || STYLES[parts[0]][0][0])
   const [strength, setStrength] = useState(0.4)
   const [jobId, setJobId] = useState(null)
-  const [mode, setMode] = useState(null) // 'samples' | 'polish' while running
+  const [mode, setMode] = useState(null) // 'samples' | 'polish' | 'cover' while running
   const [error, setError] = useState(null)
 
   useEffect(() => {
@@ -79,7 +80,7 @@ export default function RealPartPanel({ trackId }) {
     if (!res.ok) throw new Error(`download failed (${res.status})`)
     const buffer = await engine.context().decodeAudioData(await res.arrayBuffer())
     const styleLabel = STYLES[result.part].find(([id]) => id === result.style)?.[1] || result.style
-    const take = await addTake(buffer, { name: `${track.name} · ${styleLabel}${result.polish ? ' · AI' : ''}` })
+    const take = await addTake(buffer, { name: `${track.name} · ${styleLabel}${result.cover ? ' · AI cover' : result.polish ? ' · AI' : ''}` })
     const clip = { id: `r${Date.now().toString(36)}`, takeId: take.id, startBeat: 0, offset: 0, duration: buffer.duration }
     setProject((p) => {
       let next = p
@@ -92,31 +93,39 @@ export default function RealPartPanel({ trackId }) {
       }
       next = updateTrack(next, audioId, { clips: [clip], mute: false })
       next = updateTrack(next, trackId, { mute: true })
-      const realParts = { ...(next.realParts || {}), [trackId]: { part: result.part, style: result.style, polish: result.polish, provider: result.provider, match: result.match, audioTrackId: audioId, signature: signature(trackById(p, trackId).notes) } }
+      const realParts = { ...(next.realParts || {}), [trackId]: { part: result.part, style: result.style, polish: result.polish, cover: result.cover, provider: result.provider, match: result.match, audioTrackId: audioId, signature: signature(trackById(p, trackId).notes) } }
       return { ...next, realParts }
-    }, { what: `Made ${track.name} sound real (${styleLabel}${result.polish ? ', AI polish' : ''})` })
+    }, { what: `Made ${track.name} sound real (${styleLabel}${result.cover ? ', AI cover' : result.polish ? ', AI polish' : ''})` })
     refreshUsage()
-    toast(result.polish ? (result.provider === 'mock' ? 'Preview polish placed' : `AI polish placed · ${result.match}% of your notes kept`) : `${track.name} now plays on ${styleLabel}`)
+    toast(result.cover
+      ? (result.provider === 'mock' ? 'Preview cover placed (no GPU on this server)' : `AI cover placed · ${result.match}% of your notes kept`)
+      : result.polish ? (result.provider === 'mock' ? 'Preview polish placed' : `AI polish placed · ${result.match}% of your notes kept`) : `${track.name} now plays on ${styleLabel}`)
   }
 
-  async function start(polish) {
+  async function start(which) {
     setError(null)
-    setMode(polish ? 'polish' : 'samples')
+    setMode(which)
+    const cover = which === 'cover'
+    const polish = which === 'polish'
     try {
       const body = {
-        part, style, polish, strength,
+        part, style,
         tempo: project.tempo,
         total_beats: totalBars(project.sections) * BEATS_PER_BAR,
         notes: track.notes.map(({ p, t, d, v }) => ({ p, t: Math.max(0, t), d: Math.max(0.05, d), v })),
+        // One slider, two engines: polish (fal) wants "how much the AI plays" (0.2-0.9),
+        // cover (ACE-Step) wants audio_cover_strength where 1.0 = keep the notes exactly.
+        strength: cover ? +(1 - strength).toFixed(2) : Math.max(0.2, strength),
+        ...(cover ? {} : { polish }),
       }
-      const res = await authFetch('/api/studio/parts/real', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+      const res = await authFetch(cover ? '/api/studio/parts/cover' : '/api/studio/parts/real', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
       if (!res.ok) {
         const err = await res.json().catch(() => ({ detail: res.statusText }))
         throw new Error(res.status === 429 ? `That's your ${usage?.limit ?? ''} songs for the month.` : err.detail || `Request failed: ${res.status}`)
       }
       const data = await res.json()
       setJobId(data.job_id)
-      startJob(data.job_id, { label: `${track.name} · ${polish ? 'AI polish' : 'real instrument'}` })
+      startJob(data.job_id, { label: `${track.name} · ${cover ? 'AI cover' : polish ? 'AI polish' : 'real instrument'}` })
     } catch (e) {
       setError(e.message)
       setMode(null)
@@ -159,14 +168,21 @@ export default function RealPartPanel({ trackId }) {
           </div>
 
           <div className="flex items-center gap-3 flex-wrap">
-            <Button outline disabled={!!mode || !track.notes.length} onClick={() => start(false)}>
+            <Button outline disabled={!!mode || !track.notes.length} onClick={() => start('samples')}>
               <MusicalNoteIcon data-slot="icon" />
               {mode === 'samples' ? 'Rendering...' : 'Real Instrument'}
             </Button>
             <span className="text-xs text-zinc-400 dark:text-zinc-500">Free. Recorded instrument samples play your exact notes.</span>
           </div>
           <div className="flex items-center gap-3 flex-wrap">
-            <Button color="indigo" disabled={!!mode || !track.notes.length} onClick={() => start(true)}>
+            <Button color="indigo" disabled={!!mode || !track.notes.length} onClick={() => start('cover')}>
+              <SparklesIcon data-slot="icon" />
+              {mode === 'cover' ? 'Covering...' : 'AI Cover'}
+            </Button>
+            <span className="text-xs text-zinc-400 dark:text-zinc-500">Free. The AI on this server plays your part with real-recording sound; slide left to keep your exact notes.</span>
+          </div>
+          <div className="flex items-center gap-3 flex-wrap">
+            <Button outline disabled={!!mode || !track.notes.length} onClick={() => start('polish')}>
               <SparklesIcon data-slot="icon" />
               {mode === 'polish' ? 'Polishing...' : 'Polish with AI'}
             </Button>
@@ -174,7 +190,7 @@ export default function RealPartPanel({ trackId }) {
           </div>
           <div className="flex items-center gap-3 flex-wrap">
             <span className="text-xs text-zinc-500 dark:text-zinc-400 w-40">Stay close to my part</span>
-            <input type="range" min={0.2} max={0.7} step={0.05} value={strength} onChange={(e) => setStrength(e.target.valueAsNumber)} className="flex-1 min-w-[8rem] max-w-xs accent-indigo-500" />
+            <input type="range" min={0} max={0.7} step={0.05} value={strength} onChange={(e) => setStrength(e.target.valueAsNumber)} className="flex-1 min-w-[8rem] max-w-xs accent-indigo-500" />
             <span className="text-xs text-zinc-500 dark:text-zinc-400">Let the AI play</span>
             <span className="font-mono tabular-nums text-xs text-zinc-400 w-10 text-right">{Math.round(strength * 100)}%</span>
           </div>
@@ -191,7 +207,10 @@ export default function RealPartPanel({ trackId }) {
           {info && !mode && (
             <p className="text-xs text-zinc-500 dark:text-zinc-400">
               Last render: {STYLES[info.part]?.find(([id]) => id === info.style)?.[1]}
-              {info.polish ? (info.provider === 'mock'
+              {info.cover ? (info.provider === 'mock'
+                ? ' · preview cover (no GPU on this server)'
+                : <> · AI cover · <span className="font-mono tabular-nums">{info.match}%</span> of notes kept</>)
+                : info.polish ? (info.provider === 'mock'
                 ? ' · preview polish (the AI service is not set up on this server, nothing was counted)'
                 : <> · AI polish · <span className="font-mono tabular-nums">{info.match}%</span> of notes kept</>) : ' · real instrument'}
               {stale && <span className="text-amber-400"> · You edited the notes since; render again to hear the changes.</span>}

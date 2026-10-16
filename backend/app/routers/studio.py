@@ -442,6 +442,12 @@ class RealPartRequest(BaseModel):
         return v
 
 
+class CoverPartRequest(RealPartRequest):
+    """Same shape as a real-part render (polish is ignored); strength here is ACE-Step's
+    audio_cover_strength: 1.0 keeps the written notes, lower lets the AI drift."""
+    strength: float = Field(1.0, ge=0.3, le=1.0)
+
+
 def _run_real_part(job_id: str, req: dict, user_id: str, charged: bool):
     from pipelines.part_render import make_real_part
     from .generate import MIDI_STORE, _persist_files
@@ -474,6 +480,112 @@ def _run_real_part(job_id: str, req: dict, user_id: str, charged: bool):
         cancelled = str(exc) == "cancelled"
         update_job(job_id, {"status": "cancelled" if cancelled else "error", "message": None if cancelled else str(exc)})
         print(f"[studio] real part job={job_id} failed: {exc}")
+
+
+def _run_cover_part(job_id: str, req: dict, user_id: str):
+    from pipelines.part_render import make_cover_part
+    from .generate import MIDI_STORE, _persist_files
+    from .jobs import update_job, get_job
+
+    job_dir = UPLOAD_DIR / job_id
+    job_dir.mkdir(parents=True, exist_ok=True)
+
+    def progress(pct, status):
+        if (get_job(job_id) or {}).get("status") == "cancelled":
+            raise RuntimeError("cancelled")
+        update_job(job_id, {"status": status, "progress": pct})
+
+    try:
+        result = make_cover_part(req["part"], req["style"], req["notes"], req["tempo"], req["total_beats"],
+                                 req["strength"], job_dir, progress)
+        _persist_files(job_dir, MIDI_STORE / job_id)
+        result["audio_url"] = f"/api/download/{job_id}/{result.pop('file')}"
+        update_job(job_id, {"status": "complete", "progress": 100, "result": result})
+        print(f"[studio] cover part job={job_id} {req['part']}/{req['style']} strength={req['strength']} provider={result['provider']} match={result['match']}%")
+    except Exception as exc:
+        cancelled = str(exc) == "cancelled"
+        update_job(job_id, {"status": "cancelled" if cancelled else "error", "message": None if cancelled else str(exc)})
+        print(f"[studio] cover part job={job_id} failed: {exc}")
+
+
+@router.post("/studio/parts/cover")
+async def studio_cover_part(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+):
+    """Re-play a MIDI part with AI sound (ACE-Step cover). Always free; runs on the local GPU."""
+    from pipelines.part_render import PART_STYLES
+    from pipelines.band import provider_name as band_provider
+    from .jobs import set_job, try_start
+
+    req = await _parse(request, CoverPartRequest)
+    if req.style not in PART_STYLES[req.part]:
+        raise HTTPException(status_code=400, detail=f"style: for {req.part} use one of {list(PART_STYLES[req.part])}")
+    if any(n.t >= req.total_beats for n in req.notes):
+        raise HTTPException(status_code=400, detail="notes: every note must start before total_beats")
+
+    job_id = str(uuid.uuid4())[:8]
+    set_job(job_id, {"status": "queued", "progress": 0})
+    started = try_start(job_id, _run_cover_part, (job_id, req.model_dump(), current_user.id))
+    return {"job_id": job_id, "status": "processing" if started else "queued", "provider": band_provider()}
+
+
+# ─── Band member: ACE-Step Lego stem ─────────────────────────────────────────
+
+MAX_MIX_BYTES = 50 * 1024 * 1024
+
+
+def _run_band_stem(job_id: str, mix_bytes: bytes, part: str, style: str, user_id: str):
+    from pipelines.band import make_band_stem
+    from .generate import MIDI_STORE, _persist_files
+    from .jobs import update_job, get_job
+
+    job_dir = UPLOAD_DIR / job_id
+    job_dir.mkdir(parents=True, exist_ok=True)
+
+    def progress(pct, status):
+        if (get_job(job_id) or {}).get("status") == "cancelled":
+            raise RuntimeError("cancelled")
+        update_job(job_id, {"status": status, "progress": pct})
+
+    try:
+        result = make_band_stem(mix_bytes, part, style, job_dir, progress)
+        _persist_files(job_dir, MIDI_STORE / job_id)
+        result["audio_url"] = f"/api/download/{job_id}/{result.pop('file')}"
+        update_job(job_id, {"status": "complete", "progress": 100, "result": result})
+        print(f"[studio] band stem job={job_id} {part} provider={result['provider']}")
+    except Exception as exc:
+        cancelled = str(exc) == "cancelled"
+        update_job(job_id, {"status": "cancelled" if cancelled else "error", "message": None if cancelled else str(exc)})
+        print(f"[studio] band stem job={job_id} failed: {exc}")
+
+
+@router.post("/studio/parts/band")
+async def studio_band_part(
+    mix: UploadFile = File(...),
+    part: str = Form(...),
+    style: Optional[str] = Form(None),
+    current_user: User = Depends(get_current_user),
+):
+    """Generate an instrument stem that fits the current mix. Always free; runs on the local GPU."""
+    from pipelines.band import VALID_PARTS, provider_name as band_provider
+    from .jobs import set_job, try_start
+
+    if part not in VALID_PARTS:
+        raise HTTPException(status_code=400, detail=f"part: must be one of {sorted(VALID_PARTS)}")
+    style_str = (style or "").strip()[:300]
+
+    data = await mix.read()
+    if not data:
+        raise HTTPException(status_code=400, detail="mix: the file is empty")
+    if len(data) > MAX_MIX_BYTES:
+        raise HTTPException(status_code=400, detail="mix: keep the mix under 50 MB")
+
+    provider = band_provider()
+    job_id = str(uuid.uuid4())[:8]
+    set_job(job_id, {"status": "queued", "progress": 0})
+    started = try_start(job_id, _run_band_stem, (job_id, data, part, style_str, current_user.id))
+    return {"job_id": job_id, "status": "processing" if started else "queued", "provider": provider}
 
 
 @router.post("/studio/parts/real")

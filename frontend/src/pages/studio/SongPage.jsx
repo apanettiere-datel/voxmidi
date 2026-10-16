@@ -3,9 +3,10 @@ import { useNavigate } from 'react-router-dom'
 import clsx from 'clsx'
 import {
   PlusIcon, MinusIcon, ChevronLeftIcon, ChevronRightIcon, DocumentDuplicateIcon, TrashIcon, ScissorsIcon,
-  ClipboardDocumentIcon, ClipboardIcon, ArrowPathIcon, ArrowUpTrayIcon, XMarkIcon,
+  ClipboardDocumentIcon, ClipboardIcon, ArrowPathIcon, ArrowUpTrayIcon, XMarkIcon, SparklesIcon,
 } from '@heroicons/react/20/solid'
 import EditorFrame from '@/components/voxmidi/studio/EditorFrame'
+import BandPanel from '@/components/voxmidi/studio/BandPanel'
 import { Wave } from '@/components/voxmidi/studio/ui'
 import { useStudio } from '@/lib/studio/StudioContext'
 import { engine } from '@/lib/studio/engine'
@@ -135,6 +136,7 @@ function SongTimeline() {
   const [BW, setBW] = useState(27)              // px per bar
   const [snap, setSnap] = useState(1)
   const [addOpen, setAddOpen] = useState(false)
+  const [bandOpen, setBandOpen] = useState(false)
   const [dropAt, setDropAt] = useState(null)
 
   const bars = totalBars(project.sections)
@@ -539,6 +541,9 @@ function SongTimeline() {
             </div>
           )}
         </div>
+        <button type="button" className={clsx(tool, bandOpen && 'bg-indigo-600/20 text-indigo-300')} onClick={() => setBandOpen((v) => !v)} title="Generate an instrument stem that fits your mix, free">
+          <SparklesIcon className="size-3.5" />+ Band
+        </button>
         <div className="flex-1" />
         <span className="font-mono tabular-nums text-xs text-zinc-400 dark:text-zinc-500 mr-2 whitespace-nowrap">
           {sel && sel.end > sel.start ? `${fmtPos(sel.start)} to ${fmtPos(sel.end)} · ${sel.tracks.length} track${sel.tracks.length > 1 ? 's' : ''}` : `Cursor ${fmtPos(cursor)}`}
@@ -697,6 +702,7 @@ function SongTimeline() {
           Click to place the cursor, drag across lanes to select. Double-click a MIDI lane to edit its notes. Drag recorded clips to move them and their edges to trim. S splits, Ctrl+C / X / V / D copy, cut, paste and duplicate, Del deletes. Drop audio files on a lane to import them.
         </p>
       </div>
+      {bandOpen && <BandPanel />}
     </div>
   )
 }
