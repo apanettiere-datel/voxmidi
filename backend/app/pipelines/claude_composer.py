@@ -92,7 +92,9 @@ def provider_name() -> str:
 
 async def ask_claude(song: dict, text: str) -> dict:
     """One structured-output call: song context + request in, a list of track changes out."""
-    client = anthropic.AsyncAnthropic()
+    # A user-scoped key (sk-ant-usr-...) only works with a workspace id alongside it
+    workspace = os.environ.get("ANTHROPIC_WORKSPACE_ID")
+    client = anthropic.AsyncAnthropic(default_headers={"anthropic-workspace-id": workspace} if workspace else None)
     try:
         async with client.messages.stream(
             model=MODEL,

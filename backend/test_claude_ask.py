@@ -151,6 +151,8 @@ def test_validate_changes_scope():
 
 def test_endpoint_503_without_key():
     client = _client()
+    # importing the app ran load_dotenv, which may have re-set the key from a real .env
+    os.environ.pop("ANTHROPIC_API_KEY", None)
     r = client.post("/api/studio/ask/ai", json=SONG)
     assert r.status_code == 503, f"expected 503, got {r.status_code}: {r.text}"
     print("  PASS: no ANTHROPIC_API_KEY -> 503 (frontend falls back to rule-based)")
