@@ -39,16 +39,19 @@ Rules:
 - Musical judgment is yours: voice leading, velocity shape and pocket matter more than density.
 - "title" is one short plain sentence saying what you did. "detail" is one short sentence saying what you kept. No jargon."""
 
+# The structured-outputs grammar takes types, required, additionalProperties and
+# enums, but no numeric/length/count constraints (maxItems, minimum, maxLength all
+# 400). The prompt states the ranges and validate_changes() enforces every limit
+# after the call, so the schema stays plain.
 NOTES_SCHEMA = {
     "type": "array",
-    "maxItems": MAX_NOTES,
     "items": {
         "type": "object",
         "properties": {
-            "p": {"type": "integer", "minimum": 0, "maximum": 127},
-            "t": {"type": "number", "minimum": 0},
-            "d": {"type": "number", "exclusiveMinimum": 0, "maximum": 64},
-            "v": {"type": "integer", "minimum": 1, "maximum": 127},
+            "p": {"type": "integer"},
+            "t": {"type": "number"},
+            "d": {"type": "number"},
+            "v": {"type": "integer"},
         },
         "required": ["p", "t", "d", "v"],
         "additionalProperties": False,
@@ -58,18 +61,16 @@ NOTES_SCHEMA = {
 SCHEMA = {
     "type": "object",
     "properties": {
-        "title": {"type": "string", "maxLength": 140},
-        "detail": {"type": "string", "maxLength": 200},
+        "title": {"type": "string"},
+        "detail": {"type": "string"},
         "changes": {
             "type": "array",
-            "minItems": 1,
-            "maxItems": MAX_CHANGES,
             "items": {
                 "type": "object",
                 "properties": {
-                    "track": {"type": "string", "maxLength": 24},
+                    "track": {"type": "string"},
                     "role": {"type": "string", "enum": list(NEW_ROLES)},
-                    "name": {"type": "string", "maxLength": 24},
+                    "name": {"type": "string"},
                     "notes": NOTES_SCHEMA,
                 },
                 "required": ["track", "notes"],
