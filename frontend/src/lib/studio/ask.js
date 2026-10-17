@@ -2,7 +2,7 @@
 // section and which direction from the request, and says so plainly when it
 // can't find them instead of guessing.
 
-import { barMap, sectionRanges } from './project'
+import { barMap } from './project'
 
 const PARTS = [
   { id: 'drums', words: ['hi-hat', 'hihat', 'hat', 'drum', 'kick', 'snare', 'beat', 'groove'] },
@@ -24,7 +24,9 @@ export const ASK_SUGGESTIONS = [
   'Softer chords under the melody',
 ]
 
-export function planAsk(project, text) {
+// scope ({ start, end, label } in beats) limits the edit to one section's range,
+// on top of any section the text itself names.
+export function planAsk(project, text, scope = null) {
   const low = ` ${text.toLowerCase()} `
   const part = PARTS.find((p) => has(low, p.words))
   if (!part) {
@@ -42,10 +44,11 @@ export function planAsk(project, text) {
   const track = project.tracks.find((t) => t.id === part.id)
   const map = barMap(project.sections)
   const inRange = (t) => {
+    if (scope && (t < scope.start || t >= scope.end)) return false
     const b = map[Math.floor(t / 4)]
     return b && (!sectionKind || b.sec.kind === sectionKind)
   }
-  const where = sectionKind ? `${sectionKind}` : 'Whole song'
+  const where = sectionKind || scope?.label || 'Whole song'
   const before = track.notes
   let after = before
   let title = ''
@@ -107,5 +110,5 @@ export function planAsk(project, text) {
 
   const changed = after.length !== before.length || after.some((n, i) => n !== before[i])
   if (!changed) return { error: `Nothing to change in the ${sectionKind ? kind : 'song'} for that part.` }
-  return { trackId: part.id, trackName: track.name, title, detail, before, after, range: sectionKind ? sectionRanges(project.sections).filter((_, i) => project.sections[i].kind === sectionKind) : null }
+  return { title, detail, changes: [{ trackId: part.id, trackName: track.name, created: false, before, after }] }
 }
