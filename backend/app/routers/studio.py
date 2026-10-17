@@ -664,6 +664,54 @@ async def studio_band_part(
     return {"job_id": job_id, "status": "processing" if started else "queued", "provider": provider}
 
 
+# ─── Stems: split a recorded take with Demucs on the local GPU ───────────────
+
+def _run_stems(job_id: str, audio_bytes: bytes, user_id: str):
+    from pipelines.stems import make_stems
+    from .generate import MIDI_STORE, _persist_files
+    from .jobs import update_job, get_job
+
+    job_dir = UPLOAD_DIR / job_id
+    job_dir.mkdir(parents=True, exist_ok=True)
+
+    def progress(pct, status):
+        if (get_job(job_id) or {}).get("status") == "cancelled":
+            raise RuntimeError("cancelled")
+        update_job(job_id, {"status": status, "progress": pct})
+
+    try:
+        result = make_stems(audio_bytes, job_dir, progress)
+        _persist_files(job_dir, MIDI_STORE / job_id)
+        result["stems"] = {name: f"/api/download/{job_id}/{fname}" for name, fname in result.pop("files").items()}
+        update_job(job_id, {"status": "complete", "progress": 100, "result": result})
+        print(f"[studio] stems job={job_id} provider={result['provider']} stems={sorted(result['stems'])}")
+    except Exception as exc:
+        cancelled = str(exc) == "cancelled"
+        update_job(job_id, {"status": "cancelled" if cancelled else "error", "message": None if cancelled else str(exc)})
+        print(f"[studio] stems job={job_id} failed: {exc}")
+
+
+@router.post("/studio/stems")
+async def studio_stems(
+    take: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+):
+    """Split a recorded take into vocals, drums, bass and other. Always free; runs on the local GPU."""
+    from pipelines.stems import provider_name as stems_provider
+    from .jobs import set_job, try_start
+
+    data = await take.read()
+    if not data:
+        raise HTTPException(status_code=400, detail="take: the file is empty")
+    if len(data) > MAX_MIX_BYTES:
+        raise HTTPException(status_code=400, detail="take: keep the audio under 50 MB")
+
+    job_id = str(uuid.uuid4())[:8]
+    set_job(job_id, {"status": "queued", "progress": 0})
+    started = try_start(job_id, _run_stems, (job_id, data, current_user.id))
+    return {"job_id": job_id, "status": "processing" if started else "queued", "provider": stems_provider()}
+
+
 @router.post("/studio/parts/real")
 async def studio_real_part(
     request: Request,

@@ -7,6 +7,7 @@ import {
 } from '@heroicons/react/20/solid'
 import EditorFrame from '@/components/voxmidi/studio/EditorFrame'
 import BandPanel from '@/components/voxmidi/studio/BandPanel'
+import StemSplitButton from '@/components/voxmidi/studio/StemSplitButton'
 import { Wave } from '@/components/voxmidi/studio/ui'
 import { useStudio } from '@/lib/studio/StudioContext'
 import { engine } from '@/lib/studio/engine'
@@ -527,6 +528,7 @@ function SongTimeline() {
         <button type="button" className={clsx(tool, 'text-accent-text')} onClick={regenSelection} disabled={!tg || !tg.tracks.some((t) => t.kind === 'midi')} title="Have the AI rewrite the selected range on MIDI tracks, free">
           <ArrowPathIcon className="size-3.5" />Regenerate selection
         </button>
+        <StemSplitButton sc={tg?.clip || null} className={tool} />
         <span className="mx-1 h-4 w-px bg-line" />
         <button type="button" className={tool} onClick={() => fileInput.current.click()} title="Import an audio file at the cursor, or drop one on a lane"><ArrowUpTrayIcon className="size-3.5" />Import audio</button>
         <input ref={fileInput} type="file" accept="audio/*" className="hidden" onChange={(e) => { e.target.files.length && importFiles(e.target.files); e.target.value = '' }} />
