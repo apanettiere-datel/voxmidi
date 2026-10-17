@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import clsx from 'clsx'
 import { CheckIcon, InformationCircleIcon } from '@heroicons/react/20/solid'
 import { useStudio } from '@/lib/studio/StudioContext'
@@ -16,6 +16,11 @@ function Box({ on }) {
 
 export default function ExportDialog({ onClose }) {
   const { project, toast } = useStudio()
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
   const name = slug(project.name)
   const songSeconds = (totalBars(project.sections) * BEATS_PER_BAR * 60) / project.tempo + 2
 
