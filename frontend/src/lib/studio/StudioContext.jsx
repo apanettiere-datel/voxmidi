@@ -5,7 +5,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { useAuthFetch } from '@/lib/authFetch'
 import { engine } from './engine'
 import { listTakes, saveTake, peaksOf } from './takes'
-import { fromServer, totalBars, sectionRanges, spliceNotes, updateTrack, trackById, composerPart, BEATS_PER_BAR } from './project'
+import { fromServer, blankProject, totalBars, sectionRanges, spliceNotes, updateTrack, trackById, composerPart, BEATS_PER_BAR } from './project'
 import { wavBytes } from './files'
 
 const StudioContext = createContext(null)
@@ -306,6 +306,86 @@ export function StudioProvider({ children }) {
     return res.json()
   }, [authFetch])
 
+  // ── Saved songs (DB-backed projects + their audio) ──────────────────────────
+
+  const takeIdsOf = (p) => {
+    const ids = new Set()
+    for (const t of p.tracks || []) for (const c of t.clips || []) if (c.takeId) ids.add(c.takeId)
+    return [...ids]
+  }
+
+  // Upload every take a song's clips reference, so it plays after a reload or on
+  // another device. Idempotent on the server, so re-saving only sends new audio.
+  const uploadTakes = useCallback(async (p) => {
+    for (const id of takeIdsOf(p)) {
+      const buf = engine.takes.get(id)
+      if (!buf) continue
+      const form = new FormData()
+      form.append('take', new Blob([wavBytes(buf)], { type: 'audio/wav' }), `${id}.wav`)
+      await authFetch(`/api/studio/takes/${id}`, { method: 'POST', body: form }).catch(() => {})
+    }
+  }, [authFetch])
+
+  const saveSong = useCallback(async (name) => {
+    const p = projectRef.current
+    await uploadTakes(p)
+    const isUpdate = !!p.dbId
+    const body = { name: (name || p.name || 'Untitled song').slice(0, 120), tempo: p.tempo, data: p }
+    const res = await authFetch(isUpdate ? `/api/studio/projects/${p.dbId}` : '/api/studio/projects', {
+      method: isUpdate ? 'PUT' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    })
+    if (!res.ok) throw new Error(await readError(res))
+    const row = await res.json()
+    setProject((prev) => ({ ...prev, dbId: row.id, name: row.name }), { undoable: false })
+    return row
+  }, [authFetch, uploadTakes, setProject])
+
+  const loadSong = useCallback(async (id) => {
+    const res = await authFetch(`/api/studio/projects/${id}`)
+    if (!res.ok) throw new Error(await readError(res))
+    const { data, name } = await res.json()
+    engine.stop()
+    const ctx = engine.context()
+    const hydrated = []
+    for (const tid of takeIdsOf(data)) {
+      if (engine.takes.has(tid)) continue
+      try {
+        const r = await authFetch(`/api/studio/takes/${tid}`)
+        if (!r.ok) continue
+        const buf = await ctx.decodeAudioData(await r.arrayBuffer())
+        engine.takes.set(tid, buf)
+        const meta = { id: tid, name: 'Take', duration: buf.duration, peaks: peaksOf(buf), createdAt: Date.now() }
+        await saveTake({ ...meta, blob: new Blob([wavBytes(buf)], { type: 'audio/wav' }) })
+        hydrated.push(meta)
+      } catch { /* a take that won't fetch or decode is skipped */ }
+    }
+    if (hydrated.length) setTakes((prev) => [...hydrated, ...prev.filter((t) => !hydrated.some((h) => h.id === t.id))])
+    setProject({ ...data, dbId: id, name }, { undoable: false })
+    setSelSection(Math.min(2, (data.sections?.length || 1) - 1))
+    setAskLog([])
+    return data
+  }, [authFetch, setProject])
+
+  const listSongs = useCallback(async () => {
+    const res = await authFetch('/api/studio/projects')
+    if (!res.ok) throw new Error(await readError(res))
+    return (await res.json()).projects
+  }, [authFetch])
+
+  const deleteSong = useCallback(async (id) => {
+    const res = await authFetch(`/api/studio/projects/${id}`, { method: 'DELETE' })
+    if (!res.ok) throw new Error(await readError(res))
+  }, [authFetch])
+
+  const newSong = useCallback(() => {
+    engine.stop()
+    const p = blankProject({})
+    setProject(p, { undoable: false })
+    setSelSection(0)
+    setAskLog([])
+    return p
+  }, [setProject])
+
   const value = useMemo(() => ({
     project, setProject, undo, redo, canUndo: undoRef.current.length > 0, canRedo: redoRef.current.length > 0,
     usage, refreshUsage,
@@ -315,8 +395,10 @@ export function StudioProvider({ children }) {
     askLog, setAskLog,
     toast, toastMsg,
     compose, openProject, regenerate, rewrite, analyzeRiff,
+    saveSong, loadSong, listSongs, deleteSong, newSong,
   }), [project, setProject, undo, redo, usage, refreshUsage, selTrack, selSection, playing, play, stop, togglePlay,
-    loopOn, metro, cursor, setCursor, clipboard, takes, addTake, latency, setLatency, askLog, toast, toastMsg, compose, openProject, regenerate, rewrite, analyzeRiff])
+    loopOn, metro, cursor, setCursor, clipboard, takes, addTake, latency, setLatency, askLog, toast, toastMsg, compose, openProject, regenerate, rewrite, analyzeRiff,
+    saveSong, loadSong, listSongs, deleteSong, newSong])
 
   return <StudioContext.Provider value={value}>{children}</StudioContext.Provider>
 }

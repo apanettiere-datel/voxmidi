@@ -9,6 +9,7 @@ import { useStudio } from '@/lib/studio/StudioContext'
 import { engine } from '@/lib/studio/engine'
 import { formatBeat } from '@/lib/studio/project'
 import { shortKey } from '@/lib/studio/theory'
+import ProjectMenu from './ProjectMenu'
 
 const ghost = 'flex items-center justify-center w-[34px] h-[34px] rounded-full transition active:scale-95'
 
@@ -60,7 +61,7 @@ export default function TransportBar({ onExport, onToggleAsk, askOpen }) {
             </Link>
           ))}
         </div>
-        <span className="font-display text-sm font-semibold text-primary truncate max-w-[14rem] max-lg:hidden">{project.name}</span>
+        <div className="max-lg:hidden"><ProjectMenu /></div>
       </div>
 
       <div className="flex items-center gap-1.5">

@@ -74,6 +74,18 @@ class Preset(Base):
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 
+class StudioProject(Base):
+    __tablename__ = "studio_projects"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4())[:8])
+    user_id = Column(String, ForeignKey("users.id"), nullable=False, index=True)
+    name = Column(String, default="Untitled song")
+    tempo = Column(Integer, default=120)
+    data = Column(Text, default="")  # the full project JSON (sections, tracks, clips)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+
 def get_db():
     db = SessionLocal()
     try:
