@@ -1,9 +1,11 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import clsx from 'clsx'
 import { SparklesIcon, CheckIcon, XMarkIcon } from '@heroicons/react/20/solid'
 import { useAuthFetch } from '@/lib/authFetch'
+import { useJobs } from '@/lib/JobsContext'
 import { useStudio } from '@/lib/studio/StudioContext'
 import { planAsk, ASK_SUGGESTIONS } from '@/lib/studio/ask'
+import { placeStem } from '@/lib/studio/bandStem'
 import { updateTrack, makeTrack, spliceNotes, sectionRanges, roleOf, colorOf, TRACK_COLORS } from '@/lib/studio/project'
 
 // Apply a card's changes to the project: 'after' lands the edit (adding any
@@ -43,14 +45,37 @@ function scopeChips(sections) {
   })
 }
 
+const PROVIDERS = [['claude', 'Claude'], ['eleven', 'ElevenLabs'], ['minimax', 'MiniMax']]
+
 export default function AskRail({ onClose, className }) {
   const authFetch = useAuthFetch()
-  const { project, setProject, askLog, setAskLog, toast } = useStudio()
+  const { jobs, startJob, removeJob } = useJobs()
+  const { project, setProject, addTake, askLog, setAskLog, toast } = useStudio()
   const [text, setText] = useState('')
   const [busy, setBusy] = useState(false)
   const [scopeId, setScopeId] = useState(null)
+  const [provider, setProvider] = useState('claude')
+  const [genJobId, setGenJobId] = useState(null)
   const pendingIndex = askLog.findIndex((m) => m.role === 'card' && m.state === 'pending')
   const pending = pendingIndex >= 0 ? askLog[pendingIndex] : null
+
+  // ElevenLabs/MiniMax generation lands an audio track, then logs a reply.
+  const genJob = genJobId ? jobs[genJobId] : null
+  useEffect(() => {
+    if (!genJob) return
+    if (genJob.status === 'complete' && genJob.result) {
+      const result = genJob.result
+      removeJob(genJobId); setGenJobId(null)
+      const name = 'AI part'
+      placeStem({ authFetch, addTake, setProject, result, trackId: `ai-${Date.now().toString(36)}`, trackName: name, extra: { role: 'ai', aiSongId: result.song_id || `song-${Date.now().toString(36)}` } })
+        .then(() => setAskLog((log) => [...log, { role: 'reply', text: result.provider === 'mock' ? 'Placeholder part added (no key configured).' : `Added an AI audio track (${result.provider}).` }]))
+        .catch((e) => setAskLog((log) => [...log, { role: 'reply', text: `Couldn't load the audio: ${e.message}` }]))
+        .finally(() => setBusy(false))
+    } else if (genJob.status === 'error' || genJob.status === 'cancelled') {
+      setAskLog((log) => [...log, { role: 'reply', text: genJob.status === 'cancelled' ? 'Cancelled.' : (genJob.error || 'Generation failed.') }])
+      removeJob(genJobId); setGenJobId(null); setBusy(false)
+    }
+  }, [genJob?.status])
 
   const chips = scopeChips(project.sections)
   function scopeRange() {
@@ -113,11 +138,35 @@ export default function AskRail({ onClose, className }) {
     }
   }
 
+  // ElevenLabs/MiniMax: the ask becomes a generation prompt, landing a new AI
+  // audio track (not note edits).
+  async function generateAudio(q) {
+    setAskLog((log) => [...settlePending(log), { role: 'user', text: q }])
+    setBusy(true)
+    try {
+      const res = await authFetch('/api/studio/song/generate', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ provider, prompt: q, lyrics: '', length_ms: 30000 }),
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ detail: res.statusText }))
+        throw new Error(err.detail || `Request failed: ${res.status}`)
+      }
+      const data = await res.json()
+      setGenJobId(data.job_id)
+      startJob(data.job_id, { label: `Ask (${provider})` })
+    } catch (e) {
+      setAskLog((log) => [...log, { role: 'reply', text: e.message }])
+      setBusy(false)
+    }
+  }
+
   async function send(raw) {
     const q = raw.trim()
     if (!q || busy) return
-    if (pending?.ab === 'before') setProject((p) => applyChanges(p, pending.changes, 'after'), { undoable: false })
     setText('')
+    if (provider !== 'claude') { await generateAudio(q); return }
+    if (pending?.ab === 'before') setProject((p) => applyChanges(p, pending.changes, 'after'), { undoable: false })
     setBusy(true)
     setAskLog((log) => [...settlePending(log), { role: 'user', text: q }])
     const scope = scopeRange()
@@ -245,32 +294,44 @@ export default function AskRail({ onClose, className }) {
       </div>
 
       <div className="flex-none p-3 border-t border-line flex flex-col gap-2">
-        <div className="flex flex-wrap items-center gap-1">
-          {[{ id: null, label: 'Whole song' }, ...chips].map((c) => (
-            <button
-              key={c.id ?? 'song'}
-              type="button"
-              onClick={() => setScopeId(c.id)}
-              className={clsx(
-                'rounded-full px-2 py-0.5 text-xs font-medium transition',
-                scopeId === c.id ? 'bg-accent-strong text-white' : 'bg-zinc-500/15 text-faint hover:text-body'
-              )}
-            >
-              {c.label}
+        <div className="flex rounded-full bg-zinc-500/15 p-0.5 self-start">
+          {PROVIDERS.map(([k, label]) => (
+            <button key={k} type="button" onClick={() => setProvider(k)}
+              className={clsx('rounded-full px-2.5 py-0.5 text-xs font-medium transition', provider === k ? 'bg-accent-strong text-white' : 'text-faint hover:text-body')}>
+              {label}
             </button>
           ))}
         </div>
+        {provider === 'claude' && (
+          <div className="flex flex-wrap items-center gap-1">
+            {[{ id: null, label: 'Whole song' }, ...chips].map((c) => (
+              <button
+                key={c.id ?? 'song'}
+                type="button"
+                onClick={() => setScopeId(c.id)}
+                className={clsx(
+                  'rounded-full px-2 py-0.5 text-xs font-medium transition',
+                  scopeId === c.id ? 'bg-accent-strong text-white' : 'bg-zinc-500/15 text-faint hover:text-body'
+                )}
+              >
+                {c.label}
+              </button>
+            ))}
+          </div>
+        )}
         <textarea
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(text) } }}
           rows={2}
-          placeholder="e.g., make the hi-hats busier, or add a string pad"
+          placeholder={provider === 'claude' ? 'e.g., make the hi-hats busier, or add a string pad' : 'Describe a part to generate, e.g. dark pulsing synth bass, 128 BPM'}
           className="w-full rounded-lg border border-line-strong bg-raised px-3 py-2 text-sm text-primary placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none"
         />
         <div className="flex items-center gap-2">
-          <span className="text-xs text-faint">{scopeId ? 'Only that section changes.' : 'Only the parts you name change.'}</span>
-          <button type="button" onClick={() => send(text)} disabled={busy} className="ml-auto rounded-lg bg-accent-strong hover:bg-accent disabled:opacity-50 px-3 py-1.5 text-sm font-semibold text-white">{busy ? 'Writing...' : 'Ask'}</button>
+          <span className="text-xs text-faint">
+            {provider !== 'claude' ? 'Adds a new AI audio track.' : scopeId ? 'Only that section changes.' : 'Only the parts you name change.'}
+          </span>
+          <button type="button" onClick={() => send(text)} disabled={busy} className="ml-auto rounded-lg bg-accent-strong hover:bg-accent disabled:opacity-50 px-3 py-1.5 text-sm font-semibold text-white">{busy ? (provider === 'claude' ? 'Writing...' : 'Generating...') : (provider === 'claude' ? 'Ask' : 'Generate')}</button>
         </div>
       </div>
     </aside>
