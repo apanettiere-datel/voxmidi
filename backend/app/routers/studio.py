@@ -698,6 +698,57 @@ async def studio_band_part(
     return {"job_id": job_id, "status": "processing" if started else "queued", "provider": provider}
 
 
+# ─── AI part: generate an instrument/vocal part from a prompt (ElevenLabs) ───
+
+class GeneratePartRequest(BaseModel):
+    prompt: str = Field(..., min_length=3, max_length=400)
+    length_ms: int = Field(8000, ge=3000, le=120000)
+    ref_song_id: Optional[str] = Field(None, max_length=64)
+
+
+def _run_generate_part(job_id: str, req: dict, user_id: str):
+    from pipelines.eleven_music import generate_part
+    from .generate import MIDI_STORE, _persist_files
+    from .jobs import update_job, get_job
+
+    job_dir = UPLOAD_DIR / job_id
+    job_dir.mkdir(parents=True, exist_ok=True)
+
+    def progress(pct, status):
+        if (get_job(job_id) or {}).get("status") == "cancelled":
+            raise RuntimeError("cancelled")
+        update_job(job_id, {"status": status, "progress": pct})
+
+    try:
+        result = generate_part(req["prompt"], req["length_ms"], job_dir,
+                               ref_song_id=req.get("ref_song_id"), progress=progress)
+        _persist_files(job_dir, MIDI_STORE / job_id)
+        result["audio_url"] = f"/api/download/{job_id}/{result.pop('file')}"
+        update_job(job_id, {"status": "complete", "progress": 100, "result": result})
+        print(f"[studio] ai part job={job_id} provider={result['provider']} song_id={result['song_id'][:8]}")
+    except Exception as exc:
+        cancelled = str(exc) == "cancelled"
+        update_job(job_id, {"status": "cancelled" if cancelled else "error", "message": None if cancelled else str(exc)})
+        print(f"[studio] ai part job={job_id} failed: {exc}")
+
+
+@router.post("/studio/parts/generate")
+async def studio_generate_part(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+):
+    """Generate one instrument or vocal part from a prompt. With ref_song_id, the
+    part is conditioned on an earlier one so it fits. Free: no usage is counted."""
+    from pipelines.eleven_music import provider_name
+    from .jobs import set_job, try_start
+
+    req = await _parse(request, GeneratePartRequest)
+    job_id = str(uuid.uuid4())[:8]
+    set_job(job_id, {"status": "queued", "progress": 0})
+    started = try_start(job_id, _run_generate_part, (job_id, req.model_dump(), current_user.id))
+    return {"job_id": job_id, "status": "processing" if started else "queued", "provider": provider_name()}
+
+
 # ─── Stems: split a recorded take with Demucs on the local GPU ───────────────
 
 def _run_stems(job_id: str, audio_bytes: bytes, user_id: str):

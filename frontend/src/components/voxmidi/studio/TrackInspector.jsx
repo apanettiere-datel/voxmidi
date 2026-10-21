@@ -1,9 +1,11 @@
+import { useState } from 'react'
 import clsx from 'clsx'
 import { XMarkIcon, SpeakerWaveIcon } from '@heroicons/react/20/solid'
 import { useStudio } from '@/lib/studio/StudioContext'
 import { engine } from '@/lib/studio/engine'
 import { trackById, updateTrack, soundsOf, colorOf, roleOf, fxOf, FX_PRESETS, DEFAULT_FX } from '@/lib/studio/project'
 import RealPartPanel from './RealPartPanel'
+import GeneratePartPanel from './GeneratePartPanel'
 import { Pill, panel } from './ui'
 
 const KNOBS = [
@@ -18,6 +20,7 @@ const KNOBS = [
 // tracks) the whole make-it-sound-real block.
 export default function TrackInspector({ trackId, onClose }) {
   const { project, setProject } = useStudio()
+  const [tab, setTab] = useState('instrument')
   const track = trackById(project, trackId)
   if (!track) return null
   const fx = fxOf(track)
@@ -42,11 +45,26 @@ export default function TrackInspector({ trackId, onClose }) {
           className="bg-transparent text-sm font-semibold text-primary focus:outline-none focus:border-b focus:border-line-strong min-w-0"
         />
         <span className="text-xs text-faint">{track.kind === 'midi' ? 'MIDI track' : 'Audio track'}</span>
-        <button type="button" onClick={onClose} className="ml-auto grid place-items-center size-6 rounded-md text-muted hover:text-primary hover:bg-sunken" title="Close">
+        <div className="ml-auto flex rounded-full bg-raised p-0.5">
+          {[['instrument', 'Instrument'], ['ai', 'Generate with AI']].map(([k, label]) => (
+            <button key={k} type="button" onClick={() => setTab(k)}
+              className={clsx('rounded-full px-3 py-1 text-xs font-medium transition', tab === k ? 'bg-accent-strong text-white' : 'text-muted hover:text-primary')}>
+              {label}
+            </button>
+          ))}
+        </div>
+        <button type="button" onClick={onClose} className="grid place-items-center size-6 rounded-md text-muted hover:text-primary hover:bg-sunken" title="Close">
           <XMarkIcon className="size-4" />
         </button>
       </div>
 
+      {tab === 'ai' && (
+        <div className="px-5 py-4">
+          <GeneratePartPanel trackId={trackId} />
+        </div>
+      )}
+
+      {tab === 'instrument' && (
       <div className="px-5 py-4 space-y-4">
         <div className="flex items-start gap-8 flex-wrap">
           {/* Sound: the track's instrument or treatment */}
@@ -95,10 +113,11 @@ export default function TrackInspector({ trackId, onClose }) {
             ))}
           </div>
         </div>
-      </div>
 
-      {/* MIDI tracks: the AI render block (real instrument / AI cover / sound library) */}
-      {track.kind === 'midi' && !isDrumRole(track) && <RealPartPanel trackId={trackId} />}
+        {/* MIDI tracks: the AI render block (real instrument / AI cover / sound library) */}
+        {track.kind === 'midi' && !isDrumRole(track) && <RealPartPanel trackId={trackId} />}
+      </div>
+      )}
     </section>
   )
 }
