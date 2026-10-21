@@ -52,10 +52,13 @@ export default function SongBuilderPanel() {
   const authFetch = useAuthFetch()
   const { jobs, startJob, removeJob } = useJobs()
   const { project, setProject, addTake, toast } = useStudio()
+  const [provider, setProvider] = useState('claude')
   const [brief, setBrief] = useState('')
   const [lyrics, setLyrics] = useState(project?.lyrics || '')
+  const [lengthMs, setLengthMs] = useState(60000)
   const [composing, setComposing] = useState(false)
   const [jobId, setJobId] = useState(null)
+  const [jobKind, setJobKind] = useState('sing') // 'sing' | 'fullsong'
   const [error, setError] = useState(null)
   const [busy, setBusy] = useState(false)
 
@@ -64,6 +67,7 @@ export default function SongBuilderPanel() {
 
   const job = jobId ? jobs[jobId] : null
   const hasNotes = project?.tracks.some((t) => t.kind === 'midi' && t.notes.length)
+  const PROVIDERS = [['claude', 'Claude'], ['eleven', 'ElevenLabs'], ['minimax', 'MiniMax']]
 
   useEffect(() => {
     if (!job) return
@@ -71,17 +75,43 @@ export default function SongBuilderPanel() {
       const result = job.result
       removeJob(jobId)
       setJobId(null)
-      placeStem({ authFetch, addTake, setProject, result, trackId: 'vocals', trackName: 'Vocals' })
-        .then(() => toast(result.provider === 'mock' ? 'Vocals placeholder placed (no GPU configured)' : 'Vocals placed'))
-        .catch((e) => setError(`Couldn't load the vocals: ${e.message}`))
+      const full = jobKind === 'fullsong'
+      const place = full
+        ? placeStem({ authFetch, addTake, setProject, result, trackId: 'full-song', trackName: `Full song (${result.provider})`, extra: { role: 'ai', aiSongId: result.song_id || `song-${Date.now().toString(36)}` } })
+        : placeStem({ authFetch, addTake, setProject, result, trackId: 'vocals', trackName: 'Vocals' })
+      place
+        .then(() => toast(result.provider === 'mock' ? 'Placeholder placed (no key configured)' : full ? 'Full song placed' : 'Vocals placed'))
+        .catch((e) => setError(`Couldn't load the audio: ${e.message}`))
         .finally(() => setBusy(false))
     } else if (job.status === 'error' || job.status === 'cancelled') {
-      setError(job.status === 'cancelled' ? 'Cancelled. Nothing was placed.' : job.error || 'The singing failed. Nothing was placed.')
+      setError(job.status === 'cancelled' ? 'Cancelled. Nothing was placed.' : job.error || 'Generation failed. Nothing was placed.')
       removeJob(jobId)
       setJobId(null)
       setBusy(false)
     }
   }, [job?.status])
+
+  async function generateFullSong() {
+    setError(null)
+    setBusy(true)
+    setJobKind('fullsong')
+    try {
+      const res = await authFetch('/api/studio/song/generate', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ provider, prompt: brief.trim(), lyrics: lyrics.trim().slice(0, 2000), length_ms: lengthMs }),
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ detail: res.statusText }))
+        throw new Error(err.detail || `Request failed: ${res.status}`)
+      }
+      const data = await res.json()
+      setJobId(data.job_id)
+      startJob(data.job_id, { label: `Full song (${provider})` })
+    } catch (e) {
+      setError(e.message)
+      setBusy(false)
+    }
+  }
 
   async function composeSong() {
     setError(null)
@@ -109,6 +139,7 @@ export default function SongBuilderPanel() {
   async function sing() {
     setError(null)
     setBusy(true)
+    setJobKind('sing')
     try {
       const words = lyrics.trim()
       if (words !== (project.lyrics || '')) setProject((p) => ({ ...p, lyrics: words }), { undoable: false })
@@ -136,16 +167,28 @@ export default function SongBuilderPanel() {
     }
   }
 
+  const LENGTHS = [['30s', 30000], ['1m', 60000], ['2m', 120000]]
+
   return (
     <section className={clsx(panel, 'p-5 mt-4 space-y-4')}>
-      <div>
+      <div className="flex items-center gap-3 flex-wrap">
         <h3 className="text-sm font-semibold text-primary">Make a song</h3>
-        <p className="text-xs text-muted mt-0.5">
-          Describe the song and Claude writes the whole arrangement: form, chords, bass, drums, a vocal melody and lyrics.
-          It replaces what's on the timeline (undo brings the old song back). Then Sing it: the local GPU records a lead
-          vocal over your mix, following the lyrics below.
-        </p>
+        <div className="flex rounded-full bg-raised p-0.5">
+          {PROVIDERS.map(([k, label]) => (
+            <button key={k} type="button" onClick={() => setProvider(k)}
+              className={clsx('rounded-full px-3 py-1 text-xs font-medium transition', provider === k ? 'bg-accent-strong text-white' : 'text-muted hover:text-primary')}>
+              {label}
+            </button>
+          ))}
+        </div>
       </div>
+      <p className="text-xs text-muted">
+        {provider === 'claude'
+          ? 'Claude writes the whole arrangement as editable tracks (form, chords, bass, drums, a vocal melody and lyrics), then the local GPU sings over it. Free.'
+          : provider === 'eleven'
+          ? 'ElevenLabs generates a finished, produced song as one audio track from your description and lyrics. Not note-editable. Uses ElevenLabs credits.'
+          : 'MiniMax generates a finished, produced song as one audio track from your description and lyrics. Not note-editable. Uses fal credits.'}
+      </p>
 
       <div className="flex gap-2 items-start">
         <textarea
@@ -156,10 +199,12 @@ export default function SongBuilderPanel() {
           placeholder="A warm, hopeful indie pop song about driving home at night with someone you love..."
           className="flex-1 rounded-lg border border-line-strong bg-panel px-3 py-2 text-sm text-primary placeholder:text-zinc-400 dark:placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none"
         />
-        <Button color="indigo" disabled={composing || busy || brief.trim().length < 3} onClick={composeSong}>
-          <SparklesIcon data-slot="icon" />
-          {composing ? 'Writing...' : 'Compose'}
-        </Button>
+        {provider === 'claude' && (
+          <Button color="indigo" disabled={composing || busy || brief.trim().length < 3} onClick={composeSong}>
+            <SparklesIcon data-slot="icon" />
+            {composing ? 'Writing...' : 'Compose'}
+          </Button>
+        )}
       </div>
 
       <div className="flex gap-2 items-start">
@@ -168,19 +213,36 @@ export default function SongBuilderPanel() {
           onChange={(e) => setLyrics(e.target.value)}
           maxLength={2000}
           rows={4}
-          placeholder="Lyrics with [verse] and [chorus] tags. Compose fills these in; edit them before singing."
+          placeholder="Lyrics with [verse] and [chorus] tags. Leave blank to let it write them."
           className="flex-1 rounded-lg border border-line-strong bg-panel px-3 py-2 text-sm text-primary placeholder:text-zinc-400 dark:placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none font-mono"
         />
-        <Button color="indigo" disabled={busy || composing || !hasNotes} onClick={sing}>
-          <MusicalNoteIcon data-slot="icon" />
-          Sing it
-        </Button>
+        {provider === 'claude' && (
+          <Button color="indigo" disabled={busy || composing || !hasNotes} onClick={sing}>
+            <MusicalNoteIcon data-slot="icon" />
+            Sing it
+          </Button>
+        )}
       </div>
+
+      {provider !== 'claude' && (
+        <div className="flex items-center gap-3 flex-wrap">
+          <div className="flex rounded-full bg-raised p-0.5 text-xs">
+            {LENGTHS.map(([label, ms]) => (
+              <button key={ms} type="button" onClick={() => setLengthMs(ms)}
+                className={clsx('rounded-full px-2.5 py-0.5 transition', lengthMs === ms ? 'bg-accent-strong text-white' : 'text-faint hover:text-body')}>{label}</button>
+            ))}
+          </div>
+          <Button color="indigo" disabled={busy || brief.trim().length < 3} onClick={generateFullSong}>
+            <SparklesIcon data-slot="icon" />
+            {busy ? 'Generating...' : 'Generate full song'}
+          </Button>
+        </div>
+      )}
 
       {(busy || composing) && (
         <div className="space-y-2">
           <p className="text-sm font-medium text-primary animate-pulse">
-            {composing ? 'Claude is writing the song...' : STATUS[job?.status] || 'Rendering mix...'}
+            {composing ? 'Claude is writing the song...' : STATUS[job?.status] || (jobKind === 'fullsong' ? 'Generating the song...' : 'Rendering mix...')}
           </p>
           <div className="w-full bg-raised rounded-full h-2">
             <div className="bg-accent-strong h-2 rounded-full transition-all duration-700" style={{ width: composing ? '30%' : `${job?.progress || 5}%` }} />
@@ -191,8 +253,9 @@ export default function SongBuilderPanel() {
       {error && <Callout title={error}>Your tracks are untouched.</Callout>}
 
       <p className="text-xs text-faint">
-        Composing uses Claude; singing runs on the local GPU. Both are free and never counted against your song limit.
-        The melody track guides the singer and stays out of the vocal take's backing mix.
+        {provider === 'claude'
+          ? 'Composing and singing are free and never counted against your song limit. The melody track guides the singer and stays out of the backing mix.'
+          : 'The finished song lands as its own audio track you can trim, split and mix. It is not editable as notes; use Claude for an editable arrangement.'}
       </p>
     </section>
   )

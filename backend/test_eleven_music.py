@@ -165,6 +165,38 @@ def test_endpoint_rejects_bad_input():
     print("  PASS: short prompt, missing prompt and too-short length -> 400")
 
 
+def test_generate_song_mock():
+    from pipelines.eleven_music import generate_song
+    os.environ["ELEVEN_MUSIC_PROVIDER"] = "mock"
+    try:
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            r = generate_song("warm indie pop", "[verse]\nhello", 30000, Path(tmp))
+        assert r["provider"] == "mock" and r["file"] == "ai_song.wav" and r["duration"] > 0
+    finally:
+        os.environ.pop("ELEVEN_MUSIC_PROVIDER", None)
+    print("  PASS: generate_song mock writes a full-song placeholder")
+
+
+def test_song_endpoint_provider():
+    client = _client()
+    # unknown provider -> 400
+    assert client.post("/api/studio/song/generate", json={"provider": "nope", "prompt": "a song"}).status_code == 400
+    # short prompt -> 400
+    assert client.post("/api/studio/song/generate", json={"provider": "eleven", "prompt": "x"}).status_code == 400
+    # happy path with mock providers -> 200
+    os.environ["ELEVEN_MUSIC_PROVIDER"] = "mock"
+    os.environ["MUSIC_PROVIDER"] = "mock"
+    try:
+        for prov in ("eleven", "minimax"):
+            r = client.post("/api/studio/song/generate", json={"provider": prov, "prompt": "a warm song", "lyrics": "[verse]\nhi", "length_ms": 30000})
+            assert r.status_code == 200 and "job_id" in r.json(), r.text
+    finally:
+        os.environ.pop("ELEVEN_MUSIC_PROVIDER", None)
+        os.environ.pop("MUSIC_PROVIDER", None)
+    print("  PASS: song endpoint rejects bad provider/prompt, 200 on mock for eleven and minimax")
+
+
 if __name__ == "__main__":
     print("=" * 55)
     test_mock_provider()
@@ -172,5 +204,7 @@ if __name__ == "__main__":
     test_eleven_conditioning_body()
     test_endpoint_happy_path()
     test_endpoint_rejects_bad_input()
+    test_generate_song_mock()
+    test_song_endpoint_provider()
     print("=" * 55)
     print("All eleven-music tests passed.")

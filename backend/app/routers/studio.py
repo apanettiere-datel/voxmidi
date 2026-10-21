@@ -698,6 +698,76 @@ async def studio_band_part(
     return {"job_id": job_id, "status": "processing" if started else "queued", "provider": provider}
 
 
+# ─── Whole song: a finished track from ElevenLabs or MiniMax ─────────────────
+
+class SongGenerateRequest(BaseModel):
+    provider: str = Field(..., pattern="^(eleven|minimax)$")
+    prompt: str = Field(..., min_length=3, max_length=500)
+    lyrics: str = Field("", max_length=2000)
+    length_ms: int = Field(60000, ge=10000, le=120000)
+
+
+def _run_song_generate(job_id: str, req: dict, user_id: str):
+    from .generate import MIDI_STORE, _persist_files
+    from .jobs import update_job, get_job
+
+    job_dir = UPLOAD_DIR / job_id
+    job_dir.mkdir(parents=True, exist_ok=True)
+
+    def progress(pct, status):
+        if (get_job(job_id) or {}).get("status") == "cancelled":
+            raise RuntimeError("cancelled")
+        update_job(job_id, {"status": status, "progress": pct})
+
+    try:
+        if req["provider"] == "eleven":
+            from pipelines.eleven_music import generate_song
+            result = generate_song(req["prompt"], req["lyrics"], req["length_ms"], job_dir, progress)
+        else:  # minimax, via fal
+            from pipelines.midi_generator import _fal_music_api_call, music_provider_name
+            provider = music_provider_name()
+            if provider == "mock":
+                from pipelines.eleven_music import _mock_part, SR as ESR
+                import soundfile as sf
+                y = _mock_part(req["length_ms"] / 1000)
+                path = job_dir / "ai_song.wav"
+                sf.write(str(path), y, ESR, subtype="PCM_16")
+                result = {"file": "ai_song.wav", "provider": "mock", "song_id": "", "duration": round(len(y) / ESR, 3)}
+            else:
+                progress(15, "generating_song")
+                audio_path = _fal_music_api_call(req["prompt"], req["lyrics"], job_dir, out_filename="ai_song.mp3")
+                result = {"file": Path(audio_path).name, "provider": "minimax", "song_id": "", "duration": 0.0}
+        _persist_files(job_dir, MIDI_STORE / job_id)
+        result["audio_url"] = f"/api/download/{job_id}/{result.pop('file')}"
+        update_job(job_id, {"status": "complete", "progress": 100, "result": result})
+        print(f"[studio] song-generate job={job_id} provider={result['provider']}")
+    except Exception as exc:
+        cancelled = str(exc) == "cancelled"
+        update_job(job_id, {"status": "cancelled" if cancelled else "error", "message": None if cancelled else str(exc)})
+        print(f"[studio] song-generate job={job_id} failed: {exc}")
+
+
+@router.post("/studio/song/generate")
+async def studio_song_generate(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+):
+    """Generate a whole finished song as audio with ElevenLabs or MiniMax (fal).
+    Not editable as notes; it lands as a full-song audio track."""
+    from pipelines.eleven_music import provider_name as eleven_provider
+    from pipelines.midi_generator import music_provider_name
+    from .jobs import set_job, try_start
+
+    req = await _parse(request, SongGenerateRequest)
+    # No key configured just yields a placeholder (provider "mock"), same as the
+    # local engines; the client shows a "no key" note from the provider field.
+    job_id = str(uuid.uuid4())[:8]
+    set_job(job_id, {"status": "queued", "progress": 0})
+    started = try_start(job_id, _run_song_generate, (job_id, req.model_dump(), current_user.id))
+    provider = eleven_provider() if req.provider == "eleven" else music_provider_name()
+    return {"job_id": job_id, "status": "processing" if started else "queued", "provider": provider}
+
+
 # ─── AI part: generate an instrument/vocal part from a prompt (ElevenLabs) ───
 
 class GeneratePartRequest(BaseModel):

@@ -76,6 +76,47 @@ def _decode(data: bytes) -> np.ndarray:
     return y.astype(np.float32)
 
 
+def generate_song(
+    prompt: str,
+    lyrics: str,
+    length_ms: int,
+    job_dir: Path,
+    progress: Callable[[int, str], None] = lambda p, s: None,
+    http=None,
+) -> dict:
+    """Generate a whole finished song from a style prompt and optional lyrics.
+    Writes ai_song.wav; returns its song_id."""
+    length_ms = max(MIN_MS, min(MAX_MS, int(length_ms)))
+    provider = provider_name()
+    if provider == "mock":
+        progress(30, "generating_song")
+        y = _mock_part(length_ms / 1000)
+        song_id = f"mock-{int(time.time())}"
+    else:
+        http = http or httpx
+        key = os.environ["ELEVENLABS_API_KEY"]
+        text = prompt.strip()
+        if lyrics.strip():
+            # The music endpoint takes a single prompt; the lyrics ride along in it.
+            text = f"{text}. Sing these lyrics:\n{lyrics.strip()}"
+        progress(15, "generating_song")
+        resp = http.post(
+            f"{API}?output_format=mp3_44100_128",
+            headers={"xi-api-key": key, "Content-Type": "application/json"},
+            json={"prompt": text, "music_length_ms": length_ms},
+            timeout=300.0,
+        )
+        if not resp.is_success:
+            raise RuntimeError(f"ElevenLabs music failed {resp.status_code}: {resp.text[:300]}")
+        song_id = resp.headers.get("song-id", "")
+        progress(80, "decoding_audio")
+        y = _decode(resp.content)
+    path = job_dir / "ai_song.wav"
+    sf.write(str(path), y, SR, subtype="PCM_16")
+    progress(100, "complete")
+    return {"file": path.name, "provider": provider, "song_id": song_id, "duration": round(len(y) / SR, 3)}
+
+
 def generate_part(
     prompt: str,
     length_ms: int,
