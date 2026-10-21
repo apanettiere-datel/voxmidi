@@ -90,7 +90,7 @@ function TrackHead({ track, selected, onSelect, onRegen, onDelete, onInspect, bu
           : track.kind === 'audio' ? <span className="shrink-0 rounded-md bg-emerald-500/15 px-1.5 text-xs font-medium text-emerald-400">audio</span>
           : <span className="shrink-0 rounded-md bg-white/5 px-1.5 text-xs font-medium text-faint">MIDI</span>}
         <button type="button" onClick={(e) => { e.stopPropagation(); onDelete() }} title="Delete this track"
-          className="ml-auto size-5 shrink-0 grid place-items-center rounded text-faint hover:text-[var(--danger-text)] opacity-0 group-hover:opacity-100 focus:opacity-100 transition">
+          className="ml-auto size-5 shrink-0 grid place-items-center rounded text-faint/60 hover:text-[var(--danger-text)] hover:bg-[var(--danger-surface)] transition">
           <TrashIcon className="size-3.5" />
         </button>
         <button type="button" onClick={(e) => { e.stopPropagation(); onInspect() }} title="Sound and effects"

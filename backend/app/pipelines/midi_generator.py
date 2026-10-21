@@ -216,7 +216,7 @@ def _fal_music_api_call(
     print(f"[midi_generator] fal queued request_id={request_id}")
 
     # Poll status every 3s up to 5 minutes
-    deadline = time.time() + 300
+    deadline = time.time() + 600  # fal's MiniMax queue can be slow under load
     while time.time() < deadline:
         status_resp = httpx.get(status_url, headers=headers, timeout=15.0)
         if not status_resp.is_success:
@@ -230,7 +230,7 @@ def _fal_music_api_call(
             raise RuntimeError(f"fal job failed with status {state}: {_json.dumps(status_data)[:300]}")
         time.sleep(3)
     else:
-        raise RuntimeError("fal job timed out after 5 minutes")
+        raise RuntimeError("the music service took too long (over 10 minutes); try again")
 
     # Fetch result from response_url
     result_resp = httpx.get(response_url, headers=headers, timeout=30.0)

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import clsx from 'clsx'
-import { XMarkIcon, SpeakerWaveIcon } from '@heroicons/react/20/solid'
+import { XMarkIcon, SpeakerWaveIcon, TrashIcon } from '@heroicons/react/20/solid'
 import { useStudio } from '@/lib/studio/StudioContext'
 import { engine } from '@/lib/studio/engine'
 import { trackById, updateTrack, soundsOf, colorOf, roleOf, isAiTrack, fxOf, FX_PRESETS, DEFAULT_FX } from '@/lib/studio/project'
@@ -28,6 +28,10 @@ export default function TrackInspector({ trackId, onClose }) {
   const sameFx = (a, b) => ['drive', 'tone', 'reverb', 'echo'].every((k) => a[k] === b[k])
 
   const patch = (p, opts) => setProject((prev) => updateTrack(prev, trackId, p), opts)
+  const deleteTrack = () => {
+    onClose()
+    setProject((p) => ({ ...p, tracks: p.tracks.filter((t) => t.id !== trackId) }), { what: `Deleted the ${track.name} track` })
+  }
   const setFx = (k, v) => patch((t) => ({ fx: { ...fxOf(t), [k]: v } }), { undoable: false })
   const audition = () => {
     if (track.kind !== 'midi') return
@@ -53,6 +57,10 @@ export default function TrackInspector({ trackId, onClose }) {
             </button>
           ))}
         </div>
+        <button type="button" onClick={deleteTrack}
+          className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-[var(--danger-text)] hover:bg-[var(--danger-surface)] transition" title="Delete this track">
+          <TrashIcon className="size-3.5" />Delete
+        </button>
         <button type="button" onClick={onClose} className="grid place-items-center size-6 rounded-md text-muted hover:text-primary hover:bg-sunken" title="Close">
           <XMarkIcon className="size-4" />
         </button>
