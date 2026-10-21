@@ -16,7 +16,7 @@ export default function EditorFrame({ children }) {
   if (!project) return <Navigate to="/describe" replace />
 
   return (
-    <div className="-m-6 lg:-m-10 flex flex-col h-[calc(100svh-3.5rem)] lg:h-[calc(100svh-1rem)] overflow-hidden lg:rounded-lg">
+    <div className="flex flex-col h-svh overflow-hidden">
       <TransportBar onExport={() => setExporting(true)} onToggleAsk={() => setAskOpen((v) => !v)} askOpen={askOpen} />
       <div className="flex-1 min-h-0 flex relative">
         <div className="flex-1 min-w-0 flex flex-col overflow-hidden">{children}</div>

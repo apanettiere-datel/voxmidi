@@ -31,24 +31,27 @@ import { JobsNotificationBar } from '@/lib/JobsContext'
 const CLERK_KEY = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY
 
 const startNav = [
-  { name: 'Describe a beat', href: '/describe', icon: SparklesIcon },
-  { name: 'Record a riff', href: '/record', icon: MicrophoneIcon },
-  { name: 'Tap a groove', href: '/tap', icon: Squares2X2Icon },
+  { name: 'Describe a beat', href: '/describe', icon: SparklesIcon, hint: 'Start a new song from a few words' },
+  { name: 'Record a riff', href: '/record', icon: MicrophoneIcon, hint: 'Start a new song from your playing' },
+  { name: 'Tap a groove', href: '/tap', icon: Squares2X2Icon, hint: 'Start a new song from a tapped rhythm' },
 ]
 
 const songNav = [
-  { name: 'Song', href: '/song', icon: QueueListIcon, exact: true },
-  { name: 'Drums', href: '/song/drums', icon: Squares2X2Icon },
-  { name: 'Piano roll', href: '/song/roll', icon: MusicalNoteIcon },
-  { name: 'From a riff', href: '/riff', icon: PaintBrushIcon },
+  { name: 'Song', href: '/song', icon: QueueListIcon, exact: true, hint: 'The timeline: arrange sections and tracks' },
+  { name: 'Drum editor', href: '/song/drums', icon: Squares2X2Icon, hint: "Edit this song's drum pattern" },
+  { name: 'Piano roll', href: '/song/roll', icon: MusicalNoteIcon, hint: "Edit any track's notes" },
+  { name: 'From a riff', href: '/riff', icon: PaintBrushIcon, hint: 'Bring a recorded riff into this song' },
 ]
 
 const navigation = [
-  { name: 'Song Generator', href: '/generate', icon: MusicalNoteIcon },
-  { name: 'Jam', href: '/jam', icon: BoltIcon },
-  { name: 'Drum Grid', href: '/drums', icon: Squares2X2Icon },
-  { name: 'MIDI Workshop', href: '/midi', icon: WrenchScrewdriverIcon },
-  { name: 'Library', href: '/library', icon: FolderIcon },
+  { name: 'Song Generator', href: '/generate', icon: MusicalNoteIcon, hint: 'A finished song from words and lyrics (MiniMax, counts one song)' },
+  { name: 'Jam', href: '/jam', icon: BoltIcon, hint: 'Quick jam: AI parts layered around one recording' },
+  { name: 'Beatbox drums', href: '/drums', icon: Squares2X2Icon, hint: 'Beatbox or tap into a drum pattern' },
+  { name: 'MIDI Workshop', href: '/midi', icon: WrenchScrewdriverIcon, hint: 'Turn audio into MIDI and tinker with it' },
+]
+
+const appNav = [
+  { name: 'Library', href: '/library', icon: FolderIcon, hint: "Everything you've made" },
   { name: 'Settings', href: '/settings', icon: Cog6ToothIcon },
 ]
 
@@ -91,7 +94,7 @@ function NavItems({ items, pathname }) {
   return items.map((item) => {
     const isCurrent = item.exact ? pathname === item.href : pathname.startsWith(item.href)
     return (
-      <SidebarItem key={item.name} href={item.href} current={isCurrent}>
+      <SidebarItem key={item.name} href={item.href} current={isCurrent} title={item.hint}>
         <item.icon data-slot="icon" />
         <SidebarLabel>{item.name}</SidebarLabel>
         {item.tag && <span className="ml-auto font-mono tabular-nums text-xs text-zinc-400 dark:text-zinc-500">{item.tag}</span>}
@@ -104,6 +107,12 @@ function AppLayout({ children }) {
   const location = useLocation()
   const { project } = useStudio()
   const song = project && songNav.map((n) => (n.href === '/song' ? { ...n, tag: `${totalBars(project.sections)} bars` } : n))
+
+  // The studio is its own workspace: the editor screens take the whole window,
+  // GarageBand-style, with their own transport header instead of the app sidebar.
+  if (location.pathname.startsWith('/song')) {
+    return <main className="h-svh bg-canvas">{children}</main>
+  }
 
   return (
     <SidebarLayout
@@ -131,6 +140,9 @@ function AppLayout({ children }) {
             <SidebarSection>
               <SidebarHeading>Tools</SidebarHeading>
               <NavItems items={navigation} pathname={location.pathname} />
+            </SidebarSection>
+            <SidebarSection>
+              <NavItems items={appNav} pathname={location.pathname} />
             </SidebarSection>
           </SidebarBody>
           <PlanCard />

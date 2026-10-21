@@ -178,6 +178,25 @@ def test_acestep_provider_against_mock_server():
     print(f"  PASS: cover submitted (strength 0.85, no model swap on turbo), stem written ({result['duration']:.2f}s, match {result['match']}%)")
 
 
+def test_vibe_replaces_stock_style_in_caption():
+    """The user's sound words replace the style's stock description in the caption."""
+    from pipelines.part_render import make_cover_part
+
+    server, url = _start_mock_server(model="acestep-v15-turbo")
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            _with_env("acestep", url, lambda: make_cover_part(
+                "bass", "finger", NOTES, TEMPO, TOTAL_BEATS, 0.85, Path(tmp), sleep=lambda s: None,
+                vibe="gritty fuzz distortion bass"))
+        body = server.release_bodies[0]
+        assert b"gritty fuzz distortion bass" in body, "the vibe words did not reach the caption"
+        assert b"fingered electric bass" not in body, "the stock style description should be replaced"
+        assert b"solo bass only" in body, "the solo-part suffix must stay"
+    finally:
+        server.shutdown()
+    print("  PASS: vibe words replace the stock style in the ACE-Step caption")
+
+
 def test_init_called_when_no_model_loaded():
     """If health reports no loaded model, /v1/init loads the base model first."""
     from pipelines.part_render import make_cover_part
@@ -286,6 +305,7 @@ if __name__ == "__main__":
     print("=" * 55)
     test_mock_provider()
     test_acestep_provider_against_mock_server()
+    test_vibe_replaces_stock_style_in_caption()
     test_init_called_when_no_model_loaded()
     test_endpoint_rejects_bad_style()
     test_endpoint_rejects_bad_strength()

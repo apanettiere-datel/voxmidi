@@ -1,9 +1,9 @@
 import { useEffect, useRef } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import clsx from 'clsx'
 import {
   PlayIcon, PauseIcon, StopIcon, MicrophoneIcon, ArrowPathIcon, SignalIcon,
-  ArrowDownTrayIcon, ArrowUturnLeftIcon, ArrowUturnRightIcon, SparklesIcon,
+  ArrowDownTrayIcon, ArrowUturnLeftIcon, ArrowUturnRightIcon, SparklesIcon, MusicalNoteIcon,
 } from '@heroicons/react/20/solid'
 import { useStudio } from '@/lib/studio/StudioContext'
 import { engine } from '@/lib/studio/engine'
@@ -12,8 +12,17 @@ import { shortKey } from '@/lib/studio/theory'
 
 const ghost = 'flex items-center justify-center w-[34px] h-[34px] rounded-full transition active:scale-95'
 
+// The studio owns the whole window, so this header is also its navigation:
+// home on the left, then the three editor tabs.
+const EDITORS = [
+  ['/song', 'Song'],
+  ['/song/drums', 'Drums'],
+  ['/song/roll', 'Notes'],
+]
+
 export default function TransportBar({ onExport, onToggleAsk, askOpen }) {
   const navigate = useNavigate()
+  const location = useLocation()
   const {
     project, playing, togglePlay, stop, loopOn, setLoopOn, metro, setMetro,
     selSection, undo, redo, canUndo, canRedo, toastMsg, cursor, cursorRef,
@@ -38,6 +47,22 @@ export default function TransportBar({ onExport, onToggleAsk, askOpen }) {
 
   return (
     <div className="flex-none flex items-center gap-4 px-4 py-2.5 border-b border-line bg-panel overflow-x-auto">
+      <div className="flex items-center gap-2.5">
+        <Link to="/describe" title="Leave the studio" className="flex h-8 w-8 items-center justify-center rounded-lg bg-accent-strong shrink-0 hover:opacity-85 transition">
+          <MusicalNoteIcon className="h-5 w-5 text-white" />
+        </Link>
+        <div className="flex rounded-full bg-raised p-0.5">
+          {EDITORS.map(([href, label]) => (
+            <Link key={href} to={href}
+              className={clsx('rounded-full px-3 py-1 text-xs font-medium transition',
+                location.pathname === href ? 'bg-accent-strong text-white' : 'text-muted hover:text-primary')}>
+              {label}
+            </Link>
+          ))}
+        </div>
+        <span className="font-display text-sm font-semibold text-primary truncate max-w-[14rem] max-lg:hidden">{project.name}</span>
+      </div>
+
       <div className="flex items-center gap-1.5">
         <button
           type="button"

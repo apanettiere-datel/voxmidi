@@ -1,4 +1,3 @@
-import os
 import re
 import uuid
 import json as _json
@@ -159,8 +158,8 @@ def _run_generate(
         else:
             minimax_prompt = prompt
 
-        has_minimax = bool(os.environ.get("MINIMAX_API_KEY"))
-        provider_used = "minimax" if has_minimax else "mock"
+        from pipelines.midi_generator import music_provider_name
+        provider_used = music_provider_name()
 
         print(f"[generate] job={job_id} provider={provider_used} genre={genre} tempo={tempo} key={key} mode={mode} vocal_mode={vocal_mode} advanced_dirty={advanced_dirty}")
 

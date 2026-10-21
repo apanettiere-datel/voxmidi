@@ -7,7 +7,7 @@ import { useJobs } from '@/lib/JobsContext'
 import { useStudio } from '@/lib/studio/StudioContext'
 import { engine, renderMix } from '@/lib/studio/engine'
 import { wavBytes } from '@/lib/studio/files'
-import { trackById, updateTrack } from '@/lib/studio/project'
+import { placeStem } from '@/lib/studio/bandStem'
 import { Pill, Callout, panel } from './ui'
 
 const PART_LABELS = {
@@ -60,22 +60,8 @@ export default function BandPanel() {
   }, [job?.status])
 
   async function place(result) {
-    const res = await authFetch(result.audio_url)
-    if (!res.ok) throw new Error(`download failed (${res.status})`)
-    const buffer = await engine.context().decodeAudioData(await res.arrayBuffer())
     const label = PART_LABELS[result.part] || result.part
-    const take = await addTake(buffer, { name: `${label} stem` })
-    const trackId = `band_${result.part}`
-    const clip = { id: `band${Date.now().toString(36)}`, takeId: take.id, startBeat: 0, offset: 0, duration: buffer.duration }
-    setProject((p) => {
-      let next = p
-      if (!trackById(next, trackId)) {
-        const track = { id: trackId, name: label, kind: 'audio', sound: 'Dry', mute: false, solo: false, vol: 85, notes: [], clips: [] }
-        next = { ...next, tracks: [...next.tracks, track] }
-      }
-      next = updateTrack(next, trackId, { clips: [clip] })
-      return next
-    }, { what: `Added ${label} band stem` })
+    await placeStem({ authFetch, addTake, setProject, result, trackId: `band_${result.part}`, trackName: label })
     toast(result.provider === 'mock' ? `${label} placeholder placed (no GPU configured)` : `${label} stem placed`)
   }
 

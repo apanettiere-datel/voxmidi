@@ -154,6 +154,18 @@ def _minimax_api_call(
         return _attempt()
 
 
+def music_provider_name() -> str:
+    """Which full-song audio provider runs: MUSIC_PROVIDER, else fal, minimax, mock."""
+    provider = os.environ.get('MUSIC_PROVIDER', 'auto')
+    if provider != 'auto':
+        return provider
+    if os.environ.get('FAL_KEY'):
+        return 'fal'
+    if os.environ.get('MINIMAX_API_KEY'):
+        return 'minimax'
+    return 'mock'
+
+
 def _fal_music_api_call(
     prompt: str,
     lyrics: str,
@@ -367,16 +379,7 @@ def generate_from_prompt(
     if not genre:
         genre = 'pop'
 
-    has_fal = bool(os.environ.get('FAL_KEY'))
-    has_minimax = bool(os.environ.get('MINIMAX_API_KEY'))
-    music_provider = os.environ.get('MUSIC_PROVIDER', 'auto')
-    if music_provider == 'auto':
-        if has_fal:
-            music_provider = 'fal'
-        elif has_minimax:
-            music_provider = 'minimax'
-        else:
-            music_provider = 'mock'
+    music_provider = music_provider_name()
     print(f"[midi_generator] provider: {music_provider}")
 
     job_dir = Path(output_path).parent

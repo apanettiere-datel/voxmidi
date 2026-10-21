@@ -76,9 +76,10 @@ class _MockAceStep(BaseHTTPRequestHandler):
             self._send(404, "text/plain", b"not found")
 
     def do_POST(self):
-        self._read_body()
+        raw = self._read_body()
         parsed = urlparse(self.path)
         if parsed.path == "/release_task":
+            self.server.release_bodies.append(raw)
             body = json.dumps({"data": {"task_id": TASK_ID}}).encode()
             self._send(200, "application/json", body)
         elif parsed.path == "/query_result":
@@ -101,6 +102,7 @@ def _start_mock_server(model="acestep-v15-base"):
     server = HTTPServer(("127.0.0.1", 0), _MockAceStep)
     server.health_model = model
     server.init_calls = []
+    server.release_bodies = []
     port = server.server_address[1]
     t = threading.Thread(target=server.serve_forever, daemon=True)
     t.start()
@@ -184,6 +186,40 @@ def test_init_called_when_wrong_model_loaded():
 
     assert server.init_calls, "/v1/init was not called when the turbo model was loaded"
     print("  PASS: /v1/init is called when the wrong model is loaded")
+
+
+def test_lyrics_reach_acestep_and_turn_thinking_on():
+    """A vocals request with lyrics sends them to ACE-Step with thinking on;
+    an instrumental request keeps thinking off and sends no lyrics."""
+    from pipelines.band import make_band_stem
+
+    server, url = _start_mock_server()
+    mix = _wav_bytes(duration=2.0)
+    saved = {
+        "BAND_PROVIDER": os.environ.pop("BAND_PROVIDER", None),
+        "ACESTEP_API_URL": os.environ.pop("ACESTEP_API_URL", None),
+        "ACESTEP_API_KEY": os.environ.pop("ACESTEP_API_KEY", None),
+    }
+    os.environ["BAND_PROVIDER"] = "acestep"
+    os.environ["ACESTEP_API_URL"] = url
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            make_band_stem(mix, "guitar", "clean electric", Path(tmp), sleep=lambda s: None)
+            make_band_stem(mix, "vocals", "warm female lead", Path(tmp), sleep=lambda s: None,
+                           lyrics="[verse]\nHold on, the night is thin")
+    finally:
+        for k, v in saved.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+        server.shutdown()
+
+    plain, sung = server.release_bodies
+    assert b'name="lyrics"' not in plain and b'name="thinking"\r\n\r\nfalse' in plain
+    assert b'name="lyrics"' in sung and b"the night is thin" in sung
+    assert b'name="thinking"\r\n\r\ntrue' in sung
+    print("  PASS: lyrics travel to ACE-Step and turn thinking on, instrumental stays off")
 
 
 # ─── Endpoint tests ───────────────────────────────────────────────────────────
@@ -304,6 +340,7 @@ if __name__ == "__main__":
     test_mock_provider()
     test_acestep_provider_against_mock_server()
     test_init_called_when_wrong_model_loaded()
+    test_lyrics_reach_acestep_and_turn_thinking_on()
     test_endpoint_rejects_bad_part()
     test_endpoint_happy_path_no_usage_charge()
     test_endpoint_empty_mix_is_400()

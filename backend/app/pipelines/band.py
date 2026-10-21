@@ -81,6 +81,7 @@ def _acestep_generate(
     sleep=time.sleep,
     task_type: str = "lego",
     strength: float = 1.0,
+    lyrics: str = "",
 ) -> bytes:
     """Submit to ACE-Step, poll until done, return raw audio bytes.
 
@@ -129,6 +130,11 @@ def _acestep_generate(
         data["cover_noise_strength"] = f"{0.85 * strength:.2f}"
     else:
         data["instruction"] = f"Generate the {part} track based on the audio context:"
+        if lyrics:
+            # Lyrics are read by the songwriter brain, which only runs with
+            # thinking on, so a lyrics request turns it on for this task.
+            data["lyrics"] = lyrics
+            data["thinking"] = "true"
     r = http.post(
         f"{base_url}/release_task",
         headers=headers,
@@ -204,8 +210,11 @@ def make_band_stem(
     progress: Callable[[int, str], None] = lambda p, s: None,
     http=None,
     sleep=time.sleep,
+    lyrics: str = "",
 ) -> dict:
-    """Generate a stem for `part` that fits the supplied mix. Writes band_{part}.wav."""
+    """Generate a stem for `part` that fits the supplied mix. Writes band_{part}.wav.
+
+    With `lyrics`, a vocals part comes back sung rather than instrumental."""
     provider = provider_name()
 
     if provider == "mock":
@@ -213,7 +222,7 @@ def make_band_stem(
         y = _mock_stem()
     else:
         progress(15, "generating_stem")
-        raw = _acestep_generate(mix_bytes, part, style, http=http, sleep=sleep)
+        raw = _acestep_generate(mix_bytes, part, style, http=http, sleep=sleep, lyrics=lyrics)
         progress(85, "decoding_audio")
         y = _decode(raw)
 

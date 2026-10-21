@@ -7,6 +7,7 @@ import { useJobs } from '@/lib/JobsContext'
 import { useStudio } from '@/lib/studio/StudioContext'
 import { engine } from '@/lib/studio/engine'
 import { trackById, updateTrack, totalBars, roleOf, makeTrack, BEATS_PER_BAR } from '@/lib/studio/project'
+import SoundLibraryBrowser from './SoundLibraryBrowser'
 import { Pill, Callout } from './ui'
 
 // Styles per part, matching backend/app/pipelines/part_render.py
@@ -45,6 +46,8 @@ export default function RealPartPanel({ trackId }) {
   const [open, setOpen] = useState(!!info)
   const [part, setPart] = useState(info?.part || parts[0])
   const [style, setStyle] = useState(info?.style || STYLES[parts[0]][0][0])
+  const [vibe, setVibe] = useState('')
+  const [browseOpen, setBrowseOpen] = useState(false)
   const [strength, setStrength] = useState(0.4)
   const [jobId, setJobId] = useState(null)
   const [mode, setMode] = useState(null) // 'samples' | 'polish' | 'cover' while running
@@ -116,7 +119,7 @@ export default function RealPartPanel({ trackId }) {
         // One slider, two engines: polish (fal) wants "how much the AI plays" (0.2-0.9),
         // cover (ACE-Step) wants audio_cover_strength where 1.0 = keep the notes exactly.
         strength: cover ? +(1 - strength).toFixed(2) : Math.max(0.2, strength),
-        ...(cover ? {} : { polish }),
+        ...(cover ? { vibe: vibe.trim().slice(0, 300) } : { polish }),
       }
       const res = await authFetch(cover ? '/api/studio/parts/cover' : '/api/studio/parts/real', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
       if (!res.ok) {
@@ -180,6 +183,27 @@ export default function RealPartPanel({ trackId }) {
               {mode === 'cover' ? 'Covering...' : 'AI Cover'}
             </Button>
             <span className="text-xs text-faint">Free. The AI on this server plays your part with real-recording sound; slide left to keep your exact notes.</span>
+          </div>
+          <div className="space-y-1.5">
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setBrowseOpen((v) => !v)}
+                aria-expanded={browseOpen}
+                className={clsx('rounded-lg border px-2.5 py-1.5 text-xs transition', browseOpen ? 'border-accent-strong bg-accent-surface text-accent-text' : 'border-line-strong bg-panel text-body hover:border-line-strong')}
+              >
+                Sound library
+              </button>
+              <input
+                type="text"
+                value={vibe}
+                onChange={(e) => setVibe(e.target.value)}
+                maxLength={300}
+                placeholder="Or your own sound words: warm round bass, gritty fuzz distortion..."
+                className="flex-1 min-w-[14rem] rounded-lg border border-line-strong bg-panel px-3 py-1.5 text-xs text-primary placeholder:text-zinc-400 dark:placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+            </div>
+            {browseOpen && <SoundLibraryBrowser part={part} current={vibe} onPick={(v) => setVibe(v)} />}
           </div>
           <div className="flex items-center gap-3 flex-wrap">
             <Button outline disabled={!!mode || !track.notes.length} onClick={() => start('polish')}>

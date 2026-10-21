@@ -444,8 +444,10 @@ class RealPartRequest(BaseModel):
 
 class CoverPartRequest(RealPartRequest):
     """Same shape as a real-part render (polish is ignored); strength here is ACE-Step's
-    audio_cover_strength: 1.0 keeps the written notes, lower lets the AI drift."""
+    audio_cover_strength: 1.0 keeps the written notes, lower lets the AI drift.
+    vibe is the user's own sound words, replacing the style's stock description."""
     strength: float = Field(1.0, ge=0.3, le=1.0)
+    vibe: str = Field("", max_length=300)
 
 
 def _run_real_part(job_id: str, req: dict, user_id: str, charged: bool):
@@ -497,7 +499,7 @@ def _run_cover_part(job_id: str, req: dict, user_id: str):
 
     try:
         result = make_cover_part(req["part"], req["style"], req["notes"], req["tempo"], req["total_beats"],
-                                 req["strength"], job_dir, progress)
+                                 req["strength"], job_dir, progress, vibe=req.get("vibe", ""))
         _persist_files(job_dir, MIDI_STORE / job_id)
         result["audio_url"] = f"/api/download/{job_id}/{result.pop('file')}"
         update_job(job_id, {"status": "complete", "progress": 100, "result": result})
@@ -606,12 +608,41 @@ async def studio_ask_ai(
     return result
 
 
+# ─── Song AI: Claude writes a whole song from one brief ──────────────────────
+
+class SongAiRequest(BaseModel):
+    brief: str = Field(..., min_length=3, max_length=500)
+
+
+@router.post("/studio/song/ai")
+async def studio_song_ai(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+):
+    """Claude composes a complete song (form, four MIDI parts, lyrics, a caption
+    for the vocal generator) from one plain-language brief. Free: the notes are
+    MIDI and the singing runs on the local GPU."""
+    from pipelines.claude_composer import ComposerError, compose_song, provider_name, validate_song
+
+    if provider_name() != "claude":
+        raise HTTPException(status_code=503, detail="AI compose is not set up on this server")
+    req = await _parse(request, SongAiRequest)
+    try:
+        song = validate_song(await compose_song(req.brief))
+    except ComposerError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    bars = sum(s["bars"] for s in song["sections"])
+    print(f"[studio] song-ai user={current_user.id} tempo={song['tempo']} bars={bars} "
+          f"tracks={[t['role'] for t in song['tracks']]}")
+    return song
+
+
 # ─── Band member: ACE-Step Lego stem ─────────────────────────────────────────
 
 MAX_MIX_BYTES = 50 * 1024 * 1024
 
 
-def _run_band_stem(job_id: str, mix_bytes: bytes, part: str, style: str, user_id: str):
+def _run_band_stem(job_id: str, mix_bytes: bytes, part: str, style: str, lyrics: str, user_id: str):
     from pipelines.band import make_band_stem
     from .generate import MIDI_STORE, _persist_files
     from .jobs import update_job, get_job
@@ -625,7 +656,7 @@ def _run_band_stem(job_id: str, mix_bytes: bytes, part: str, style: str, user_id
         update_job(job_id, {"status": status, "progress": pct})
 
     try:
-        result = make_band_stem(mix_bytes, part, style, job_dir, progress)
+        result = make_band_stem(mix_bytes, part, style, job_dir, progress, lyrics=lyrics)
         _persist_files(job_dir, MIDI_STORE / job_id)
         result["audio_url"] = f"/api/download/{job_id}/{result.pop('file')}"
         update_job(job_id, {"status": "complete", "progress": 100, "result": result})
@@ -641,15 +672,18 @@ async def studio_band_part(
     mix: UploadFile = File(...),
     part: str = Form(...),
     style: Optional[str] = Form(None),
+    lyrics: Optional[str] = Form(None),
     current_user: User = Depends(get_current_user),
 ):
-    """Generate an instrument stem that fits the current mix. Always free; runs on the local GPU."""
+    """Generate an instrument stem that fits the current mix. Always free; runs on the local GPU.
+    With lyrics, a vocals part comes back sung."""
     from pipelines.band import VALID_PARTS, provider_name as band_provider
     from .jobs import set_job, try_start
 
     if part not in VALID_PARTS:
         raise HTTPException(status_code=400, detail=f"part: must be one of {sorted(VALID_PARTS)}")
     style_str = (style or "").strip()[:300]
+    lyrics_str = (lyrics or "").strip()[:2000]
 
     data = await mix.read()
     if not data:
@@ -660,7 +694,7 @@ async def studio_band_part(
     provider = band_provider()
     job_id = str(uuid.uuid4())[:8]
     set_job(job_id, {"status": "queued", "progress": 0})
-    started = try_start(job_id, _run_band_stem, (job_id, data, part, style_str, current_user.id))
+    started = try_start(job_id, _run_band_stem, (job_id, data, part, style_str, lyrics_str, current_user.id))
     return {"job_id": job_id, "status": "processing" if started else "queued", "provider": provider}
 
 

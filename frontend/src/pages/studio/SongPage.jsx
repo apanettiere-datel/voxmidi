@@ -4,9 +4,12 @@ import clsx from 'clsx'
 import {
   PlusIcon, MinusIcon, ChevronLeftIcon, ChevronRightIcon, DocumentDuplicateIcon, TrashIcon, ScissorsIcon,
   ClipboardDocumentIcon, ClipboardIcon, ArrowPathIcon, ArrowUpTrayIcon, XMarkIcon, SparklesIcon,
+  AdjustmentsHorizontalIcon,
 } from '@heroicons/react/20/solid'
+import TrackInspector from '@/components/voxmidi/studio/TrackInspector'
 import EditorFrame from '@/components/voxmidi/studio/EditorFrame'
 import BandPanel from '@/components/voxmidi/studio/BandPanel'
+import SongBuilderPanel from '@/components/voxmidi/studio/SongBuilderPanel'
 import StemSplitButton from '@/components/voxmidi/studio/StemSplitButton'
 import { Wave } from '@/components/voxmidi/studio/ui'
 import { useStudio } from '@/lib/studio/StudioContext'
@@ -47,7 +50,7 @@ function MidiClip({ track, notes, start, end, label, style }) {
 
 // ── Track head ─────────────────────────────────────────────────────────────────
 
-function TrackHead({ track, selected, onSelect, onRegen, onDelete, busy }) {
+function TrackHead({ track, selected, onSelect, onRegen, onDelete, onInspect, busy }) {
   const { setProject } = useStudio()
   const [renaming, setRenaming] = useState(false)
   const set = (patch) => setProject((p) => updateTrack(p, track.id, patch), { undoable: false })
@@ -86,6 +89,10 @@ function TrackHead({ track, selected, onSelect, onRegen, onDelete, busy }) {
         <button type="button" onClick={(e) => { e.stopPropagation(); onDelete() }} title="Delete this track"
           className="ml-auto size-5 shrink-0 grid place-items-center rounded text-faint hover:text-[var(--danger-text)] opacity-0 group-hover:opacity-100 focus:opacity-100 transition">
           <TrashIcon className="size-3.5" />
+        </button>
+        <button type="button" onClick={(e) => { e.stopPropagation(); onInspect() }} title="Sound and effects"
+          className="size-5 shrink-0 grid place-items-center rounded text-muted hover:text-accent-text transition">
+          <AdjustmentsHorizontalIcon className="size-3.5" />
         </button>
         <button
           type="button"
@@ -138,6 +145,8 @@ function SongTimeline() {
   const [snap, setSnap] = useState(1)
   const [addOpen, setAddOpen] = useState(false)
   const [bandOpen, setBandOpen] = useState(false)
+  const [songOpen, setSongOpen] = useState(false)
+  const [inspect, setInspect] = useState(null)
   const [dropAt, setDropAt] = useState(null)
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
 
@@ -525,11 +534,6 @@ function SongTimeline() {
         <button type="button" className={tool} onClick={duplicate} disabled={!tg} title="Duplicate right after (Ctrl+D)"><DocumentDuplicateIcon className="size-3.5" />Duplicate</button>
         <button type="button" className={tool} onClick={() => del()} disabled={!tg} title="Delete (Del)"><TrashIcon className="size-3.5" />Delete</button>
         <span className="mx-1 h-4 w-px bg-line" />
-        <button type="button" className={clsx(tool, 'text-accent-text')} onClick={regenSelection} disabled={!tg || !tg.tracks.some((t) => t.kind === 'midi')} title="Have the AI rewrite the selected range on MIDI tracks, free">
-          <ArrowPathIcon className="size-3.5" />Regenerate selection
-        </button>
-        <StemSplitButton sc={tg?.clip || null} className={tool} />
-        <span className="mx-1 h-4 w-px bg-line" />
         <button type="button" className={tool} onClick={() => fileInput.current.click()} title="Import an audio file at the cursor, or drop one on a lane"><ArrowUpTrayIcon className="size-3.5" />Import audio</button>
         <input ref={fileInput} type="file" accept="audio/*" className="hidden" onChange={(e) => { e.target.files.length && importFiles(e.target.files); e.target.value = '' }} />
         <div className="relative">
@@ -544,8 +548,16 @@ function SongTimeline() {
             </div>
           )}
         </div>
+        <span className="mx-1 h-4 w-px bg-line" />
+        <button type="button" className={clsx(tool, 'text-accent-text')} onClick={regenSelection} disabled={!tg || !tg.tracks.some((t) => t.kind === 'midi')} title="Have the AI rewrite the selected range on MIDI tracks, free">
+          <ArrowPathIcon className="size-3.5" />Regenerate selection
+        </button>
+        <StemSplitButton sc={tg?.clip || null} className={tool} />
         <button type="button" className={clsx(tool, 'text-accent-text', bandOpen && 'bg-accent-surface')} onClick={() => setBandOpen((v) => !v)} title="Generate an instrument stem that fits your mix, free">
           <SparklesIcon className="size-3.5" />+ Band
+        </button>
+        <button type="button" className={clsx(tool, 'text-accent-text', songOpen && 'bg-accent-surface')} onClick={() => setSongOpen((v) => !v)} title="Have Claude write a whole song, then sing it on the local GPU, free">
+          <SparklesIcon className="size-3.5" />Make a song
         </button>
         <div className="flex-1" />
         <span className="font-mono tabular-nums text-xs text-faint mr-2 whitespace-nowrap">
@@ -574,7 +586,7 @@ function SongTimeline() {
               </button>
             </div>
             {project.tracks.map((t) => (
-              <TrackHead key={t.id} track={t} selected={t.id === selTrack} busy={busy[t.id]} onSelect={() => setSelTrack(t.id)} onRegen={() => regenTrack(t)} onDelete={() => deleteTrack(t)} />
+              <TrackHead key={t.id} track={t} selected={t.id === selTrack} busy={busy[t.id]} onSelect={() => setSelTrack(t.id)} onRegen={() => regenTrack(t)} onDelete={() => deleteTrack(t)} onInspect={() => setInspect((v) => (v === t.id ? null : t.id))} />
             ))}
           </div>
 
@@ -713,7 +725,9 @@ function SongTimeline() {
           </button>
         </div>
       </div>
+      {inspect && <TrackInspector trackId={inspect} onClose={() => setInspect(null)} />}
       {bandOpen && <BandPanel />}
+      {songOpen && <SongBuilderPanel />}
       {shortcutsOpen && <ShortcutsDialog onClose={() => setShortcutsOpen(false)} />}
     </div>
   )

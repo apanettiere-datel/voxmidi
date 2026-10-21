@@ -262,13 +262,17 @@ def make_real_part(part: str, style: str, notes: List[dict], tempo: float, total
 
 def make_cover_part(part: str, style: str, notes: List[dict], tempo: float, total_beats: float, strength: float,
                     job_dir: Path, progress: Callable[[int, str], None] = lambda p, s: None,
-                    http=None, sleep=time.sleep) -> dict:
+                    http=None, sleep=time.sleep, vibe: str = "") -> dict:
     """Render the part with samples, then re-play that render through ACE-Step cover
     on the local GPU. Free, no usage charge.
 
     strength is ACE-Step's audio_cover_strength: 1.0 keeps the written notes, lower
     lets the AI drift. Drifting is the user's choice here, so the pitch match is
     reported but never rejects the result; only silence does.
+
+    `vibe` is the user's own sound words ("warm round bass", "gritty fuzz
+    distortion"); when given, it replaces the style's stock description in the
+    caption, so the cover chases their sound instead of the menu's.
     """
     progress(10, "rendering_part")
     reference = render_part(notes, tempo, total_beats, part, style)
@@ -280,7 +284,8 @@ def make_cover_part(part: str, style: str, notes: List[dict], tempo: float, tota
         buf = io.BytesIO()
         sf.write(buf, reference, SR, format="WAV", subtype="PCM_16")
         progress(25, "generating_audio")
-        prompt = f"{PART_STYLES[part][style][1]}, {int(round(tempo))} BPM, solo {PART_LABEL[part]} only"
+        sound = vibe.strip() or PART_STYLES[part][style][1]
+        prompt = f"{sound}, {int(round(tempo))} BPM, solo {PART_LABEL[part]} only"
         raw = band._acestep_generate(buf.getvalue(), part, prompt, http=http, sleep=sleep,
                                      task_type="cover", strength=strength)
         progress(80, "decoding_audio")

@@ -29,14 +29,14 @@ export const TRACK_COLORS = {
 }
 
 export const SOUNDS = {
-  drums: ['Tight kit', 'Trap kit', 'Dusty breaks', 'Room kit'],
-  bass: ['Warm bass', 'Sub 808', 'Picked bass', 'Round synth'],
-  chords: ['Felt piano', 'Rhodes', 'Soft pad', 'Plucked keys'],
-  melody: ['Soft pad', 'Bell lead', 'Felt piano', 'Breath synth'],
-  guitar: ['Dry', 'Room verb', 'Warm tape'],
-  vocals: ['Dry', 'Plate verb', 'Warm tape'],
-  drumsai: ['Dry', 'Room verb', 'Warm tape'],
-  audio: ['Dry', 'Room verb', 'Warm tape'],
+  drums: ['Tight kit', 'Trap kit', 'Dusty breaks', 'Room kit', 'Lo-fi kit', '909 kit', 'Boom bap', 'Brush kit'],
+  bass: ['Warm bass', 'Sub 808', 'Picked bass', 'Round synth', 'Rubber bass', 'Growl bass', 'Hollow bass', 'Future bass', 'Reese bass'],
+  chords: ['Felt piano', 'Rhodes', 'Soft pad', 'Plucked keys', 'Glass pad', 'Organ tone', 'Supersaw', 'Saw stab'],
+  melody: ['Soft pad', 'Bell lead', 'Felt piano', 'Breath synth', 'Saw lead', 'Square lead', 'Supersaw', 'EDM pluck', 'Hard lead'],
+  guitar: ['Dry', 'Room verb', 'Plate verb', 'Warm tape'],
+  vocals: ['Dry', 'Room verb', 'Plate verb', 'Warm tape'],
+  drumsai: ['Dry', 'Room verb', 'Plate verb', 'Warm tape'],
+  audio: ['Dry', 'Room verb', 'Plate verb', 'Warm tape'],
 }
 
 // Studio drum lanes, GM notes
@@ -236,6 +236,24 @@ export function drumSignature(project) {
   for (const ch of parts.join('|')) h = Math.imul(h ^ ch.charCodeAt(0), 16777619)
   return (h >>> 0).toString(36)
 }
+
+// ─── Track effects ("plugins"): four friendly knobs, 0-100 each ──────────────
+// Applied by the engine to live playback and exports alike. tone 50 = flat.
+
+export const DEFAULT_FX = { drive: 0, tone: 50, reverb: 0, echo: 0 }
+
+export const fxOf = (t) => ({ ...DEFAULT_FX, ...(t.fx || {}) })
+
+export const FX_PRESETS = [
+  { name: 'Clean', fx: { drive: 0, tone: 50, reverb: 0, echo: 0 } },
+  { name: 'Warm', fx: { drive: 15, tone: 35, reverb: 10, echo: 0 } },
+  { name: 'Crunchy', fx: { drive: 45, tone: 55, reverb: 8, echo: 0 } },
+  { name: 'Fuzz', fx: { drive: 85, tone: 60, reverb: 5, echo: 0 } },
+  { name: 'Roomy', fx: { drive: 0, tone: 50, reverb: 35, echo: 0 } },
+  { name: 'Big hall', fx: { drive: 0, tone: 45, reverb: 65, echo: 10 } },
+  { name: 'Slapback', fx: { drive: 10, tone: 55, reverb: 10, echo: 30 } },
+  { name: 'Dub echo', fx: { drive: 5, tone: 40, reverb: 25, echo: 65 } },
+]
 
 // A track's role decides its color, sounds, synth and how it regenerates. The
 // four written parts and the recorded tracks use their id as their role;

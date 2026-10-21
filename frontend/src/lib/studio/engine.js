@@ -2,7 +2,7 @@
 // offline renderer that uses the same voices, so an exported mix is exactly
 // what plays in the app.
 
-import { totalBars, BEATS_PER_BAR, isDrums } from './project'
+import { totalBars, BEATS_PER_BAR, isDrums, fxOf } from './project'
 
 // ─── Performance: swing, humanize, rolls and flams ───────────────────────────
 // Deterministic (hash-based, not random) so playback and export always match.
@@ -89,6 +89,20 @@ const SYNTH = {
   'Plucked keys': ['square', 0.002, 0.35, 2600, 0.18, false, false],
   'Bell lead':    ['sine', 0.002, 1.3, 6000, 0.3, true, false],
   'Breath synth': ['triangle', 0.08, 0.9, 1800, 0.28, true, false],
+  'Rubber bass':  ['triangle', 0.004, 0.22, 520, 0.75, false, true],
+  'Growl bass':   ['sawtooth', 0.005, 0.25, 340, 0.65, true, true],
+  'Hollow bass':  ['square', 0.004, 0.2, 430, 0.55, false, true],
+  'Glass pad':    ['triangle', 0.18, 1.6, 3200, 0.14, true, false],
+  'Organ tone':   ['square', 0.01, 0.15, 1800, 0.2, true, false],
+  'Saw lead':     ['sawtooth', 0.004, 0.5, 3800, 0.22, true, false],
+  'Square lead':  ['square', 0.003, 0.4, 2800, 0.2, false, false],
+  // EDM voices: unison stacks and filter-envelope sweeps (last two fields)
+  'Supersaw':     ['sawtooth', 0.01, 0.4, 2600, 0.5, false, false, 7, 0.4],
+  'Future bass':  ['sawtooth', 0.02, 0.5, 1600, 0.6, false, true, 5, 0.5],
+  'EDM pluck':    ['sawtooth', 0.002, 0.3, 1200, 0.42, false, false, 3, 0.9],
+  'Reese bass':   ['sawtooth', 0.004, 0.3, 520, 0.6, false, true, 4, 0.3],
+  'Hard lead':    ['square', 0.003, 0.35, 3200, 0.3, false, false, 3, 0.6],
+  'Saw stab':     ['sawtooth', 0.002, 0.18, 2400, 0.4, false, false, 5, 0.7],
 }
 
 const KITS = {
@@ -96,6 +110,10 @@ const KITS = {
   'Trap kit':     { kick: [120, 38, 0.7], snareHz: 1800, snareDecay: 0.14, hatDecay: 0.035, tone: 1 },
   'Dusty breaks': { kick: [140, 50, 0.3], snareHz: 1400, snareDecay: 0.2, hatDecay: 0.06, tone: 0.55 },
   'Room kit':     { kick: [160, 48, 0.36], snareHz: 1900, snareDecay: 0.28, hatDecay: 0.08, tone: 1 },
+  'Lo-fi kit':    { kick: [130, 46, 0.32], snareHz: 1200, snareDecay: 0.16, hatDecay: 0.05, tone: 0.4 },
+  '909 kit':      { kick: [180, 52, 0.22], snareHz: 2300, snareDecay: 0.15, hatDecay: 0.04, tone: 1.15 },
+  'Boom bap':     { kick: [125, 42, 0.42], snareHz: 1600, snareDecay: 0.22, hatDecay: 0.055, tone: 0.7 },
+  'Brush kit':    { kick: [140, 50, 0.2], snareHz: 1500, snareDecay: 0.35, hatDecay: 0.09, tone: 0.5 },
 }
 
 const freq = (p) => 440 * Math.pow(2, (p - 69) / 12)
@@ -127,10 +145,15 @@ export class Voices {
     for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / len)
   }
 
-  // One gain per track (volume, mute, solo), plus an effect chain for audio tracks
+  // One gain per track (volume, mute, solo), plus its effect chain: the sound
+  // preset (audio tracks), then the four fx knobs (every track). Rebuilt only
+  // when the sound or an fx value changes, so slider drags don't glitch notes
+  // already playing through the old chain.
   output(track) {
+    const fx = fxOf(track)
+    const sig = `${track.sound}|${fx.drive}|${fx.tone}|${fx.reverb}|${fx.echo}`
     let out = this.trackOut[track.id]
-    if (!out || out.sound !== track.sound) {
+    if (!out || out.sig !== sig) {
       if (out) out.gain.disconnect()
       const gain = this.ctx.createGain()
       let head = gain
@@ -148,11 +171,54 @@ export class Voices {
         shaper.curve = curve
         head = shaper; shaper.connect(lp); lp.connect(gain)
       }
+      head = this.fxChain(fx, head)
       gain.connect(this.dest)
-      out = { gain, head, sound: track.sound }
+      out = { gain, head, sig }
       this.trackOut[track.id] = out
     }
     return out
+  }
+
+  // The four knobs, in guitar-pedal order: drive -> tone -> (dry + echo + reverb)
+  fxChain(fx, into) {
+    let head = into
+    if (fx.reverb > 0 || fx.echo > 0) {
+      const sum = this.ctx.createGain()
+      sum.connect(into)
+      if (fx.reverb > 0) {
+        const conv = this.ctx.createConvolver()
+        conv.buffer = this.fxImpulse ||= impulse(this.ctx, 1.8, 3)
+        const wet = this.ctx.createGain(); wet.gain.value = (fx.reverb / 100) * 0.55
+        sum.connect(conv); conv.connect(wet); wet.connect(into)
+      }
+      if (fx.echo > 0) {
+        const delay = this.ctx.createDelay(1.0); delay.delayTime.value = 0.3
+        const fb = this.ctx.createGain(); fb.gain.value = 0.35
+        const wet = this.ctx.createGain(); wet.gain.value = (fx.echo / 100) * 0.5
+        sum.connect(delay); delay.connect(fb); fb.connect(delay); delay.connect(wet); wet.connect(into)
+      }
+      head = sum
+    }
+    if (fx.tone !== 50) {
+      // One tilt knob: left warms (more lows, fewer highs), right brightens
+      const amount = ((fx.tone - 50) / 50) * 8
+      const low = this.ctx.createBiquadFilter(); low.type = 'lowshelf'; low.frequency.value = 280; low.gain.value = -amount
+      const high = this.ctx.createBiquadFilter(); high.type = 'highshelf'; high.frequency.value = 2400; high.gain.value = amount
+      low.connect(high); high.connect(head)
+      head = low
+    }
+    if (fx.drive > 0) {
+      const k = 1 + (fx.drive / 100) * 14
+      const shaper = this.ctx.createWaveShaper()
+      const curve = new Float32Array(1024)
+      for (let i = 0; i < 1024; i++) { const x = i / 512 - 1; curve[i] = Math.tanh(k * x) / Math.tanh(k) }
+      shaper.curve = curve
+      // Saturation raises perceived level; trim it back as drive goes up
+      const trim = this.ctx.createGain(); trim.gain.value = 1 - (fx.drive / 100) * 0.35
+      shaper.connect(trim); trim.connect(head)
+      head = shaper
+    }
+    return head
   }
 
   setLevels(project) {
@@ -196,19 +262,40 @@ export class Voices {
   note(track, n, t, bpm) {
     if (isDrums(track)) return this.drum(track, n, t)
     const ctx = this.ctx
-    const [type, atk, tail, cut, base, pair, sub] = SYNTH[track.sound] || SYNTH['Felt piano']
+    // wave, attack, tail, lowpass, level, detune pair, sub octave, [unison, filterEnv]
+    const [type, atk, tail, cut, base, pair, sub, unison = 1, fenv = 0] = SYNTH[track.sound] || SYNTH['Felt piano']
     const dur = Math.max(0.08, (n.d * 60) / bpm)
     const g = ctx.createGain()
     g.connect(this.output(track).head)
-    const f = ctx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = cut; f.connect(g)
+    const f = ctx.createBiquadFilter(); f.type = 'lowpass'
     const stopAt = t + dur + tail + 0.1
-    const o1 = ctx.createOscillator(); o1.type = type
-    o1.frequency.setValueAtTime(freq(n.p), t)
-    if (n.glide) o1.frequency.exponentialRampToValueAtTime(freq(n.p - 5), t + dur * 0.8)
-    o1.connect(f); o1.start(t); o1.stop(stopAt)
-    if (pair) { const o2 = ctx.createOscillator(); o2.type = type; o2.frequency.value = freq(n.p) * 1.004; o2.connect(f); o2.start(t); o2.stop(stopAt) }
-    if (sub) { const o3 = ctx.createOscillator(); o3.type = 'sine'; o3.frequency.value = freq(n.p) / 2; o3.connect(f); o3.start(t); o3.stop(stopAt) }
-    env(g, t, atk, dur + tail, (n.v / 127) * base * 1.6)
+    // Filter envelope: open bright on the attack, close down over the note. The
+    // signature EDM pluck/supersaw move; fenv 0 keeps the static cutoff.
+    if (fenv > 0) {
+      const open = Math.min(16000, cut + (cut * 7 + 3000) * fenv)
+      f.frequency.setValueAtTime(open, t)
+      f.frequency.exponentialRampToValueAtTime(Math.max(120, cut), t + Math.min(dur, 0.06 + dur * 0.5))
+      f.Q.value = 2 + fenv * 6
+    } else {
+      f.frequency.value = cut
+    }
+    f.connect(g)
+    const root = freq(n.p)
+    // Unison stack: detuned saws spread around the root make the fat supersaw.
+    // One voice is the plain tone; a `pair` adds one gentle detune as before.
+    const spread = 14 // cents at the edges of the stack
+    const count = Math.max(1, unison)
+    for (let i = 0; i < count; i++) {
+      const o = ctx.createOscillator(); o.type = type
+      const cents = count === 1 ? 0 : (i / (count - 1) - 0.5) * 2 * spread
+      o.frequency.setValueAtTime(root * Math.pow(2, cents / 1200), t)
+      if (i === 0 && n.glide) o.frequency.exponentialRampToValueAtTime(freq(n.p - 5), t + dur * 0.8)
+      o.connect(f); o.start(t); o.stop(stopAt)
+    }
+    if (pair && unison === 1) { const o2 = ctx.createOscillator(); o2.type = type; o2.frequency.value = root * 1.004; o2.connect(f); o2.start(t); o2.stop(stopAt) }
+    if (sub) { const o3 = ctx.createOscillator(); o3.type = 'sine'; o3.frequency.value = root / 2; o3.connect(f); o3.start(t); o3.stop(stopAt) }
+    // More unison voices sum louder; scale the level back so a supersaw doesn't clip
+    env(g, t, atk, dur + tail, (n.v / 127) * base * 1.6 / Math.sqrt(count))
   }
 
   clip(track, buffer, when, offset, duration) {

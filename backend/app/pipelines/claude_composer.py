@@ -91,8 +91,8 @@ def provider_name() -> str:
     return "claude" if os.environ.get("ANTHROPIC_API_KEY") else "off"
 
 
-async def ask_claude(song: dict, text: str) -> dict:
-    """One structured-output call: song context + request in, a list of track changes out."""
+async def _structured_call(system: str, user_content: str, schema: dict, label: str, too_big: str) -> dict:
+    """One structured-output call to Claude; every failure becomes a ComposerError."""
     # A user-scoped key (sk-ant-usr-...) only works with a workspace id alongside it
     workspace = os.environ.get("ANTHROPIC_WORKSPACE_ID")
     client = anthropic.AsyncAnthropic(default_headers={"anthropic-workspace-id": workspace} if workspace else None)
@@ -100,12 +100,9 @@ async def ask_claude(song: dict, text: str) -> dict:
         async with client.messages.stream(
             model=MODEL,
             max_tokens=64000,
-            system=[{"type": "text", "text": SYSTEM, "cache_control": {"type": "ephemeral"}}],
-            output_config={"format": {"type": "json_schema", "schema": SCHEMA}, "effort": "high"},
-            messages=[{
-                "role": "user",
-                "content": json.dumps({"song": song, "request": text}, separators=(",", ":")),
-            }],
+            system=[{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}],
+            output_config={"format": {"type": "json_schema", "schema": schema}, "effort": "high"},
+            messages=[{"role": "user", "content": user_content}],
         ) as stream:
             msg = await stream.get_final_message()
     except anthropic.AuthenticationError:
@@ -119,16 +116,23 @@ async def ask_claude(song: dict, text: str) -> dict:
 
     if msg.stop_reason == "refusal":
         why = (msg.stop_details.explanation if msg.stop_details else None) or "it declined that request"
-        raise ComposerError(f"The AI didn't make that change: {why}")
+        raise ComposerError(f"The AI didn't do it: {why}")
     if msg.stop_reason == "max_tokens":
-        raise ComposerError("That change came out too large. Ask for one section at a time.")
+        raise ComposerError(too_big)
 
     out = next((b.text for b in msg.content if b.type == "text"), "")
-    print(f"[studio] ask-ai model={MODEL} in={msg.usage.input_tokens} out={msg.usage.output_tokens}")
+    print(f"[studio] {label} model={MODEL} in={msg.usage.input_tokens} out={msg.usage.output_tokens}")
     try:
         return json.loads(out)
     except json.JSONDecodeError:
         raise ComposerError("The AI reply wasn't readable. Try again.")
+
+
+async def ask_claude(song: dict, text: str) -> dict:
+    """One structured-output call: song context + request in, a list of track changes out."""
+    content = json.dumps({"song": song, "request": text}, separators=(",", ":"))
+    return await _structured_call(SYSTEM, content, SCHEMA, "ask-ai",
+                                  "That change came out too large. Ask for one section at a time.")
 
 
 def _clean_notes(notes: list, lo: float, hi: float) -> list:
@@ -202,4 +206,122 @@ def validate_changes(data: dict, tracks: list, max_beat: float, scope: dict | No
         "detail": (data.get("detail") or "")[:200],
         "scope": scope,
         "changes": changes,
+    }
+
+
+# ─── Whole-song composition: one brief in, a complete arrangement out ─────────
+
+SONG_ROLES = ("drums", "bass", "chords", "melody")
+SONG_SECTION_KINDS = ("Intro", "Verse", "Chorus", "Bridge", "Outro")
+MAX_SONG_BARS = 64
+
+SONG_SYSTEM = """You are a songwriter and arranger inside VoxMIDI, a small web music studio. From one plain-language brief you compose a complete short song as MIDI, plus lyrics for a singer.
+
+Notes are objects {"p": MIDI pitch 0-127, "t": start in beats from the song start, "d": length in beats, "v": velocity 1-127}. Beats are quarter notes; bars are 4 beats. Drum tracks use only these General MIDI pitches: 36 kick, 38 snare, 39 clap, 42 closed hat, 46 open hat, 75 percussion.
+
+Deliver:
+- "sections": the song form in order, each {"kind": Intro/Verse/Chorus/Bridge/Outro, "bars": length, "chords": chord symbols cycled through its bars, like ["Am","F","C","G"]}. Use plain symbols (Am, F, G7, Cmaj7). 16 to 32 bars in total.
+- "tracks": exactly four, one per role. "drums", "bass", "chords" (the harmony instrument) and "melody". The melody is the VOCAL GUIDE: a singable line in a comfortable vocal register (roughly MIDI 55-79) with rests between phrases; a singer will follow it, so phrase it like words.
+- "lyrics": verse/chorus words under [verse] and [chorus] tags whose lines fit the melody's phrasing, matching the brief's subject and mood.
+- "caption": one line for the music generator describing genre, tempo in BPM, instrumentation and the lead vocal's character.
+- "tempo" 40-240, "key" like "A minor", and a short "title".
+
+Musical judgment matters: real voice leading in the chords, a bass line with a pocket (not just roots), shaped velocities, intro and outro lighter than the chorus. Every note must start inside the song (t < total bars x 4)."""
+
+SONG_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "title": {"type": "string"},
+        "tempo": {"type": "integer"},
+        "key": {"type": "string"},
+        "caption": {"type": "string"},
+        "lyrics": {"type": "string"},
+        "sections": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "kind": {"type": "string", "enum": list(SONG_SECTION_KINDS)},
+                    "bars": {"type": "integer"},
+                    "chords": {"type": "array", "items": {"type": "string"}},
+                },
+                "required": ["kind", "bars", "chords"],
+                "additionalProperties": False,
+            },
+        },
+        "tracks": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "role": {"type": "string", "enum": list(SONG_ROLES)},
+                    "name": {"type": "string"},
+                    "notes": NOTES_SCHEMA,
+                },
+                "required": ["role", "name", "notes"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    "required": ["title", "tempo", "key", "caption", "lyrics", "sections", "tracks"],
+    "additionalProperties": False,
+}
+
+
+async def compose_song(brief: str) -> dict:
+    """One structured-output call: a plain-language brief in, a whole song out."""
+    return await _structured_call(SONG_SYSTEM, brief, SONG_SCHEMA, "song-ai",
+                                  "That song came out too large. Ask for a shorter one.")
+
+
+def validate_song(data: dict) -> dict:
+    """Re-check Claude's song before it reaches the client."""
+    try:
+        tempo = int(data.get("tempo") or 0)
+    except (TypeError, ValueError):
+        tempo = 0
+    if not (40 <= tempo <= 240):
+        raise ComposerError("The AI picked an unusable tempo. Try again.")
+
+    raw_sections = data.get("sections") or []
+    if not raw_sections or len(raw_sections) > 16:
+        raise ComposerError("The AI wrote an unusable song form. Try again.")
+    sections, total_bars = [], 0
+    for i, s in enumerate(raw_sections):
+        kind = s.get("kind")
+        bars = s.get("bars")
+        if kind not in SONG_SECTION_KINDS or not isinstance(bars, int) or not (1 <= bars <= 32):
+            raise ComposerError("The AI wrote an unusable song form. Try again.")
+        chords = [str(c).strip()[:12] for c in (s.get("chords") or []) if str(c).strip()][:8]
+        total_bars += bars
+        sections.append({"id": f"s{i + 1}", "kind": kind, "bars": bars, "chords": chords})
+    if total_bars > MAX_SONG_BARS:
+        raise ComposerError("The AI wrote too long a song. Try again.")
+    total_beats = total_bars * 4.0
+
+    tracks, seen = [], set()
+    for tr in data.get("tracks") or []:
+        role = tr.get("role")
+        if role not in SONG_ROLES or role in seen:
+            continue  # drop a duplicate or unknown role rather than failing the song
+        seen.add(role)
+        notes = tr.get("notes") or []
+        if len(notes) > MAX_NOTES:
+            raise ComposerError("The AI reply had too many notes. Try again.")
+        tracks.append({
+            "role": role,
+            "name": (tr.get("name") or role.title())[:24],
+            "notes": _clean_notes(notes, 0.0, total_beats),
+        })
+    if not any(t["notes"] for t in tracks):
+        raise ComposerError("The AI wrote a song with no notes. Try again.")
+
+    return {
+        "title": (str(data.get("title") or "").strip() or "Untitled song")[:60],
+        "tempo": tempo,
+        "key": str(data.get("key") or "")[:12],
+        "caption": str(data.get("caption") or "")[:300],
+        "lyrics": str(data.get("lyrics") or "")[:2000],
+        "sections": sections,
+        "tracks": tracks,
     }
