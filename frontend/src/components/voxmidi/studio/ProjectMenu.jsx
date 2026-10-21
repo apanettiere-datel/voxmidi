@@ -10,10 +10,15 @@ export default function ProjectMenu() {
   const [open, setOpen] = useState(false)
   const [songs, setSongs] = useState(null)
   const [busy, setBusy] = useState(false)
+  const [pos, setPos] = useState(null)
   const ref = useRef(null)
+  const btnRef = useRef(null)
 
   useEffect(() => {
     if (!open) return
+    // Fixed positioning so the transport bar's horizontal scroll can't clip the menu.
+    const r = btnRef.current?.getBoundingClientRect()
+    if (r) setPos({ top: r.bottom + 6, left: r.left })
     const close = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false) }
     window.addEventListener('pointerdown', close)
     listSongs().then(setSongs).catch(() => setSongs([]))
@@ -43,14 +48,14 @@ export default function ProjectMenu() {
   }
 
   return (
-    <div className="relative" ref={ref}>
-      <button type="button" onClick={() => setOpen((v) => !v)}
+    <div ref={ref}>
+      <button ref={btnRef} type="button" onClick={() => setOpen((v) => !v)}
         className="flex items-center gap-1 font-display text-sm font-semibold text-primary hover:text-accent-text transition max-w-[16rem]">
         <span className="truncate">{project.name || 'Untitled song'}</span>
         <ChevronDownIcon className="size-4 shrink-0 text-muted" />
       </button>
-      {open && (
-        <div className="absolute left-0 top-full mt-1.5 z-40 w-64 rounded-xl border border-line-strong bg-raised shadow-xl p-1.5">
+      {open && pos && (
+        <div style={{ position: 'fixed', top: pos.top, left: pos.left }} className="z-50 w-64 rounded-xl border border-line-strong bg-raised shadow-xl p-1.5">
           <button type="button" disabled={busy} onClick={() => save(false)}
             className="flex items-center gap-2 w-full rounded-lg px-2.5 py-1.5 text-sm text-body hover:bg-sunken hover:text-primary disabled:opacity-50">
             <CheckIcon className="size-4 text-faint" />{project.dbId ? 'Save' : 'Save song'}

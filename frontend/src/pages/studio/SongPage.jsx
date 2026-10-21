@@ -728,9 +728,15 @@ function SongTimeline() {
           </button>
         </div>
       </div>
-      {inspect && <TrackInspector trackId={inspect} onClose={() => setInspect(null)} />}
-      {bandOpen && <BandPanel />}
-      {songOpen && <SongBuilderPanel />}
+      {/* Bottom panels are height-capped and scroll internally, so they never
+          push the transport off-screen or cut their own controls off. */}
+      {inspect && (
+        <div className="flex-none max-h-[48vh] overflow-y-auto border-t border-line-strong">
+          <TrackInspector trackId={inspect} onClose={() => setInspect(null)} />
+        </div>
+      )}
+      {bandOpen && <div className="flex-none max-h-[48vh] overflow-y-auto border-t border-line-strong"><BandPanel /></div>}
+      {songOpen && <div className="flex-none max-h-[48vh] overflow-y-auto border-t border-line-strong"><SongBuilderPanel /></div>}
       {shortcutsOpen && <ShortcutsDialog onClose={() => setShortcutsOpen(false)} />}
     </div>
   )
