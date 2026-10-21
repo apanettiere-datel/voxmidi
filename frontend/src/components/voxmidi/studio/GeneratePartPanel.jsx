@@ -5,7 +5,7 @@ import { Button } from '@/components/catalyst/button'
 import { useAuthFetch } from '@/lib/authFetch'
 import { useJobs } from '@/lib/JobsContext'
 import { useStudio } from '@/lib/studio/StudioContext'
-import { trackById, updateTrack, roleOf } from '@/lib/studio/project'
+import { trackById, roleOf } from '@/lib/studio/project'
 import { placeStem } from '@/lib/studio/bandStem'
 import SoundLibraryBrowser from './SoundLibraryBrowser'
 import { Callout } from './ui'
@@ -42,8 +42,16 @@ export default function GeneratePartPanel({ trackId }) {
     if (job.status === 'complete' && job.result) {
       const result = job.result
       removeJob(jobId); setJobId(null)
-      placeStem({ authFetch, addTake, setProject, result, trackId, trackName: track.name })
-        .then(() => setProject((p) => updateTrack(p, trackId, { aiSongId: result.song_id, aiPrompt: result.prompt }), { undoable: false }))
+      // An AI part is its own audio track, kept beside the MIDI one. If this
+      // track is already an AI track, replace its clip; otherwise make a sibling.
+      const onAi = track.kind === 'audio'
+      const aiTrackId = onAi ? trackId : `${trackId}-ai`
+      const aiName = onAi ? track.name : `${track.name} (AI)`
+      placeStem({
+        authFetch, addTake, setProject, result,
+        trackId: aiTrackId, trackName: aiName, afterTrackId: trackId,
+        extra: { role: 'ai', aiSongId: result.song_id, aiPrompt: result.prompt },
+      })
         .then(() => toast(result.provider === 'mock' ? 'Placeholder part placed (no music key)' : 'AI part placed'))
         .catch((e) => setError(`Couldn't load the part: ${e.message}`))
         .finally(() => setBusy(false))

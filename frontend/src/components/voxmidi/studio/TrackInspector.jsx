@@ -3,7 +3,7 @@ import clsx from 'clsx'
 import { XMarkIcon, SpeakerWaveIcon } from '@heroicons/react/20/solid'
 import { useStudio } from '@/lib/studio/StudioContext'
 import { engine } from '@/lib/studio/engine'
-import { trackById, updateTrack, soundsOf, colorOf, roleOf, fxOf, FX_PRESETS, DEFAULT_FX } from '@/lib/studio/project'
+import { trackById, updateTrack, soundsOf, colorOf, roleOf, isAiTrack, fxOf, FX_PRESETS, DEFAULT_FX } from '@/lib/studio/project'
 import RealPartPanel from './RealPartPanel'
 import GeneratePartPanel from './GeneratePartPanel'
 import { Pill, panel } from './ui'
@@ -20,8 +20,8 @@ const KNOBS = [
 // tracks) the whole make-it-sound-real block.
 export default function TrackInspector({ trackId, onClose }) {
   const { project, setProject } = useStudio()
-  const [tab, setTab] = useState('instrument')
   const track = trackById(project, trackId)
+  const [tab, setTab] = useState(() => (isAiTrack(track) ? 'ai' : 'instrument'))
   if (!track) return null
   const fx = fxOf(track)
   const color = colorOf(track)
@@ -46,7 +46,7 @@ export default function TrackInspector({ trackId, onClose }) {
         />
         <span className="text-xs text-faint">{track.kind === 'midi' ? 'MIDI track' : 'Audio track'}</span>
         <div className="ml-auto flex rounded-full bg-raised p-0.5">
-          {[['instrument', 'Instrument'], ['ai', 'Generate with AI']].map(([k, label]) => (
+          {[['instrument', isAiTrack(track) ? 'Sound & FX' : 'Instrument'], ['ai', isAiTrack(track) ? 'Regenerate' : 'Generate with AI']].map(([k, label]) => (
             <button key={k} type="button" onClick={() => setTab(k)}
               className={clsx('rounded-full px-3 py-1 text-xs font-medium transition', tab === k ? 'bg-accent-strong text-white' : 'text-muted hover:text-primary')}>
               {label}

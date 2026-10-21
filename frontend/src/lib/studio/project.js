@@ -26,7 +26,13 @@ export const TRACK_COLORS = {
   vocals: 'var(--vocals)',
   drumsai: 'var(--track-3)',
   audio: 'var(--track-4)',
+  ai: 'var(--track-7)',
 }
+
+// An AI part track: audio generated from a prompt, not note-editable. The clip
+// can still be trimmed, split and moved like any audio. aiSongId lets a later
+// part be conditioned on it.
+export const isAiTrack = (t) => !!t?.aiSongId || roleOf(t) === 'ai'
 
 export const SOUNDS = {
   drums: ['Tight kit', 'Trap kit', 'Dusty breaks', 'Room kit', 'Lo-fi kit', '909 kit', 'Boom bap', 'Brush kit'],
@@ -270,6 +276,7 @@ export const NEW_TRACKS = [
   { role: 'bass', label: 'Bass', kind: 'midi', sound: 'Warm bass' },
   { role: 'chords', label: 'Keys', kind: 'midi', sound: 'Rhodes' },
   { role: 'melody', label: 'Lead', kind: 'midi', sound: 'Bell lead' },
+  { role: 'ai', label: 'AI part', kind: 'audio', sound: 'Dry' },
   { role: 'audio', label: 'Audio', kind: 'audio', sound: 'Dry' },
 ]
 

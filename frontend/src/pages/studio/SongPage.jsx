@@ -18,7 +18,7 @@ import { diatonicChords } from '@/lib/studio/theory'
 import {
   SECTION_COLORS, BEATS_PER_BAR, NEW_TRACKS,
   totalBars, sectionRanges, reorderSections, duplicateSection, removeSection, appendSection, updateTrack,
-  colorOf, soundsOf, isDrums, makeTrack, trackById,
+  colorOf, soundsOf, isDrums, isAiTrack, makeTrack, trackById,
 } from '@/lib/studio/project'
 import { clearRange, copyRange, pasteInto, splitAt, trimClip, clipEnd, snapTo, newId } from '@/lib/studio/edit'
 
@@ -85,7 +85,10 @@ function TrackHead({ track, selected, onSelect, onRegen, onDelete, onInspect, bu
         ) : (
           <span onDoubleClick={(e) => { e.stopPropagation(); setRenaming(true) }} title="Double-click to rename" className="text-sm font-medium text-primary truncate">{track.name}</span>
         )}
-        {track.kind === 'audio' && <span className="shrink-0 rounded-md bg-emerald-500/15 px-1.5 text-xs font-medium text-emerald-400">audio</span>}
+        {isAiTrack(track)
+          ? <span className="shrink-0 inline-flex items-center gap-0.5 rounded-md bg-indigo-500/15 px-1.5 text-xs font-medium text-indigo-400"><SparklesIcon className="size-3" />AI</span>
+          : track.kind === 'audio' ? <span className="shrink-0 rounded-md bg-emerald-500/15 px-1.5 text-xs font-medium text-emerald-400">audio</span>
+          : <span className="shrink-0 rounded-md bg-white/5 px-1.5 text-xs font-medium text-faint">MIDI</span>}
         <button type="button" onClick={(e) => { e.stopPropagation(); onDelete() }} title="Delete this track"
           className="ml-auto size-5 shrink-0 grid place-items-center rounded text-faint hover:text-[var(--danger-text)] opacity-0 group-hover:opacity-100 focus:opacity-100 transition">
           <TrashIcon className="size-3.5" />
