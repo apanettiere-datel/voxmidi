@@ -17,7 +17,7 @@ import { engine } from '@/lib/studio/engine'
 import { diatonicChords } from '@/lib/studio/theory'
 import {
   SECTION_COLORS, BEATS_PER_BAR, NEW_TRACKS,
-  totalBars, sectionRanges, reorderSections, duplicateSection, removeSection, appendSection, updateTrack,
+  totalBars, songEndBeats, sectionRanges, reorderSections, duplicateSection, removeSection, appendSection, updateTrack,
   colorOf, soundsOf, isDrums, isAiTrack, makeTrack, trackById,
 } from '@/lib/studio/project'
 import { clearRange, copyRange, pasteInto, splitAt, trimClip, clipEnd, snapTo, newId } from '@/lib/studio/edit'
@@ -145,7 +145,9 @@ function SongTimeline() {
   const [selClip, setSelClip] = useState(null)
   const [sel, setSel] = useState(null)          // { start, end, tracks: [ids] }
   const [BW, setBW] = useState(27)              // px per bar
+  const [userZoomed, setUserZoomed] = useState(false) // once the user zooms, stop auto-fitting
   const [snap, setSnap] = useState(1)
+  const zoom = (updater) => { setUserZoomed(true); setBW(updater) }
   const [addOpen, setAddOpen] = useState(false)
   const [bandOpen, setBandOpen] = useState(false)
   const [songOpen, setSongOpen] = useState(false)
@@ -153,7 +155,9 @@ function SongTimeline() {
   const [dropAt, setDropAt] = useState(null)
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
 
-  const bars = totalBars(project.sections)
+  // Extend the grid past the sections when an audio clip (e.g. a full AI song)
+  // runs longer, so the whole clip is visible and the playhead can cross it.
+  const bars = Math.max(totalBars(project.sections), Math.ceil(songEndBeats(project) / BEATS_PER_BAR))
   const maxBeat = bars * BEATS_PER_BAR
   const laneW = bars * BW
   const spb = 60 / project.tempo
@@ -501,8 +505,8 @@ function SongTimeline() {
       else if (mod && k === 'a') { e.preventDefault(); setSel({ start: 0, end: maxBeat, tracks: project.tracks.map((t) => t.id) }) }
       else if (!mod && (e.key === 'Delete' || e.key === 'Backspace')) { e.preventDefault(); del() }
       else if (!mod && k === 's') { e.preventDefault(); split() }
-      else if (!mod && (k === '=' || k === '+')) setBW((w) => Math.min(120, Math.round(w * 1.25)))
-      else if (!mod && k === '-') setBW((w) => Math.max(10, Math.round(w / 1.25)))
+      else if (!mod && (k === '=' || k === '+')) zoom((w) => Math.min(120, Math.round(w * 1.25)))
+      else if (!mod && k === '-') zoom((w) => Math.max(10, Math.round(w / 1.25)))
       else if (e.key === 'Escape') { setSel(null); setSelClip(null) }
       else if (e.key === 'Home') setCursor(0)
     }
@@ -516,11 +520,27 @@ function SongTimeline() {
     const onWheel = (e) => {
       if (!(e.ctrlKey || e.metaKey)) return
       e.preventDefault()
-      setBW((w) => Math.max(10, Math.min(120, Math.round(w * (e.deltaY < 0 ? 1.15 : 1 / 1.15)))))
+      zoom((w) => Math.max(10, Math.min(120, Math.round(w * (e.deltaY < 0 ? 1.15 : 1 / 1.15)))))
     }
     el.addEventListener('wheel', onWheel, { passive: false })
     return () => el.removeEventListener('wheel', onWheel)
   }, [])
+
+  // Auto-fit: fill the lane area's width until the user zooms manually. Keeps a
+  // short song from being scrunched into a sliver on a wide screen.
+  useEffect(() => {
+    if (userZoomed) return
+    const el = scroller.current
+    if (!el) return
+    const fit = () => {
+      const avail = el.clientWidth - 248 - 6 // minus the track-head column
+      if (avail > 80) setBW(Math.max(20, Math.min(110, Math.floor(avail / Math.max(1, bars)))))
+    }
+    fit()
+    const ro = new ResizeObserver(fit)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [userZoomed, bars])
 
   const loop = loopOn ? ranges[selSection] : null
   const tg = target()
@@ -573,8 +593,9 @@ function SongTimeline() {
             {SNAPS.map(([l, v]) => <option key={l} value={v}>{l}</option>)}
           </select>
         </label>
-        <button type="button" className={tool} onClick={() => setBW((w) => Math.max(10, Math.round(w / 1.25)))} title="Zoom out (-)"><MinusIcon className="size-3.5" /></button>
-        <button type="button" className={tool} onClick={() => setBW((w) => Math.min(120, Math.round(w * 1.25)))} title="Zoom in (+)"><PlusIcon className="size-3.5" /></button>
+        <button type="button" className={tool} onClick={() => zoom((w) => Math.max(10, Math.round(w / 1.25)))} title="Zoom out (-)"><MinusIcon className="size-3.5" /></button>
+        <button type="button" className={tool} onClick={() => zoom((w) => Math.min(120, Math.round(w * 1.25)))} title="Zoom in (+)"><PlusIcon className="size-3.5" /></button>
+        {userZoomed && <button type="button" className={tool} onClick={() => setUserZoomed(false)} title="Fit the timeline to the window">Fit</button>}
       </div>
 
       <div ref={scroller} className="flex-1 min-h-0 overflow-auto bg-app">

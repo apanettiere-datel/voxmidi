@@ -2,7 +2,7 @@
 // offline renderer that uses the same voices, so an exported mix is exactly
 // what plays in the app.
 
-import { totalBars, BEATS_PER_BAR, isDrums, fxOf } from './project'
+import { isDrums, fxOf, songEndBeats } from './project'
 
 // ─── Performance: swing, humanize, rolls and flams ───────────────────────────
 // Deterministic (hash-based, not random) so playback and export always match.
@@ -346,7 +346,7 @@ export class Engine {
 
   range() {
     const p = this.project
-    const end = totalBars(p.sections) * BEATS_PER_BAR
+    const end = songEndBeats(p)
     return this.loop ? [this.loop[0], Math.min(this.loop[1], end)] : [0, end]
   }
 
@@ -461,7 +461,7 @@ export const engine = new Engine()
 
 export async function renderMix(project, takes, sampleRate = 44100) {
   const spb = 60 / project.tempo
-  const beats = totalBars(project.sections) * BEATS_PER_BAR
+  const beats = songEndBeats(project)
   const seconds = beats * spb + 2
   const ctx = new OfflineAudioContext(2, Math.ceil(seconds * sampleRate), sampleRate)
   const master = masterBus(ctx)

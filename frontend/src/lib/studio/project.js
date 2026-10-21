@@ -59,6 +59,21 @@ export function totalBars(sections) {
   return sections.reduce((a, s) => a + s.bars, 0)
 }
 
+// The song's end in beats: the sections' length, or the end of the furthest
+// audio clip if one runs past them (so a long AI-generated song plays and
+// exports in full instead of stopping at the last section).
+export function songEndBeats(project) {
+  let end = totalBars(project.sections) * BEATS_PER_BAR
+  const spb = 60 / (project.tempo || 120)
+  for (const t of project.tracks) {
+    for (const c of t.clips || []) {
+      const clipEnd = c.startBeat + (c.duration || 0) / spb
+      if (clipEnd > end) end = clipEnd
+    }
+  }
+  return end
+}
+
 export function sectionStartBar(sections, id) {
   let b = 0
   for (const s of sections) {
