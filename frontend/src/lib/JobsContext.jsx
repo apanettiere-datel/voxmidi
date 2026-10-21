@@ -3,6 +3,7 @@
  * Persists across page navigation so users can browse Library while generating.
  */
 import { createContext, useContext, useState, useRef, useCallback, useEffect } from 'react'
+import { useLocation } from 'react-router-dom'
 import { getJobStatus } from '@/lib/api'
 import { useAuthFetch } from '@/lib/authFetch'
 
@@ -125,6 +126,11 @@ function Elapsed({ startTime }) {
 
 export function JobsNotificationBar({ activeJobId }) {
   const { jobs, removeJob, cancelJob } = useJobs()
+  const location = useLocation()
+
+  // The studio shows its own inline progress for AI jobs, so don't also float
+  // this global bar over the tracks there.
+  if (location.pathname.startsWith('/song')) return null
 
   // Only show jobs that the current page isn't already showing inline
   const visible = Object.values(jobs).filter(j => j.jobId !== activeJobId)
